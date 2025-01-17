@@ -1,0 +1,33 @@
+{
+  "extends": "@tsconfig/node16/tsconfig.json",
+  "compilerOptions": {
+    "allowSyntheticDefaultImports": true,
+    "declaration": true,
+    "downlevelIteration": true,
+    "emitDecoratorMetadata": true,
+    "experimentalDecorators": true,
+    "importHelpers": true,
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "noFallthroughCasesInSwitch": true,
+    "noImplicitAny": true,
+    "noImplicitReturns": true,
+    "noUnusedLocals": true,
+    "outDir": "dist",
+    "pretty": true,
+    "sourceMap": true,
+    "strictFunctionTypes": false,
+    "strictPropertyInitialization": false,
+    "stripInternal": true,
+    "useUnknownInCatchVariables": false
+  },
+  "include": [
+    "src/**/*.ts", // Include all TypeScript files in the src directory.
+    "test/**/*.ts" // Include all TypeScript files in the test directory.
+  ],
+  "exclude": [
+    "node_modules", // Exclude dependencies.
+    "dist", // Exclude output directory.
+    "temp"
+  ]
+}
