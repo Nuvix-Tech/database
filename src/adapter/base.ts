@@ -1,25 +1,37 @@
-interface IDatabaseAdapter {
-  connect(): void;
-  disconnect(): void;
-  send(data: any): void;
-  receive(): any;
+export interface Adapter {
+  ping(): Promise<void>;
 }
+
+interface IDatabaseAdapter { }
 
 /**
  * Base adapter class
  */
-export class DatabaseAdapter implements IDatabaseAdapter {
-  connect() {
-    throw new Error('Method not implemented.');
+export abstract class DatabaseAdapter implements IDatabaseAdapter {
+  type: string;
+  database: string;
+
+  /**
+   * Transaction counter
+   */
+  inTransaction: number = 0
+
+  constructor() {
+    this.type = 'base';
   }
-  disconnect() {
-    throw new Error('Method not implemented.');
+
+  loadModule(moduleName: string): any {
+    return require(moduleName);
   }
-  send(data: any) {
-    throw new Error('Method not implemented.');
-  }
-  receive() {
-    throw new Error('Method not implemented.');
-  }
+
+  abstract init(): Promise<void>;
+
+  abstract startTransaction(): Promise<boolean>;
+
+  abstract commitTransaction(): Promise<boolean>;
+
+  abstract rollbackTransaction(): Promise<boolean>;
+
+  abstract close(): Promise<void>;
 
 }
