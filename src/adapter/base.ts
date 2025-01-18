@@ -1,5 +1,9 @@
+import { Logger } from "../core/logger";
+
 export interface Adapter {
   ping(): Promise<void>;
+
+  create(name: string): Promise<boolean>;
 }
 
 interface IDatabaseAdapter { }
@@ -8,19 +12,42 @@ interface IDatabaseAdapter { }
  * Base adapter class
  */
 export abstract class DatabaseAdapter implements IDatabaseAdapter {
-  type: string;
-  database: string;
+  protected type: string;
+
+  protected database: string;
+
+  protected schema: string;
+
+  protected sharedTables: boolean = false;
+
+  protected tenantId: string;
+
+  protected perfix: string;
+
+  /**
+   * Debug mode
+   */
+  protected debug: boolean = true;
+
+  /**
+   * Logger instance
+   */
+  protected logger: Logger;
 
   /**
    * Transaction counter
    */
-  inTransaction: number = 0
+  protected inTransaction: number = 0
 
   constructor() {
     this.type = 'base';
+    this.logger = new Logger()
   }
 
-  loadModule(moduleName: string): any {
+  /**
+   * Load module
+   */
+  protected loadModule(moduleName: string): any {
     return require(moduleName);
   }
 
@@ -34,4 +61,7 @@ export abstract class DatabaseAdapter implements IDatabaseAdapter {
 
   abstract close(): Promise<void>;
 
+  filter(input: string): string {
+    return input.replace(/[^\w\s]/gi, '');
+  }
 }

@@ -176,16 +176,6 @@ export class Database {
       'array': false,
       'filters': ['datetime'],
     },
-    {
-      '$id': '$permissions',
-      'type': Database.VAR_STRING,
-      'size': 1000000,
-      'signed': true,
-      'required': false,
-      'default': [],
-      'array': false,
-      'filters': ['json'],
-    },
   ];
 
   public static INTERNAL_INDEXES = [
@@ -193,15 +183,13 @@ export class Database {
     '_uid',
     '_createdAt',
     '_updatedAt',
-    '_permissions_id',
-    '_permissions',
   ];
 
   /**
    * Parent Collection
    * Defines the structure for both system and custom collections
    *
-   * @var array<string, mixed>
+   * @var Object<string, mixed>
    */
   protected static COLLECTION = {
     '$id': Database.METADATA,
