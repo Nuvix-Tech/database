@@ -12,6 +12,8 @@ interface IDatabaseAdapter { }
  * Base adapter class
  */
 export abstract class DatabaseAdapter implements IDatabaseAdapter {
+  protected options: any;
+
   protected type: string;
 
   protected database: string;
@@ -45,6 +47,99 @@ export abstract class DatabaseAdapter implements IDatabaseAdapter {
   }
 
   /**
+   * Get the type of the adapter
+   */
+  public getType(): string {
+    return this.type;
+  }
+
+  /**
+   * Get the database name
+   */
+  public getDatabase(): string {
+    return this.database;
+  }
+
+  /**
+   * Set the database name
+   */
+  public setDatabase(database: string): void {
+    this.database = database;
+    this.options.database = database;
+    this.options.connection.database = database;
+  }
+
+  /**
+   * Get the schema name
+   */
+  public getSchema(): string {
+    return this.schema;
+  }
+
+  /**
+   * Set the schema name
+   */
+  public setSchema(schema: string): void {
+    this.schema = schema;
+  }
+
+  /**
+   * Check if shared tables are enabled
+   */
+  public getSharedTables(): boolean {
+    return this.sharedTables;
+  }
+
+  /**
+   * Set shared tables
+   */
+  public setSharedTables(sharedTables: boolean): void {
+    this.sharedTables = sharedTables;
+  }
+
+  /**
+   * Get the tenant ID
+   */
+  public getTenantId(): string {
+    return this.tenantId;
+  }
+
+  /**
+   * Set the tenant ID
+   */
+  public setTenantId(tenantId: string): void {
+    this.tenantId = tenantId;
+  }
+
+  /**
+   * Get the prefix
+   */
+  public getPrefix(): string {
+    return this.perfix;
+  }
+
+  /**
+   * Set the prefix
+   */
+  public setPrefix(prefix: string): void {
+    this.perfix = this.filter(prefix);
+  }
+
+  /**
+   * Check if debug mode is enabled
+   */
+  public getDebug(): boolean {
+    return this.debug;
+  }
+
+  /**
+   * Get the transaction counter
+   */
+  public getInTransaction(): number {
+    return this.inTransaction;
+  }
+
+  /**
    * Load module
    */
   protected loadModule(moduleName: string): any {
@@ -61,7 +156,17 @@ export abstract class DatabaseAdapter implements IDatabaseAdapter {
 
   abstract close(): Promise<void>;
 
-  filter(input: string): string {
+  protected filter(input: string): string {
     return input.replace(/[^\w\s]/gi, '');
+  }
+
+  protected getSqlTable(name: string) {
+    const prefixPart = this.perfix ? `${this.perfix}_` : '';
+    return `${this.database}.${prefixPart}${this.filter(name)}`;
+  }
+
+  protected trigger<T extends any>(event: any, query: T): T {
+    this.logger.log(`${event}: ${query}`);
+    return query;
   }
 }
