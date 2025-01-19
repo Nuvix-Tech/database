@@ -62,7 +62,8 @@ export abstract class Sql extends DatabaseAdapter {
   protected getSQLPermissionsCondition(
     collection: string,
     roles: string[],
-    type: string = Database.PERMISSION_READ
+    type: string = Database.PERMISSION_READ,
+    namedPlaceholders: boolean = false
   ): string {
     if (!Database.PERMISSIONS.includes(type)) {
       throw new DatabaseError('Unknown permission type: ' + type);
@@ -70,7 +71,7 @@ export abstract class Sql extends DatabaseAdapter {
     const quotedRoles = roles.map(r => `'${r}'`).join(', ');
     let tenantQuery = '';
     if (this.sharedTables) {
-      tenantQuery = 'AND (_tenant = :tenant OR _tenant IS NULL)';
+      tenantQuery = `AND (_tenant = ${namedPlaceholders ? ':tenant' : '?'} OR _tenant IS NULL)`;
     }
     return `table_main._uid IN (
       SELECT _document
@@ -93,8 +94,6 @@ export abstract class Sql extends DatabaseAdapter {
   public getSQLConditions(queries: Query[] = [], separator: string = 'AND'): string {
     const parts: string[] = [];
     for (const q of queries) {
-      this.logger.debug('Processing query', q instanceof Query);
-
       if (q.getMethod() === Query.TYPE_SELECT) {
         continue;
       }
@@ -140,8 +139,9 @@ export abstract class Sql extends DatabaseAdapter {
 
 
   protected bindConditionValue(
-    params: any[] //Record<string, any>
-    , query: Query): void {
+    params: any[], //Record<string, any>,
+    query: Query
+  ): void {
     if (query.getMethod() === Query.TYPE_SELECT) {
       // Skip binding for SELECT queries
       return;

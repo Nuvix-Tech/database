@@ -244,8 +244,8 @@ export class MariaDB extends Sql implements Adapter {
    */
   async create(name: string): Promise<boolean> {
     try {
-      const [result] = await this.pool.query<any>(`CREATE SCHEMA \`hello\``);
-      return result.affectedRows > 0;
+      await this.pool.query<any>(`CREATE SCHEMA \`${name}\``);
+      return true;
     } catch (e) {
       this.logger.error(e)
       throw new DatabaseError("Database Creation Failed.")
@@ -262,8 +262,8 @@ export class MariaDB extends Sql implements Adapter {
    */
   async drop(name: string): Promise<boolean> {
     try {
-      const [result] = await this.pool.query<any>(`DROP SCHEMA IF EXISTS \`hello\``);
-      return result.affectedRows > 0;
+      await this.pool.query<any>(`DROP SCHEMA IF EXISTS \`${name}\``);
+      return true;
     } catch (e) {
       this.logger.error(e)
       throw new DatabaseError("Database Drop Failed.")
@@ -699,18 +699,17 @@ export class MariaDB extends Sql implements Adapter {
         }
         break;
       case Database.RELATION_MANY_TO_MANY:
-        // TODO: ----
-        // const collectionDoc = await this.getDocument(Database.METADATA, collection);
-        // const relatedCollectionDoc = await this.getDocument(Database.METADATA, relatedCollection);
+        const collectionDoc = await this.getDocument(Database.METADATA, collection);
+        const relatedCollectionDoc = await this.getDocument(Database.METADATA, relatedCollection);
 
-        // const junction = this.getSqlTable(`_${collectionDoc.getInternalId()}_${relatedCollectionDoc.getInternalId()}`);
+        const junction = this.getSqlTable(`_${collectionDoc.getInternalId()}_${relatedCollectionDoc.getInternalId()}`);
 
-        // if (newKey) {
-        //   sql = `ALTER TABLE ${junction} RENAME COLUMN \`${key}\` TO \`${newKey}\`;`;
-        // }
-        // if (twoWay && newTwoWayKey) {
-        //   sql += `ALTER TABLE ${junction} RENAME COLUMN \`${twoWayKey}\` TO \`${newTwoWayKey}\`;`;
-        // }
+        if (newKey) {
+          sql = `ALTER TABLE ${junction} RENAME COLUMN \`${key}\` TO \`${newKey}\`;`;
+        }
+        if (twoWay && newTwoWayKey) {
+          sql += `ALTER TABLE ${junction} RENAME COLUMN \`${twoWayKey}\` TO \`${newTwoWayKey}\`;`;
+        }
         break;
       default:
         throw new DatabaseError('Invalid relationship type');
@@ -850,9 +849,10 @@ export class MariaDB extends Sql implements Adapter {
    */
   public async createDocument(collection: string, document: Document): Promise<Document> {
     const name = this.filter(collection);
-    let attributes = document.getAttributes()
-    attributes._createdAt = document.getCreatedAt()
-    attributes._updatedAt = document.getUpdatedAt()
+    let attributes = document.getAttributes();
+    attributes._createdAt = document.getCreatedAt();
+    attributes._updatedAt = document.getUpdatedAt();
+    attributes._permissions = document.getPermissions();
 
     delete attributes.$permissions;
 
@@ -865,11 +865,7 @@ export class MariaDB extends Sql implements Adapter {
       const column = this.filter(attribute);
       columns.push(`\`${column}\``);
       placeholders.push('?');
-      values.push(Array.isArray(value) || typeof value === 'object' ?
-        JSON.stringify(value) :
-        // typeof value === 'boolean' ? Number(value) : 
-        value
-      );
+      values.push(Array.isArray(value) || typeof value === 'object' ? JSON.stringify(value) : value);
     });
 
     if (document.getInternalId?.()) {
@@ -927,12 +923,112 @@ export class MariaDB extends Sql implements Adapter {
 
       this.logger.debug(result);
 
-      document.set("$internalId", result.insertId)
+      document.set("$internalId", result.insertId);
       return document;
     } catch (e) {
       this.logger.error(e);
       throw new DatabaseError("Document Creation Failed");
     }
+  }
+
+  /**
+   * Create Documents in batches
+   *
+   * @param collection - The name of the collection.
+   * @param documents - An array of documents to be created.
+   * @param batchSize - The size of each batch. Defaults to 1000.
+   * @returns A promise that resolves to an array of created documents.
+   * @throws {DatabaseError} If the document creation fails.
+   */
+  public async createDocuments(collection: string, documents: Document[], batchSize: number = 1000): Promise<Document[]> {
+    if (documents.length === 0) {
+      return documents;
+    }
+
+    const name = this.filter(collection);
+    const batches = this.chunkArray(documents, batchSize);
+    const internalIds: { [key: string]: boolean } = {};
+
+    for (const batch of batches) {
+      const bindValues: any[] = [];
+      const permissions: any[] = [];
+      const columns: string[] = [];
+      const placeholders: string[] = [];
+
+      batch.forEach((document, index) => {
+        const attributes = document.getAttributes();
+        attributes._uid = document.getId();
+        attributes._createdAt = document.getCreatedAt();
+        attributes._updatedAt = document.getUpdatedAt();
+        attributes._permissions = JSON.stringify(document.getPermissions());
+
+        if (document.getInternalId()) {
+          internalIds[document.getId()] = true;
+          attributes._id = document.getInternalId();
+        }
+
+        if (this.sharedTables) {
+          attributes._tenant = this.tenantId;
+        }
+
+        if (index === 0) {
+          columns.push(...Object.keys(attributes).map(attr => `\`${this.filter(attr)}\``));
+        }
+
+        placeholders.push(`(${Object.keys(attributes).map(() => '?').join(', ')})`);
+        bindValues.push(...Object.values(attributes).map(value => Array.isArray(value) || typeof value === 'object' ? JSON.stringify(value) : value));
+
+        Database.PERMISSIONS.forEach(type => {
+          document.getPermissionsByType(type)?.forEach(permission => {
+            permissions.push(`('${type}', '${permission.replace(/"/g, '')}', '${document.getId()}'${this.sharedTables ? `, ${this.tenantId}` : ''})`);
+          });
+        });
+      });
+
+      const sql = `
+        INSERT INTO ${this.getSqlTable(name)} (${columns.join(', ')})
+        VALUES ${placeholders.join(', ')}
+      `;
+
+      try {
+        await this.pool.query<any>(sql, bindValues);
+
+        if (permissions.length > 0) {
+          const permSql = `
+            INSERT INTO ${this.getSqlTable(name + '_perms')} (_type, _permission, _document${this.sharedTables ? ', _tenant' : ''})
+            VALUES ${permissions.join(', ')}
+          `;
+          await this.pool.query<any>(permSql);
+        }
+      } catch (e) {
+        this.logger.error(e);
+        throw new DatabaseError("Batch Document Creation Failed.");
+      }
+    }
+
+    for (const document of documents) {
+      if (!internalIds[document.getId()]) {
+        const doc = await this.getDocument(collection, document.getId());
+        document.set("$internalId", doc.getInternalId());
+      }
+    }
+
+    return documents;
+  }
+
+  /**
+   * Helper function to chunk an array into smaller arrays of a specified size.
+   *
+   * @param array - The array to be chunked.
+   * @param size - The size of each chunk.
+   * @returns An array of chunked arrays.
+   */
+  private chunkArray<T>(array: T[], size: number): T[][] {
+    const result: T[][] = [];
+    for (let i = 0; i < array.length; i += size) {
+      result.push(array.slice(i, i + size));
+    }
+    return result;
   }
 
   /**
@@ -949,8 +1045,15 @@ export class MariaDB extends Sql implements Adapter {
     if (!document.getId()) throw new DatabaseError("Document ID is required.");
 
     const attributes = document.getAttributes();
-    attributes._createdAt = document.getCreatedAt();
-    attributes._updatedAt = document.getUpdatedAt();
+    if (document.getCreatedAt()) {
+      attributes._createdAt = document.getCreatedAt();
+    }
+    if (document.getUpdatedAt()) {
+      attributes._updatedAt = document.getUpdatedAt();
+    }
+    if (document.getPermissions()) {
+      attributes._permissions = document.getPermissions();
+    }
 
     delete attributes.$permissions;
 
@@ -961,7 +1064,7 @@ export class MariaDB extends Sql implements Adapter {
     const columns = Object.keys(attributes).map(attr => `\`${this.filter(attr)}\` = ?`).join(', ');
     const values = Object.values(attributes).map(value =>
       Array.isArray(value) || typeof value === 'object' ? JSON.stringify(value) : value
-    );
+    ) ?? [];
 
     let sql = `UPDATE ${this.getSqlTable(name)} SET ${columns} WHERE _uid = ?`;
     values.push(document.getId());
@@ -975,8 +1078,6 @@ export class MariaDB extends Sql implements Adapter {
       if (document.getPermissions()) {
         const currentPermissions = await this.getCurrentPermissions(name, document.getId());
         const { additions, removals } = this.getPermissionChanges(currentPermissions, document.getPermissions());
-        this.logger.debug(additions);
-        this.logger.debug(removals);
 
         if (Object.values(removals).some((perms: any) => perms.length > 0)) {
           await this.removePermissions(name, document.getId(), removals);
@@ -994,6 +1095,91 @@ export class MariaDB extends Sql implements Adapter {
     }
   }
 
+  /**
+   * Update documents
+   *
+   * Updates all documents which match the given query.
+   *
+   * @param collection - The name of the collection.
+   * @param updates - The document containing the updates.
+   * @param documents - An array of documents to be updated.
+   * @returns A promise that resolves to the number of documents successfully updated.
+   * @throws {DatabaseError} If the document update fails.
+   */
+  public async updateDocuments(collection: string, updates: Document, documents: Document[]): Promise<number> {
+    const attributes = updates.getAttributes();
+
+    if (updates.getUpdatedAt()) {
+      attributes['_updatedAt'] = updates.getUpdatedAt();
+    }
+
+    if (updates.getPermissions()) {
+      attributes['_permissions'] = JSON.stringify(updates.getPermissions());
+    }
+
+    if (Object.keys(attributes).length === 0) {
+      return 0;
+    }
+
+    const name = this.filter(collection);
+    const ids = documents.map(doc => doc.getId());
+    const where = [`_uid IN (${ids.map(() => '?').join(', ')})`];
+    const values: any[] = [...ids];
+
+    if (this.sharedTables) {
+      where.push('_tenant = ?');
+      values.push(this.tenantId);
+    }
+
+    const sqlWhere = `WHERE ${where.join(' AND ')}`;
+    const columns = Object.keys(attributes).map((attr, i) => `\`${this.filter(attr)}\` = ?`).join(', ');
+    const updateValues = Object.values(attributes).map(value => Array.isArray(value) || typeof value === 'object' ? JSON.stringify(value) : value);
+    values.push(...updateValues);
+
+    let sql = `
+      UPDATE ${this.getSqlTable(name)}
+      SET ${columns}
+      ${sqlWhere}
+    `;
+
+    sql = this.trigger(Database.EVENT_DOCUMENTS_UPDATE, sql);
+
+    try {
+      const [result] = await this.pool.query<any>(sql, values);
+      const affected = result.affectedRows;
+
+      if (updates.getPermissions()) {
+        for (const document of documents) {
+          const currentPermissions = await this.getCurrentPermissions(name, document.getId());
+          const { additions, removals } = this.getPermissionChanges(currentPermissions, updates.getPermissions());
+
+          if (Object.values(removals).some((perms: any) => perms.length > 0)) {
+            await this.removePermissions(name, document.getId(), removals);
+          }
+
+          if (Object.values(additions).some((perms: any) => perms.length > 0)) {
+            await this.addPermissions(name, document.getId(), additions);
+          }
+        }
+      }
+
+      return affected;
+    } catch (e) {
+      this.logger.error(e);
+      throw new DatabaseError("Documents Update Failed.");
+    }
+  }
+
+  /**
+  * Retrieves the current permissions for a given document.
+  *
+  * @param name - The name of the entity for which permissions are being retrieved.
+  * @param documentId - The ID of the document for which permissions are being retrieved.
+  * @returns A promise that resolves to an object where the keys are permission types and the values are arrays of permissions.
+  *
+  * @remarks
+  * This method constructs an SQL query to fetch permissions from a database table. If shared tables are used, additional SQL for tenant filtering is appended.
+  */
   private async getCurrentPermissions(name: string, documentId: string) {
     let sql = `SELECT _type, _permission FROM ${this.getSqlTable(name + '_perms')} WHERE _document = ?`;
     if (this.sharedTables) {
@@ -1008,6 +1194,15 @@ export class MariaDB extends Sql implements Adapter {
     }, {});
   }
 
+  /**
+   * Computes the changes in permissions by comparing the current permissions with the new permissions.
+   *
+   * @param currentPermissions - An object representing the current permissions, where keys are permission types and values are arrays of resources.
+   * @param newPermissions - An array of strings representing the new permissions in the format `action("resource")`.
+   * @returns An object containing two properties:
+   *   - `additions`: An object where keys are permission types and values are arrays of resources that need to be added.
+   *   - `removals`: An object where keys are permission types and values are arrays of resources that need to be removed.
+   */
   private getPermissionChanges(currentPermissions: any, newPermissions: any) {
     const additions: any = {};
     const removals: any = {};
@@ -1038,6 +1233,19 @@ export class MariaDB extends Sql implements Adapter {
     return { additions, removals };
   }
 
+  /**
+    * Removes permissions from a specified document in the database.
+    *
+    * @param name - The name of the table (without the '_perms' suffix) from which permissions will be removed.
+    * @param documentId - The ID of the document whose permissions are to be removed.
+    * @param removals - An object where keys are permission types and values are arrays of permissions to be removed.
+    * @returns A promise that resolves when the permissions have been removed.
+    *
+    * @remarks
+    * This method constructs a SQL DELETE statement to remove permissions from the specified document.
+    * If `sharedTables` is enabled, it will also consider tenant-specific conditions.
+    * The method triggers the `Database.EVENT_PERMISSIONS_DELETE` event before executing the query.
+    */
   private async removePermissions(name: string, documentId: string, removals: any) {
     let sql = `DELETE FROM ${this.getSqlTable(name + '_perms')} WHERE _document = ?`;
     if (this.sharedTables) {
@@ -1065,6 +1273,19 @@ export class MariaDB extends Sql implements Adapter {
     await this.pool.query<any>(sql, values);
   }
 
+  /**
+   * Adds permissions to a specified document in the database.
+   *
+   * @param name - The name of the collection or table to which permissions are being added.
+   * @param documentId - The ID of the document to which permissions are being added.
+   * @param additions - An object containing the types of permissions and their corresponding values to be added.
+   * 
+   * @remarks
+   * This method constructs an SQL query to insert multiple permission entries into the database.
+   * It uses placeholders for the values to prevent SQL injection and triggers an event before executing the query.
+   * 
+   * @returns A promise that resolves when the permissions have been successfully added to the database.
+   */
   private async addPermissions(name: string, documentId: string, additions: any) {
     const values: any[] = [];
     const placeholders: string[] = [];
@@ -1081,6 +1302,19 @@ export class MariaDB extends Sql implements Adapter {
     await this.pool.query<any>(sql, values);
   }
 
+  /**
+   * Increases the value of a specified attribute in a document within a collection.
+   *
+   * @param {string} collection - The name of the collection containing the document.
+   * @param {string} id - The unique identifier of the document to update.
+   * @param {string} attribute - The attribute whose value is to be increased.
+   * @param {number} value - The amount by which to increase the attribute's value.
+   * @param {string} updatedAt - The timestamp indicating when the update is made.
+   * @param {number} [min] - Optional minimum value condition for the attribute.
+   * @param {number} [max] - Optional maximum value condition for the attribute.
+   * @returns {Promise<boolean>} - A promise that resolves to `true` if the update was successful, otherwise `false`.
+   * @throws {DatabaseError} - Throws an error if the update operation fails.
+   */
   public async increaseDocumentAttribute(
     collection: string,
     id: string,
@@ -1172,6 +1406,49 @@ export class MariaDB extends Sql implements Adapter {
     } catch (e) {
       this.logger.error(e);
       throw new DatabaseError("Document Deletion Failed");
+    }
+  }
+
+  /**
+   * Delete multiple documents from the specified collection.
+   * 
+   * @param collection - The name of the collection.
+   * @param ids - An array of unique identifiers of the documents to be deleted.
+   * @returns A promise that resolves to the number of documents successfully deleted.
+   * @throws {DatabaseError} If the document deletion fails.
+   */
+  public async deleteDocuments(collection: string, ids: string[]): Promise<number> {
+    const name = this.filter(collection);
+    const values: any[] = ids;
+
+    let sql = `DELETE FROM ${this.getSqlTable(name)} WHERE _uid IN (${ids.map(() => '?').join(', ')})`;
+
+    if (this.sharedTables) {
+      sql += ' AND (_tenant = ? OR _tenant IS NULL)';
+      values.push(this.tenantId);
+    }
+
+    sql = this.trigger(Database.EVENT_DOCUMENTS_DELETE, sql);
+
+    try {
+      // Delete documents
+      const [result] = await this.pool.query<any>(sql, values);
+      const deletedCount = result.affectedRows;
+
+      // Delete associated permissions
+      let permSql = `DELETE FROM ${this.getSqlTable(name + '_perms')} WHERE _document IN (${ids.map(() => '?').join(', ')})`;
+
+      if (this.sharedTables) {
+        permSql += ' AND (_tenant = ? OR _tenant IS NULL)';
+      }
+
+      permSql = this.trigger(Database.EVENT_PERMISSIONS_DELETE, permSql);
+      await this.pool.query(permSql, values);
+
+      return deletedCount;
+    } catch (e) {
+      this.logger.error(e);
+      throw new DatabaseError("Documents Deletion Failed");
     }
   }
 
@@ -1316,18 +1593,155 @@ export class MariaDB extends Sql implements Adapter {
     try {
       const [results] = await this.pool.execute<any[]>(sql, params);
 
-      return results.map(result => {
-        result.$id = result._uid || null; delete result._uid;
-        result.$internalId = result._id || null; delete result._id;
-        result.$tenant = result._tenant || null; delete result._tenant;
-        result.$createdAt = result._createdAt || null; delete result._createdAt;
-        result.$updatedAt = result._updatedAt || null; delete result._updatedAt;
-        result.$permissions = result._permissions ? JSON.parse(result._permissions) : []; delete result._permissions;
-        return new Document(result);
-      });
+      let res = results.map(result => this.objectToDocument(result));
+
+      if (cursorDirection === Database.CURSOR_BEFORE) {
+        res = res.reverse();
+      }
+
+      return res;
     } catch (error) {
       this.logger.error(error);
       throw new DatabaseError("Document Retrieval Failed.");
+    }
+  }
+
+
+  /**
+   * Count documents in the specified collection based on the provided queries.
+   * 
+   * @param collection - The name of the collection.
+   * @param queries - An array of query objects to filter the documents.
+   * @param max - The maximum number of documents to count.
+   * @returns A promise that resolves to the count of documents.
+   * @throws {DatabaseError} If the document count fails.
+   */
+  public async count(
+    collection: string,
+    queries: Query[] = [],
+    max: number | null = null
+  ): Promise<number> {
+    const name = this.filter(collection);
+    const roles = Authorization.getRoles();
+    const where: string[] = [];
+    const params: any = [];
+
+    // Construct WHERE conditions from queries
+    const conditions = this.getSQLConditions(queries);
+    if (conditions) {
+      where.push(conditions);
+      let cParams: any = [];
+      for (const query of queries) {
+        this.bindConditionValue(cParams, query);
+      }
+      params.push(...cParams);
+    }
+
+    // Add permissions and tenant-based conditions
+    if (Authorization.status) {
+      where.push(this.getSQLPermissionsCondition(name, roles));
+      if (this.sharedTables) {
+        params.push(this.tenantId);
+      }
+    }
+
+    if (this.sharedTables) {
+      where.push("(table_main._tenant = ? OR table_main._tenant IS NULL)");
+      params.push(this.tenantId);
+    }
+
+    // Build final SQL query
+    const sqlWhere = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const sqlLimit = max !== null ? `LIMIT ?` : '';
+
+    const sql = `
+      SELECT COUNT(1) as sum FROM (
+        SELECT 1
+        FROM ${this.getSqlTable(name)} table_main
+        ${sqlWhere}
+        ${sqlLimit}
+      ) table_count;
+    `;
+
+    if (max !== null) params.push(max);
+
+    try {
+      const [results] = await this.pool.execute<any[]>(sql, params);
+      const result = results[0];
+      return result.sum ?? 0;
+    } catch (error) {
+      this.logger.error(error);
+      throw new DatabaseError("Document Count Failed.");
+    }
+  }
+
+  /**
+   * Sum the values of a specified attribute in the collection based on the provided queries.
+   * 
+   * @param collection - The name of the collection.
+   * @param attribute - The attribute to sum.
+   * @param queries - An array of query objects to filter the documents.
+   * @param max - The maximum number of documents to sum.
+   * @returns A promise that resolves to the sum of the attribute values.
+   * @throws {DatabaseError} If the sum operation fails.
+   */
+  public async sum(
+    collection: string,
+    attribute: string,
+    queries: Query[] = [],
+    max: number | null = null
+  ): Promise<number> {
+    const name = this.filter(collection);
+    const roles = Authorization.getRoles();
+    const where: string[] = [];
+    const params: any = [];
+
+    // Construct WHERE conditions from queries
+    const conditions = this.getSQLConditions(queries);
+    if (conditions) {
+      where.push(conditions);
+      let cParams: any = [];
+      for (const query of queries) {
+        this.bindConditionValue(cParams, query);
+      }
+      params.push(...cParams);
+    }
+
+    // Add permissions and tenant-based conditions
+    if (Authorization.status) {
+      where.push(this.getSQLPermissionsCondition(name, roles));
+      if (this.sharedTables) {
+        params.push(this.tenantId);
+      }
+    }
+
+    if (this.sharedTables) {
+      where.push("(table_main._tenant = ? OR table_main._tenant IS NULL)");
+      params.push(this.tenantId);
+    }
+
+    // Build final SQL query
+    const sqlWhere = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const sqlLimit = max !== null ? `LIMIT ?` : '';
+
+    const sql = `
+      SELECT SUM(${attribute}) as sum FROM (
+        SELECT ${attribute}
+        FROM ${this.getSqlTable(name)} table_main
+        ${sqlWhere}
+        ${sqlLimit}
+      ) table_count;
+    `;
+
+    if (max !== null) params.push(max);
+
+    try {
+      const [results] = await this.pool.execute<any[]>(sql, params);
+      const result = results[0];
+      return result.sum ?? 0;
+    } catch (error) {
+      this.logger.error(error);
+      throw new DatabaseError("Sum Operation Failed.");
     }
   }
 
@@ -1340,13 +1754,12 @@ export class MariaDB extends Sql implements Adapter {
    * @returns A promise that resolves to the document.
    * @throws {DatabaseError} If the document retrieval fails.
    */
-  public async getDocument<T extends Document>(collection: string, uid: string): Promise<T> {
+  public async getDocument(collection: string, uid: string): Promise<Document> {
     const name = this.filter(collection);
     const sql = `SELECT * FROM ${this.getSqlTable(name)} WHERE _uid = ?`;
     try {
       const [result] = await this.pool.query<any>(sql, [uid]);
-      this.logger.debug(result);
-      return result
+      return this.objectToDocument(result[0]);
     } catch (e) {
       this.logger.error(e);
       throw new DatabaseError("Document Retrieval Failed.");
@@ -1360,17 +1773,42 @@ export class MariaDB extends Sql implements Adapter {
    * @returns A promise that resolves to an array of documents.
    * @throws {DatabaseError} If the document retrieval fails.
    */
-  public async getDocuments<T extends Document>(collection: string): Promise<T[]> {
+  public async getDocuments(collection: string): Promise<Document[]> {
     const name = this.filter(collection);
     const sql = `SELECT * FROM ${this.getSqlTable(name)}`;
     try {
       const [result] = await this.pool.query<any>(sql);
-      this.logger.debug(result);
-      return result
+      return result.map((doc: any) => this.objectToDocument(doc));
     } catch (e) {
       this.logger.error(e);
       throw new DatabaseError("Document Retrieval Failed.");
     }
+  }
+
+  /**
+   * Converts a given object to a Document instance by mapping and renaming specific properties.
+   * 
+   * @param obj - The object to be converted.
+   * @returns A new Document instance with the mapped properties.
+   * 
+   * The following properties are mapped:
+   * - `$id` is set to the value of `_uid` or `null` if `_uid` is not present.
+   * - `$internalId` is set to the value of `_id` or `null` if `_id` is not present.
+   * - `$tenant` is set to the value of `_tenant` or `null` if `_tenant` is not present.
+   * - `$createdAt` is set to the value of `_createdAt` or `null` if `_createdAt` is not present.
+   * - `$updatedAt` is set to the value of `_updatedAt` or `null` if `_updatedAt` is not present.
+   * - `$permissions` is set to the parsed JSON value of `_permissions` or an empty array if `_permissions` is not present.
+   * 
+   * The original properties (`_uid`, `_id`, `_tenant`, `_createdAt`, `_updatedAt`, `_permissions`) are deleted from the object.
+   */
+  objectToDocument(obj: any): Document {
+    obj.$id = obj._uid || null; delete obj._uid;
+    obj.$internalId = obj._id || null; delete obj._id;
+    obj.$tenant = obj._tenant || null; delete obj._tenant;
+    obj.$createdAt = obj._createdAt || null; delete obj._createdAt;
+    obj.$updatedAt = obj._updatedAt || null; delete obj._updatedAt;
+    obj.$permissions = obj._permissions ? JSON.parse(obj._permissions) : []; delete obj._permissions;
+    return new Document(obj);
   }
 
 
