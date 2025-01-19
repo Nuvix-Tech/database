@@ -9,5 +9,6 @@ export interface Attribute {
   required?: boolean;
   default?: any | null;
   array?: boolean;
-  filters?: any[]
+  filters?: any[],
+  options?: { [key: string]: any };
 }

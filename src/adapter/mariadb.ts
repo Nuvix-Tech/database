@@ -9,6 +9,7 @@ import { Authorization } from "../security/authorization";
 import { Adapter } from "./base";
 import * as mysql2 from 'mysql2/promise';
 import { Sql } from "./sql";
+import { DuplicateException, NotFoundException, TimeoutException, TruncateException } from "../errors";
 
 interface MariaDBOptions {
   connection: mysql2.PoolOptions;
@@ -282,15 +283,34 @@ export class MariaDB extends Sql implements Adapter {
    * @throws {DatabaseError} Throws an error if the table creation fails.
    */
   public async createCollection(name: string, attributes: Attribute[], indexes: Index[], ifExists: boolean = false): Promise<boolean> {
+    const attributeSql = attributes.map((attribute) => {
+      const attrId = this.filter(attribute.name);
+      const attrType = this.getSqlType(attribute.type, attribute.size, attribute.signed, attribute.array);
 
-    let attributeSql = attributes.map((attribute) => {
-      return `${attribute.name} ${this.getSqlType(attribute.type, attribute.size, attribute.signed, attribute.array)}`
-    }).join(',');
+      // Ignore relationships with virtual attributes
+      if (attribute.type === Database.VAR_RELATIONSHIP) {
+        const { relationType, twoWay, side } = attribute.options || {};
 
-    let indexSql = indexes.map((index) => {
-      let indexAttributes = index.attributes?.map((attribute, nested) => {
+        if (
+          relationType === Database.RELATION_MANY_TO_MANY ||
+          (relationType === Database.RELATION_ONE_TO_ONE && !twoWay && side === Database.RELATION_SIDE_CHILD) ||
+          (relationType === Database.RELATION_ONE_TO_MANY && side === Database.RELATION_SIDE_PARENT) ||
+          (relationType === Database.RELATION_MANY_TO_ONE && side === Database.RELATION_SIDE_CHILD)
+        ) {
+          return '';
+        }
+      }
+
+      return `\`${attrId}\` ${attrType}`;
+    }).filter(Boolean).join(', ');
+
+    const indexSql = indexes.map((index) => {
+      const indexId = this.filter(index.name);
+      const indexType = index.type;
+
+      const indexAttributes = index.attributes?.map((attribute, nested) => {
         let indexLength = index.lengths?.[nested] ?? '';
-        indexLength = (indexLength) ? `(${indexLength})` : '';
+        indexLength = indexLength ? `(${indexLength})` : '';
         let indexOrder = index.orders?.[nested] ?? '';
 
         let indexAttribute = attribute;
@@ -298,45 +318,45 @@ export class MariaDB extends Sql implements Adapter {
         if (attribute === '$createdAt') indexAttribute = '_createdAt';
         if (attribute === '$updatedAt') indexAttribute = '_updatedAt';
 
-        if (index.type === IndexType.FULLTEXT) indexOrder = '';
+        if (indexType === IndexType.FULLTEXT) indexOrder = '';
 
         return `\`${indexAttribute}\`${indexLength} ${indexOrder}`;
       }).join(', ');
 
-      if (this.sharedTables && index.type !== IndexType.FULLTEXT) {
-        indexAttributes = `_tenant ${indexAttributes ? `, ${indexAttributes}` : ''}`;
+      if (this.sharedTables && indexType !== IndexType.FULLTEXT) {
+        return `${indexType} \`${indexId}\` (_tenant, ${indexAttributes})`;
       }
 
-      return `${index.type} \`${index.name}\` ${indexAttributes ? `(${indexAttributes})` : ''}`;
-    }).join(',');
+      return `${indexType} \`${indexId}\` (${indexAttributes})`;
+    }).join(', ');
 
     ifExists = ifExists ? 'IF NOT EXISTS' : '' as any;
 
     let collectionSql = `
       CREATE TABLE ${ifExists} ${this.getSqlTable(name)} (
-      _id INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
-      _uid VARCHAR(255) NOT NULL,
-      _createdAt DATETIME(3) DEFAULT NULL,
-      _updatedAt DATETIME(3) DEFAULT NULL,
-      _permissions JSON DEFAULT NULL,
-      PRIMARY KEY (_id),
-      ${attributeSql}${attributeSql ? ',' : ''} 
-      ${indexSql}${indexSql ? ',' : ''}
+        _id INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
+        _uid VARCHAR(255) NOT NULL,
+        _createdAt DATETIME(3) DEFAULT NULL,
+        _updatedAt DATETIME(3) DEFAULT NULL,
+        _permissions JSON DEFAULT NULL,
+        PRIMARY KEY (_id),
+        ${attributeSql}${attributeSql ? ',' : ''} 
+        ${indexSql}${indexSql ? ',' : ''}
     `;
 
     if (this.sharedTables) {
       collectionSql += `
-      _tenant INT(11) UNSIGNED DEFAULT NULL,
-      UNIQUE KEY _uid (_uid, _tenant),
-      KEY _created_at (_tenant, _createdAt),
-      KEY _updated_at (_tenant, _updatedAt),
-      KEY _tenant_id (_tenant, _id)
+        _tenant INT(11) UNSIGNED DEFAULT NULL,
+        UNIQUE KEY _uid (_uid, _tenant),
+        KEY _created_at (_tenant, _createdAt),
+        KEY _updated_at (_tenant, _updatedAt),
+        KEY _tenant_id (_tenant, _id)
       `;
     } else {
       collectionSql += `
-      UNIQUE KEY _uid (_uid),
-      KEY _created_at (_createdAt),
-      KEY _updated_at (_updatedAt)
+        UNIQUE KEY _uid (_uid),
+        KEY _created_at (_createdAt),
+        KEY _updated_at (_updatedAt)
       `;
     }
 
@@ -884,15 +904,16 @@ export class MariaDB extends Sql implements Adapter {
       values.push(this.tenantId);
     }
 
-    const sql = `
+    let sql = `
     INSERT INTO ${this.getSqlTable(name)} 
     (${columns.join(', ')})
     VALUES (${placeholders.join(', ')})
     `;
 
+    sql = this.trigger(Database.EVENT_DOCUMENT_CREATE, sql);
+
     try {
       const [result] = await this.pool.query<any>(sql, values);
-      this.logger.debug(result);
 
       // Handle permissions if any
       if (document.getPermissions()) {
@@ -912,11 +933,12 @@ export class MariaDB extends Sql implements Adapter {
         });
 
         if (permValues.length) {
-          const permSql = `
+          let permSql = `
                 INSERT INTO ${this.getSqlTable(name + '_perms')}
                 (_type, _permission, _document${this.sharedTables ? ', _tenant' : ''})
                 VALUES ${permPlaceholders.join(', ')}
             `;
+          permSql = this.trigger(Database.EVENT_PERMISSIONS_CREATE, permSql);
           await this.pool.query(permSql, permValues);
         }
       }
@@ -1602,7 +1624,7 @@ export class MariaDB extends Sql implements Adapter {
       return res;
     } catch (error) {
       this.logger.error(error);
-      throw new DatabaseError("Document Retrieval Failed.");
+      throw this.processException(error);
     }
   }
 
@@ -1762,7 +1784,7 @@ export class MariaDB extends Sql implements Adapter {
       return this.objectToDocument(result[0]);
     } catch (e) {
       this.logger.error(e);
-      throw new DatabaseError("Document Retrieval Failed.");
+      throw this.processException(e);
     }
   }
 
@@ -1781,7 +1803,7 @@ export class MariaDB extends Sql implements Adapter {
       return result.map((doc: any) => this.objectToDocument(doc));
     } catch (e) {
       this.logger.error(e);
-      throw new DatabaseError("Document Retrieval Failed.");
+      throw this.processException(e)
     }
   }
 
@@ -1849,6 +1871,51 @@ export class MariaDB extends Sql implements Adapter {
     }
 
     return selections.join(', ');
+  }
+
+  /**
+   * Process MySQL exceptions and map them to custom exceptions.
+   *
+   * @param e - The MySQL error object.
+   * @returns The mapped custom exception.
+   */
+  protected processException(e: any): DatabaseError {
+    // Timeout
+    if (e.code === 'PROTOCOL_SEQUENCE_TIMEOUT') {
+      return new TimeoutException('Query timed out', e.code, e);
+    }
+
+    // Duplicate table
+    if (e.code === 'ER_TABLE_EXISTS_ERROR') {
+      return new DuplicateException('Collection already exists', e.code, e);
+    }
+
+    // Duplicate column
+    if (e.code === 'ER_DUP_FIELDNAME') {
+      return new DuplicateException('Attribute already exists', e.code, e);
+    }
+
+    // Duplicate index
+    if (e.code === 'ER_DUP_KEYNAME') {
+      return new DuplicateException('Index already exists', e.code, e);
+    }
+
+    // Duplicate row
+    if (e.code === 'ER_DUP_ENTRY') {
+      return new DuplicateException('Document already exists', e.code, e);
+    }
+
+    // Data is too big for column resize
+    if (e.code === 'ER_DATA_TOO_LONG' || e.code === 'ER_WARN_DATA_OUT_OF_RANGE') {
+      return new TruncateException('Resize would result in data truncation', e.code, e);
+    }
+
+    // Unknown database
+    if (e.code === 'ER_BAD_DB_ERROR') {
+      return new NotFoundException('Database not found', e.code, e);
+    }
+
+    return e;
   }
 
 }
