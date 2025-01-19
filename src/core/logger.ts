@@ -8,39 +8,38 @@ export class Logger {
 
   constructor(private highlightOptions = { language: 'typescript', ignoreIllegals: true }) { }
 
-  public log(message: any): void {
+  public log(...messages: any[]): void {
     if (this.LOG) {
-      const formattedMessage = this.formatMessage(message, chalk.blueBright, 'LOG');
+      const formattedMessage = this.formatMessages(messages, chalk.blueBright, 'LOG');
       console.log(formattedMessage);
     }
   }
 
-  public error(message: any): void {
+  public error(...messages: any[]): void {
     if (this.ERROR) {
-      const formattedMessage = this.formatMessage(message, chalk.redBright, 'ERROR');
+      const formattedMessage = this.formatMessages(messages, chalk.redBright, 'ERROR');
       console.error(formattedMessage);
     }
   }
 
-  public debug(message: any): void {
+  public debug(...messages: any[]): void {
     if (this.DEBUG) {
-      message = message ? message : ''
-      const formattedMessage = this.formatMessage(message, chalk.greenBright, 'DEBUG');
+      const formattedMessage = this.formatMessages(messages, chalk.greenBright, 'DEBUG');
       console.debug(formattedMessage);
     }
   }
 
-  private formatMessage(message: any, colorFn: chalk.Chalk, prefix: string): string {
-    const time = new Date().toISOString();
+  private formatMessages(messages: any[], colorFn: chalk.Chalk, prefix: string): string {
+    const time = new Date().toLocaleTimeString();
     const prefixFormatted = colorFn(`[${prefix}]`);
     const timeFormatted = chalk.gray(`[${time}]`);
-    let contentFormatted;
-
-    if (typeof message === 'object') {
-      contentFormatted = highlight(JSON.stringify(message, null, 2), this.highlightOptions);
-    } else {
-      contentFormatted = message.toString();
-    }
+    const contentFormatted = messages.map(message => {
+      if (typeof message === 'object') {
+        return highlight(JSON.stringify(message, null, 2), this.highlightOptions);
+      } else {
+        return message.toString();
+      }
+    }).join(' ');
 
     return `${prefixFormatted} ${timeFormatted} ${contentFormatted}`;
   }

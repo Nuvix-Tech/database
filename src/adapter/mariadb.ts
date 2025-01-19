@@ -1,11 +1,14 @@
 import { Database } from "../core/database";
 import { Document } from "../core/Document";
+import { Query } from "../core/query";
 import { Attribute } from "../core/types/attribute";
 import { Index, IndexType } from "../core/types/indexes";
 import { InitializeError } from "../errors/adapter";
 import { DatabaseError } from "../errors/base";
-import { Adapter, DatabaseAdapter } from "./base";
+import { Authorization } from "../security/authorization";
+import { Adapter } from "./base";
 import * as mysql2 from 'mysql2/promise';
+import { Sql } from "./sql";
 
 interface MariaDBOptions {
   connection: mysql2.PoolOptions;
@@ -14,7 +17,7 @@ interface MariaDBOptions {
 /**
  * MariaDB adapter class
  */
-export class MariaDB extends DatabaseAdapter implements Adapter {
+export class MariaDB extends Sql implements Adapter {
   /**
    * MariaDB pool / connection
    */
@@ -59,6 +62,7 @@ export class MariaDB extends DatabaseAdapter implements Adapter {
     try {
       const pool = this.library.createPool({
         ...this.options.connection,
+        namedPlaceholders: true
       });
 
       const connection = await pool.getConnection();
@@ -161,16 +165,79 @@ export class MariaDB extends DatabaseAdapter implements Adapter {
   /**
    *  Get Tenant SQL
    */
-  // private getTenantSql(tenantId?: string) {
-  //   tenantId = tenantId ? tenantId : this.tenantId;
+  private getTenantSql() {
+    return `AND (_tenant = ? OR _tenant IS NULL)`
+  }
 
-  //   if (this.sharedTables && !this.tenantId) throw new DatabaseError('Tenant ID is required for shared tables')
+  /**
+   * Generates an SQL condition string based on the provided query.
+   *
+   * @param {Query} query - The query object containing the condition details.
+   * @returns {string} The SQL condition string.
+   *
+   * The method processes the query object to generate the appropriate SQL condition string.
+   * It handles various query types such as OR, AND, SEARCH, BETWEEN, IS_NULL, IS_NOT_NULL, and CONTAINS.
+   * 
+   * - For OR and AND types, it recursively generates conditions for each sub-query and combines them.
+   * - For SEARCH type, it generates a MATCH condition.
+   * - For BETWEEN type, it generates a BETWEEN condition.
+   * - For IS_NULL and IS_NOT_NULL types, it generates the respective SQL condition.
+   * - For CONTAINS type, if JSON_OVERLAPS is supported and the query is on an array, it generates a JSON_OVERLAPS condition.
+   * - For other types, it generates conditions based on the query values and method.
+   *
+   * The method also maps certain attribute names to their corresponding database column names using the `attributeMap`.
+   */
+  public getSQLCondition(query: Query): string {
+    const attributeMap: { [key: string]: string } = {
+      '$id': '_uid',
+      '$internalId': '_id',
+      '$tenant': '_tenant',
+      '$createdAt': '_createdAt',
+      '$updatedAt': '_updatedAt'
+    };
+    query.setAttribute(attributeMap[query.getAttribute()] || query.getAttribute());
 
-  //   if (this.tenantId && this.sharedTables) {
-  //     return ` AND tenant_id = '${tenantId}'`
-  //   }
-  //   return '';
-  // }
+    const attribute = `\`${query.getAttribute()}\``;
+    // const placeholder = this.getSQLPlaceholder(query);
+
+    switch (query.getMethod()) {
+      case Query.TYPE_OR:
+      case Query.TYPE_AND:
+        const conditions = query.getValue().map((q: Query) => this.getSQLCondition(q));
+        const method = query.getMethod().toUpperCase();
+        return conditions.length ? ` ${method} (${conditions.join(' AND ')})` : '';
+
+      case Query.TYPE_SEARCH:
+        return `MATCH(\`table_main\`.${attribute}) AGAINST (? IN BOOLEAN MODE)`; // :${placeholder}_0
+
+      case Query.TYPE_BETWEEN:
+        return `\`table_main\`.${attribute} BETWEEN ? AND ?`; // :${placeholder}_1
+
+      case Query.TYPE_IS_NULL:
+      case Query.TYPE_IS_NOT_NULL:
+        return `\`table_main\`.${attribute} ${this.getSQLOperator(query.getMethod())}`;
+      //@ts-ignore
+      case Query.TYPE_CONTAINS:
+        if (this.getSupportForJSONOverlaps() && query.onArray()) {
+          return `JSON_OVERLAPS(\`table_main\`.${attribute}, ?)`;
+        }
+      // fallthrough
+      default:
+        const defaultConditions = query.getValues().map((value, key) => {
+          return `${attribute} ${this.getSQLOperator(query.getMethod())} ?`;// :${placeholder}_${key}
+        });
+        return defaultConditions.length ? `(${defaultConditions.join(' OR ')})` : '';
+    }
+  }
+
+  /**
+   * Checks if the database adapter supports the JSON_OVERLAPS function.
+   *
+   * @returns {boolean} `true` if JSON_OVERLAPS is supported, otherwise `false`.
+   */
+  public getSupportForJSONOverlaps(): boolean {
+    return true;
+  }
 
   /**
    * Create Database
@@ -216,8 +283,6 @@ export class MariaDB extends DatabaseAdapter implements Adapter {
    */
   public async createCollection(name: string, attributes: Attribute[], indexes: Index[], ifExists: boolean = false): Promise<boolean> {
 
-    name = this.getSqlTable(name);
-
     let attributeSql = attributes.map((attribute) => {
       return `${attribute.name} ${this.getSqlType(attribute.type, attribute.size, attribute.signed, attribute.array)}`
     }).join(',');
@@ -248,11 +313,12 @@ export class MariaDB extends DatabaseAdapter implements Adapter {
     ifExists = ifExists ? 'IF NOT EXISTS' : '' as any;
 
     let collectionSql = `
-      CREATE TABLE ${ifExists} ${name} (
+      CREATE TABLE ${ifExists} ${this.getSqlTable(name)} (
       _id INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
       _uid VARCHAR(255) NOT NULL,
       _createdAt DATETIME(3) DEFAULT NULL,
       _updatedAt DATETIME(3) DEFAULT NULL,
+      _permissions JSON DEFAULT NULL,
       PRIMARY KEY (_id),
       ${attributeSql}${attributeSql ? ',' : ''} 
       ${indexSql}${indexSql ? ',' : ''}
@@ -277,7 +343,7 @@ export class MariaDB extends DatabaseAdapter implements Adapter {
     collectionSql += `)`;
 
     let permissionsSql = `
-      CREATE TABLE ${ifExists} ${name}_perms (
+      CREATE TABLE ${ifExists} ${this.getSqlTable(name + '_perms')} (
         _id INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
         _type VARCHAR(12) NOT NULL,
         _permission VARCHAR(255) NOT NULL,
@@ -322,11 +388,9 @@ export class MariaDB extends DatabaseAdapter implements Adapter {
    * @throws {DatabaseError} If the collection drop operation fails.
    */
   public async dropCollection(name: string, ifExists: boolean = false): Promise<boolean> {
-    name = this.getSqlTable(name);
-
     ifExists = ifExists ? 'IF EXISTS' : '' as any;
 
-    let sql = `DROP TABLE ${ifExists} ${name}, ${name}_perms`;
+    let sql = `DROP TABLE ${ifExists} ${this.getSqlTable(name)}, ${this.getSqlTable(name + '_perms')}`;
 
     try {
       const [result] = await this.pool.query<any>(sql);
@@ -786,17 +850,18 @@ export class MariaDB extends DatabaseAdapter implements Adapter {
    */
   public async createDocument(collection: string, document: Document): Promise<Document> {
     const name = this.filter(collection);
+    let attributes = document.getAttributes()
+    attributes._createdAt = document.getCreatedAt()
+    attributes._updatedAt = document.getUpdatedAt()
 
-    let permissions = document.getAttribute("permissions")
-
-    document.removeAttribute("permissions")
+    delete attributes.$permissions;
 
     let columns: string[] = [];
     let values: any[] = [];
     let placeholders: string[] = [];
 
     // Process attributes
-    Object.entries(document.getAttributes()).forEach(([attribute, value], index) => {
+    Object.entries(attributes).forEach(([attribute, value], index) => {
       const column = this.filter(attribute);
       columns.push(`\`${column}\``);
       placeholders.push('?');
@@ -829,8 +894,6 @@ export class MariaDB extends DatabaseAdapter implements Adapter {
     VALUES (${placeholders.join(', ')})
     `;
 
-    document.setAttribute("permissions", permissions)
-
     try {
       const [result] = await this.pool.query<any>(sql, values);
       this.logger.debug(result);
@@ -840,7 +903,7 @@ export class MariaDB extends DatabaseAdapter implements Adapter {
         const permValues: any[] = [];
         const permPlaceholders: string[] = [];
 
-        ['read', 'write', 'update', 'delete'].forEach(type => {
+        Database.PERMISSIONS.forEach(type => {
           document.getPermissionsByType(type)?.forEach((permission: string) => {
             permPlaceholders.push('(?, ?, ?' + (this.sharedTables ? ', ?' : '') + ')');
             permValues.push(
@@ -863,7 +926,9 @@ export class MariaDB extends DatabaseAdapter implements Adapter {
       }
 
       this.logger.debug(result);
-      return result;
+
+      document.set("$internalId", result.insertId)
+      return document;
     } catch (e) {
       this.logger.error(e);
       throw new DatabaseError("Document Creation Failed");
@@ -878,16 +943,192 @@ export class MariaDB extends DatabaseAdapter implements Adapter {
    * @returns A promise that resolves to a boolean indicating whether the document was successfully updated.
    * @throws {DatabaseError} If the document update fails.
    */
-  public async updateDocument<T extends Document>(collection: string, document: Document): Promise<T> {
+  public async updateDocument(collection: string, document: Document): Promise<Document> {
     const name = this.filter(collection);
-    const sql = `UPDATE ${this.getSqlTable(name)} SET ? WHERE _uid = ?`;
+
+    if (!document.getId()) throw new DatabaseError("Document ID is required.");
+
+    const attributes = document.getAttributes();
+    attributes._createdAt = document.getCreatedAt();
+    attributes._updatedAt = document.getUpdatedAt();
+
+    delete attributes.$permissions;
+
+    if (this.sharedTables) {
+      attributes._tenant = this.tenantId;
+    }
+
+    const columns = Object.keys(attributes).map(attr => `\`${this.filter(attr)}\` = ?`).join(', ');
+    const values = Object.values(attributes).map(value =>
+      Array.isArray(value) || typeof value === 'object' ? JSON.stringify(value) : value
+    );
+
+    let sql = `UPDATE ${this.getSqlTable(name)} SET ${columns} WHERE _uid = ?`;
+    values.push(document.getId());
+
+    sql = this.trigger(Database.EVENT_DOCUMENT_UPDATE, sql);
+
     try {
-      const [result] = await this.pool.query<any>(sql, [document, document.getId()]);
-      this.logger.debug(result);
-      return result
+      await this.pool.query<any>(sql, values);
+
+      // Handle permissions if any
+      if (document.getPermissions()) {
+        const currentPermissions = await this.getCurrentPermissions(name, document.getId());
+        const { additions, removals } = this.getPermissionChanges(currentPermissions, document.getPermissions());
+        this.logger.debug(additions);
+        this.logger.debug(removals);
+
+        if (Object.values(removals).some((perms: any) => perms.length > 0)) {
+          await this.removePermissions(name, document.getId(), removals);
+        }
+
+        if (Object.values(additions).some((perms: any) => perms.length > 0)) {
+          await this.addPermissions(name, document.getId(), additions);
+        }
+      }
+
+      return document;
     } catch (e) {
       this.logger.error(e);
       throw new DatabaseError("Document Update Failed.");
+    }
+  }
+
+  private async getCurrentPermissions(name: string, documentId: string) {
+    let sql = `SELECT _type, _permission FROM ${this.getSqlTable(name + '_perms')} WHERE _document = ?`;
+    if (this.sharedTables) {
+      sql += this.getTenantSql();
+    }
+
+    const [permissions] = await this.pool.query<any>(sql, [documentId, this.tenantId]);
+    return permissions.reduce((acc: any, { _type, _permission }: any) => {
+      acc[_type] = acc[_type] || [];
+      acc[_type].push(_permission);
+      return acc;
+    }, {});
+  }
+
+  private getPermissionChanges(currentPermissions: any, newPermissions: any) {
+    const additions: any = {};
+    const removals: any = {};
+
+    // Initialize additions and removals with empty arrays for each permission type
+    for (const type of Database.PERMISSIONS) {
+      additions[type] = [];
+      removals[type] = [];
+    }
+
+    // Process new permissions
+    for (const perm of newPermissions) {
+      const [action, resource] = perm.match(/(\w+)\("([^"]+)"\)/).slice(1);
+      if (!currentPermissions[action]?.includes(resource)) {
+        additions[action].push(resource);
+      }
+    }
+
+    // Process current permissions
+    for (const type in currentPermissions) {
+      for (const perm of currentPermissions[type]) {
+        if (!newPermissions.includes(`${type}("${perm}")`)) {
+          removals[type].push(perm);
+        }
+      }
+    }
+
+    return { additions, removals };
+  }
+
+  private async removePermissions(name: string, documentId: string, removals: any) {
+    let sql = `DELETE FROM ${this.getSqlTable(name + '_perms')} WHERE _document = ?`;
+    if (this.sharedTables) {
+      sql += ' AND (_tenant = ? OR _tenant IS NULL)';
+    }
+
+    const conditions = [];
+    const values = [documentId, this.tenantId];
+
+    for (const type in removals) {
+      const perms = removals[type].map((perm: string) => {
+        values.push(type, perm);
+        return `(_type = ? AND _permission = ?)`;
+      }).join(' OR ');
+
+      if (perms) conditions.push(`(${perms})`);
+    }
+
+    if (conditions.length > 0) {
+      sql += ` AND (${conditions.join(' OR ')})`;
+    }
+
+    sql = this.trigger(Database.EVENT_PERMISSIONS_DELETE, sql);
+
+    await this.pool.query<any>(sql, values);
+  }
+
+  private async addPermissions(name: string, documentId: string, additions: any) {
+    const values: any[] = [];
+    const placeholders: string[] = [];
+
+    for (const type in additions) {
+      additions[type].forEach((perm: string) => {
+        values.push(documentId, type, perm, this.tenantId);
+        placeholders.push('(?, ?, ?, ?)');
+      });
+    }
+
+    let sql = `INSERT INTO ${this.getSqlTable(name + '_perms')} (_document, _type, _permission, _tenant) VALUES ${placeholders.join(', ')}`;
+    sql = this.trigger(Database.EVENT_PERMISSIONS_CREATE, sql);
+    await this.pool.query<any>(sql, values);
+  }
+
+  public async increaseDocumentAttribute(
+    collection: string,
+    id: string,
+    attribute: string,
+    value: number,
+    updatedAt: string,
+    min?: number,
+    max?: number
+  ): Promise<boolean> {
+    const name = this.filter(collection);
+    const filteredAttribute = this.filter(attribute);
+    const values: any[] = [];
+
+    let sql = `
+          UPDATE ${this.getSqlTable(name)}
+          SET \`${filteredAttribute}\` = \`${filteredAttribute}\` + ?,
+          _updatedAt = ?
+          WHERE _uid = ?
+      `;
+
+    // Add values in order
+    values.push(value);
+    values.push(updatedAt);
+    values.push(id);
+
+    if (this.sharedTables) {
+      sql += ' AND (_tenant = ? OR _tenant IS NULL)';
+      values.push(this.tenantId);
+    }
+
+    // Add min/max conditions if provided
+    if (max !== undefined) {
+      sql += ` AND \`${filteredAttribute}\` <= ?`;
+      values.push(max);
+    }
+    if (min !== undefined) {
+      sql += ` AND \`${filteredAttribute}\` >= ?`;
+      values.push(min);
+    }
+
+    sql = this.trigger(Database.EVENT_DOCUMENT_UPDATE, sql);
+
+    try {
+      const [result] = await this.pool.query<any>(sql, values);
+      return result.affectedRows > 0;
+    } catch (e) {
+      this.logger.error(e);
+      throw new DatabaseError("Failed to update attribute");
     }
   }
 
@@ -901,16 +1142,195 @@ export class MariaDB extends DatabaseAdapter implements Adapter {
    */
   public async deleteDocument(collection: string, uid: string): Promise<boolean> {
     const name = this.filter(collection);
-    const sql = `DELETE FROM ${this.getSqlTable(name)} WHERE _uid = ?`;
+    const values: any[] = [uid];
+
+    let sql = `DELETE FROM ${this.getSqlTable(name)} WHERE _uid = ?`;
+
+    if (this.sharedTables) {
+      sql += ' AND (_tenant = ? OR _tenant IS NULL)';
+      values.push(this.tenantId);
+    }
+
+    sql = this.trigger(Database.EVENT_DOCUMENT_DELETE, sql);
+
     try {
-      const [result] = await this.pool.query<any>(sql, [uid]);
-      this.logger.debug(result);
-      return true
+      // Delete document
+      const [result] = await this.pool.query<any>(sql, values);
+      const deleted = result.affectedRows > 0;
+
+      // Delete associated permissions
+      let permSql = `DELETE FROM ${this.getSqlTable(name + '_perms')} WHERE _document = ?`;
+
+      if (this.sharedTables) {
+        permSql += ' AND (_tenant = ? OR _tenant IS NULL)';
+      }
+
+      permSql = this.trigger(Database.EVENT_PERMISSIONS_DELETE, permSql);
+      await this.pool.query(permSql, values);
+
+      return deleted;
     } catch (e) {
       this.logger.error(e);
-      throw new DatabaseError("Document Deletion Failed.");
+      throw new DatabaseError("Document Deletion Failed");
     }
   }
+
+  /**
+   * Find documents in the specified collection based on the provided queries.
+   * 
+   * @param collection - The name of the collection.
+   * @param queries - An array of query objects to filter the documents.
+   * @param limit - The maximum number of documents to return.
+   * @param offset - The number of documents to skip.
+   * @param orderAttributes - An array of attributes to order the results by.
+   * @param orderTypes - An array of order types corresponding to the order attributes.
+   * @param cursor - An array representing the cursor for pagination.
+   * @param cursorDirection - The direction of the cursor for pagination.
+   * @param forPermission - The permission type to filter the documents by.
+   * @returns A promise that resolves to an array of documents.
+   * @throws {DatabaseError} If the document retrieval fails.
+   */
+  public async find(
+    collection: string,
+    queries: Query[] = [],
+    limit: number = 25,
+    offset: number | null = 0,
+    orderAttributes: string[] = [],
+    orderTypes: string[] = [],
+    cursor: any = {},
+    cursorDirection: string = Database.CURSOR_AFTER,
+    forPermission: string = Database.PERMISSION_READ
+  ): Promise<Document[]> {
+    const name = this.filter(collection);
+    const roles = Authorization.getRoles();
+    const where: string[] = [];
+    const orders: string[] = [];
+    const params: any = [];
+
+    // Map order attributes
+    orderAttributes = orderAttributes.map(orderAttribute => {
+      switch (orderAttribute) {
+        case '$id': return '_uid';
+        case '$internalId': return '_id';
+        case '$tenant': return '_tenant';
+        case '$createdAt': return '_createdAt';
+        case '$updatedAt': return '_updatedAt';
+        default: return orderAttribute;
+      }
+    });
+
+    let hasIdAttribute = false;
+    orderAttributes.forEach((attribute, i) => {
+      if (attribute === '_uid') hasIdAttribute = true;
+
+      const filteredAttribute = this.filter(attribute);
+      let orderType = this.filter(orderTypes[i] || Database.ORDER_ASC);
+
+      // Handle cursor-based pagination
+      if (i === 0 && cursor) {
+        const cursorValue = cursor[attribute === '_uid' ? '$id' : attribute] || null;
+        const internalId = cursor.$internalId;
+
+        if (cursorValue === undefined || internalId === undefined) {
+          return;
+        }
+
+        const orderMethod = orderType === Database.ORDER_DESC
+          ? Query.TYPE_LESSER
+          : Query.TYPE_GREATER;
+
+        const orderMethodInternalId = cursorDirection === Database.CURSOR_BEFORE
+          ? Query.TYPE_LESSER
+          : Query.TYPE_GREATER;
+
+        where.push(`(
+                table_main.\`${filteredAttribute}\` ${this.getSQLOperator(orderMethod)} ?
+                OR (
+                    table_main.\`${filteredAttribute}\` = ?
+                    AND table_main._id ${this.getSQLOperator(orderMethodInternalId)} ?
+                )
+            )`);
+
+        params.push(cursorValue);
+        params.push(cursorValue);
+        params.push(internalId);
+        // params.cursorValue = cursorValue;
+        // params.internalId = internalId;
+      } else if (cursorDirection === Database.CURSOR_BEFORE) {
+        orderType = orderType === Database.ORDER_ASC ? Database.ORDER_DESC : Database.ORDER_ASC;
+      }
+
+      orders.push(`\`${filteredAttribute}\` ${orderType}`);
+    });
+
+    // Add default order by _id if not present
+    if (!hasIdAttribute) {
+      orders.push(`table_main._id ${cursorDirection === Database.CURSOR_AFTER ? 'ASC' : 'DESC'}`);
+    }
+
+    // Construct WHERE conditions from queries
+    const conditions = this.getSQLConditions(queries);
+    if (conditions) {
+      where.push(conditions);
+      let cParams: any = [];
+      for (const query of queries) {
+        this.bindConditionValue(cParams, query);
+      }
+      params.push(...cParams);
+    }
+
+    // Add permissions and tenant-based conditions
+    if (Authorization.status) {
+      where.push(this.getSQLPermissionsCondition(name, roles, forPermission));
+      if (this.sharedTables) {
+        // params.tenant = this.tenantId;
+        params.push(this.tenantId);
+      }
+    }
+
+    if (this.sharedTables) {
+      where.push("(table_main._tenant = ? OR table_main._tenant IS NULL)");
+      // params.tenant = this.tenantId;
+      params.push(this.tenantId);
+    }
+
+    // Build final SQL query
+    const sqlWhere = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const sqlOrder = `ORDER BY ${orders.join(', ')}`;
+    const sqlLimit = limit !== null && limit !== undefined ? `LIMIT ?` : '';
+    const sqlOffset = offset !== null && limit !== undefined ? `OFFSET ?` : '';
+
+    const selections = this.getAttributeSelections(queries);
+    const sql = `
+        SELECT ${this.getAttributeProjection(selections, 'table_main')}
+        FROM ${this.getSqlTable(name)} AS table_main
+        ${sqlWhere}
+        ${sqlOrder}
+        ${sqlLimit}
+        ${sqlOffset};
+    `;
+
+    if (limit !== undefined && limit !== null) params.push(limit);
+    if (offset !== null && offset !== undefined) params.push(offset);
+
+    try {
+      const [results] = await this.pool.execute<any[]>(sql, params);
+
+      return results.map(result => {
+        result.$id = result._uid || null; delete result._uid;
+        result.$internalId = result._id || null; delete result._id;
+        result.$tenant = result._tenant || null; delete result._tenant;
+        result.$createdAt = result._createdAt || null; delete result._createdAt;
+        result.$updatedAt = result._updatedAt || null; delete result._updatedAt;
+        result.$permissions = result._permissions ? JSON.parse(result._permissions) : []; delete result._permissions;
+        return new Document(result);
+      });
+    } catch (error) {
+      this.logger.error(error);
+      throw new DatabaseError("Document Retrieval Failed.");
+    }
+  }
+
 
   /**
    * Get a document from the specified collection.
@@ -951,6 +1371,46 @@ export class MariaDB extends DatabaseAdapter implements Adapter {
       this.logger.error(e);
       throw new DatabaseError("Document Retrieval Failed.");
     }
+  }
+
+
+  /**
+   * Get attribute projection for SQL queries.
+   *
+   * @param selections - The array of selected attributes.
+   * @param prefix - The prefix to be added to the attributes.
+   * @returns The SQL projection string.
+   */
+  protected getAttributeProjection(selections: string[], prefix: string = ''): string {
+    if (selections.length === 0 || selections.includes('*')) {
+      return prefix ? `\`${prefix}\`.*` : '*';
+    }
+
+    // Remove $id, $permissions, and $collection if present since they are always selected by default
+    selections = selections.filter(selection => !['$id', '$permissions', '$collection'].includes(selection));
+
+    selections.push('_uid', '_permissions');
+
+    if (selections.includes('$internalId')) {
+      selections.push('_id');
+      selections = selections.filter(selection => selection !== '$internalId');
+    }
+    if (selections.includes('$createdAt')) {
+      selections.push('_createdAt');
+      selections = selections.filter(selection => selection !== '$createdAt');
+    }
+    if (selections.includes('$updatedAt')) {
+      selections.push('_updatedAt');
+      selections = selections.filter(selection => selection !== '$updatedAt');
+    }
+
+    if (prefix) {
+      selections = selections.map(selection => `\`${prefix}\`.\`${this.filter(selection)}\``);
+    } else {
+      selections = selections.map(selection => `\`${this.filter(selection)}\``);
+    }
+
+    return selections.join(', ');
   }
 
 }

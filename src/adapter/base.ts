@@ -22,7 +22,7 @@ export abstract class DatabaseAdapter implements IDatabaseAdapter {
 
   protected sharedTables: boolean = false;
 
-  protected tenantId: string;
+  protected tenantId: number | null = null;
 
   protected perfix: string;
 
@@ -100,14 +100,14 @@ export abstract class DatabaseAdapter implements IDatabaseAdapter {
   /**
    * Get the tenant ID
    */
-  public getTenantId(): string {
+  public getTenantId(): number | null {
     return this.tenantId;
   }
 
   /**
    * Set the tenant ID
    */
-  public setTenantId(tenantId: string): void {
+  public setTenantId(tenantId: number): void {
     this.tenantId = tenantId;
   }
 
@@ -160,13 +160,8 @@ export abstract class DatabaseAdapter implements IDatabaseAdapter {
     return input.replace(/[^\w\s]/gi, '');
   }
 
-  protected getSqlTable(name: string) {
-    const prefixPart = this.perfix ? `${this.perfix}_` : '';
-    return `${this.database}.${prefixPart}${this.filter(name)}`;
-  }
-
   protected trigger<T extends any>(event: any, query: T): T {
-    this.logger.log(`${event}: ${query}`);
+    this.logger.debug(`${event}: ${query}`);
     return query;
   }
 }
