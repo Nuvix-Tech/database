@@ -1,4 +1,4 @@
-import { Database } from "../core/database";
+import { Constant as Database } from "../core/constant";
 import { Document } from "../core/Document";
 import { Query } from "../core/query";
 import { Attribute } from "../core/types/attribute";
@@ -22,6 +22,7 @@ export class MariaDB extends Sql implements Adapter {
   /**
    * MariaDB pool / connection
    */
+  // @ts-ignore
   pool: mysql2.Pool;
 
   /**
@@ -32,7 +33,7 @@ export class MariaDB extends Sql implements Adapter {
   /**
    * MariaDB adapter instance
    */
-  instance: this;
+  instance: this | null = null;
 
   /**
    * MariaDB adapter options
@@ -76,6 +77,10 @@ export class MariaDB extends Sql implements Adapter {
       this.logger.error(e)
       throw new InitializeError('MariaDB adapter initialization failed');
     }
+  }
+
+  public isInitialized() {
+    return this.instance ? true : false;
   }
 
   /**
@@ -248,7 +253,7 @@ export class MariaDB extends Sql implements Adapter {
    */
   async create(name: string): Promise<boolean> {
     try {
-      await this.pool.query<any>(`CREATE SCHEMA \`${name}\``);
+      await this.pool.query<any>(`CREATE SCHEMA IF NOT EXISTS \`${name}\``);
       return true;
     } catch (e) {
       this.logger.error(e)
@@ -288,14 +293,19 @@ export class MariaDB extends Sql implements Adapter {
    * @returns A promise that resolves to a boolean indicating whether the collection was successfully created.
    * @throws {DatabaseError} Throws an error if the table creation fails.
    */
-  public async createCollection(name: string, attributes: Attribute[], indexes: Index[], ifExists: boolean = false): Promise<boolean> {
+  public async createCollection(name: string, attributes: Document[], indexes: Document[], ifExists: boolean = false): Promise<boolean> {
     const attributeSql = attributes.map((attribute) => {
-      const attrId = this.filter(attribute.$id);
-      const attrType = this.getSqlType(attribute.type, attribute.size, attribute.signed, attribute.array);
+      const attrId = this.filter(attribute.getAttribute("key", attribute.getAttribute("$id")));
+      const attrType = this.getSqlType(
+        attribute.getAttribute("type"),
+        attribute.getAttribute("size", 0),
+        attribute.getAttribute("signed", false),
+        attribute.getAttribute("array", false)
+      );
 
       // Ignore relationships with virtual attributes
-      if (attribute.type === Database.VAR_RELATIONSHIP) {
-        const { relationType, twoWay, side } = attribute.options || {};
+      if (attribute.getAttribute("type") === Database.VAR_RELATIONSHIP) {
+        const { relationType, twoWay, side } = attribute.getAttribute("options") || {};
 
         if (
           relationType === Database.RELATION_MANY_TO_MANY ||
@@ -311,13 +321,13 @@ export class MariaDB extends Sql implements Adapter {
     }).filter(Boolean).join(', ');
 
     const indexSql = indexes.map((index) => {
-      const indexId = this.filter(index.name);
-      const indexType = index.type;
+      const indexId = this.filter(index.getAttribute("name", index.getAttribute("$id")));
+      const indexType = index.getAttribute("type");
 
-      const indexAttributes = index.attributes?.map((attribute, nested) => {
-        let indexLength = index.lengths?.[nested] ?? '';
+      const indexAttributes = index.getAttribute("attributes", [])?.map((attribute: string, nested: number) => {
+        let indexLength = index.getAttribute("lengths", [])?.[nested] ?? '';
         indexLength = indexLength ? `(${indexLength})` : '';
-        let indexOrder = index.orders?.[nested] ?? '';
+        let indexOrder = index.getAttribute("orders", [])?.[nested] ?? '';
 
         let indexAttribute = attribute;
         if (attribute === '$id') indexAttribute = '_uid';
@@ -965,14 +975,13 @@ export class MariaDB extends Sql implements Adapter {
     attributes._updatedAt = document.getUpdatedAt();
     attributes._permissions = document.getPermissions();
 
-    delete attributes.$permissions;
-
     let columns: string[] = [];
     let values: any[] = [];
     let placeholders: string[] = [];
 
     // Process attributes
     Object.entries(attributes).forEach(([attribute, value], index) => {
+      if (Database.INTERNAL_ATTRIBUTES.map((v) => v.$id).includes(attribute)) return;
       const column = this.filter(attribute);
       columns.push(`\`${column}\``);
       placeholders.push('?');
@@ -1088,6 +1097,7 @@ export class MariaDB extends Sql implements Adapter {
           columns.push(...Object.keys(attributes).map(attr => `\`${this.filter(attr)}\``));
         }
 
+        //  if (Database.INTERNAL_ATTRIBUTES.map((v) => v.$id).includes(attribute)) return null;
         placeholders.push(`(${Object.keys(attributes).map(() => '?').join(', ')})`);
         bindValues.push(...Object.values(attributes).map(value => Array.isArray(value) || typeof value === 'object' ? JSON.stringify(value) : value));
 
@@ -1959,12 +1969,13 @@ export class MariaDB extends Sql implements Adapter {
    * The original properties (`_uid`, `_id`, `_tenant`, `_createdAt`, `_updatedAt`, `_permissions`) are deleted from the object.
    */
   objectToDocument(obj: any): Document {
-    obj.$id = obj._uid || null; delete obj._uid;
-    obj.$internalId = obj._id || null; delete obj._id;
-    obj.$tenant = obj._tenant || null; delete obj._tenant;
-    obj.$createdAt = obj._createdAt || null; delete obj._createdAt;
-    obj.$updatedAt = obj._updatedAt || null; delete obj._updatedAt;
-    obj.$permissions = obj._permissions ? JSON.parse(obj._permissions) : []; delete obj._permissions;
+    if (!obj) return new Document();
+    obj.$id = obj?._uid || null; delete obj?._uid;
+    obj.$internalId = obj?._id || null; delete obj?._id;
+    obj.$tenant = obj?._tenant || null; delete obj?._tenant;
+    obj.$createdAt = obj?._createdAt || null; delete obj?._createdAt;
+    obj.$updatedAt = obj?._updatedAt || null; delete obj?._updatedAt;
+    obj.$permissions = obj?._permissions ? JSON.parse(obj._permissions) : []; delete obj?._permissions;
     return new Document(obj);
   }
 

@@ -1,5 +1,5 @@
 import { Queries } from './Queries';
-import { Database } from '../database';
+import { Constant as Database } from '../constant';
 import { Document } from '../Document';
 import { Query } from '../query';
 import { Base } from './Query/Base';

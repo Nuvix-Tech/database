@@ -1,4 +1,4 @@
-import { Database } from "../core/database";
+import { Constant as Database } from "../core/constant";
 import { Document } from "../core/Document";
 import { Query } from "../core/query";
 import { DatabaseError } from "../errors/base";
@@ -254,9 +254,10 @@ export abstract class Sql extends DatabaseAdapter {
 
   public getAttributeWidth(collection: Document): number {
     let total = 1500;
-    const attributes = collection.getAttributes()['attributes'] || [];
+    const attributes = collection.getAttribute("attributes", []) as Document[]
+    console.debug(attributes)
     for (const attribute of attributes) {
-      switch (attribute.type) {
+      switch (attribute.getAttribute("type", null)) {
         case Database.VAR_STRING:
           total += (() => {
             if (attribute.size > 16777215) return 12;
@@ -282,7 +283,8 @@ export abstract class Sql extends DatabaseAdapter {
           total += 19;
           break;
         default:
-          throw new DatabaseError('Unknown type: ' + attribute.type);
+          console.log(attribute);
+          throw new DatabaseError('Unknown type: ' + attribute.getAttribute("type"));
       }
     }
     return total;

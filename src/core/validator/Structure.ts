@@ -1,11 +1,11 @@
 import { Validator } from './Validator';
 import { Document } from '../Document';
-import { Database } from '../database';
+import { Constant as Database } from '../constant';
 import { BooleanValidator, DatetimeValidator, FloatValidator, IntegerValidator, RangeValidator, TextValidator } from '.';
 import { DatabaseError as DatabaseException } from '../../errors/base';
 
 export class Structure extends Validator {
-  protected attributes: Record<string, any> = [
+  protected attributes: Record<string, any>[] = [
     {
       '$id': '$id',
       'type': Database.VAR_STRING,
@@ -165,6 +165,9 @@ export class Structure extends Validator {
     return 'Invalid document structure: ' + this.message;
   }
 
+
+  protected keys: Record<string, any> = {};
+
   /**
    * Is valid.
    *
@@ -184,24 +187,26 @@ export class Structure extends Validator {
       return false;
     }
 
-    if (!this.collection.getId() || this.collection.getCollection() !== 'metadata') {
+    if (!this.collection.getId() || this.collection.getCollection() !== Database.METADATA) {
       this.message = 'Collection not found';
       return false;
     }
 
-    const keys: Record<string, any> = {};
     const structure = document.getArrayCopy();
-    const attributes = { ...this.attributes, ...this.collection.getAttribute('attributes', []) };
+    const attributes = [
+      ...this.attributes, ...this.collection.getAttribute('attributes', [])
+        .map((v: any) => v instanceof Document ? v.getArrayCopy() : v)
+    ];
 
-    if (!this.checkForAllRequiredValues(structure, attributes, keys)) {
+    if (!this.checkForAllRequiredValues(structure, attributes)) {
       return false;
     }
 
-    if (!this.checkForUnknownAttributes(structure, keys)) {
+    if (!this.checkForUnknownAttributes(structure)) {
       return false;
     }
 
-    if (!this.checkForInvalidAttributeValues(structure, keys)) {
+    if (!this.checkForInvalidAttributeValues(structure)) {
       return false;
     }
 
@@ -216,13 +221,12 @@ export class Structure extends Validator {
    * @param keys - The list of allowed keys
    * @returns {boolean}
    */
-  protected checkForAllRequiredValues(structure: Record<string, any>, attributes: Record<string, any>, keys: Record<string, any>): boolean {
-    for (const key in attributes) {
-      const attribute = attributes[key];
+  protected checkForAllRequiredValues(structure: Record<string, any>, attributes: Record<string, any>[]): boolean {
+    for (const attribute of attributes) {
       const name = attribute['$id'] ?? '';
       const required = attribute['required'] ?? false;
 
-      keys[name] = attribute;
+      this.keys[name] = attribute;
 
       if (required && !(name in structure)) {
         this.message = `Missing required attribute "${name}"`;
@@ -240,9 +244,9 @@ export class Structure extends Validator {
    * @param keys - The list of allowed keys
    * @returns {boolean}
    */
-  protected checkForUnknownAttributes(structure: Record<string, any>, keys: Record<string, any>): boolean {
+  protected checkForUnknownAttributes(structure: Record<string, any>): boolean {
     for (const key in structure) {
-      if (!(key in keys)) {
+      if (!(key in this.keys)) {
         this.message = `Unknown attribute: "${key}"`;
         return false;
       }
@@ -258,10 +262,10 @@ export class Structure extends Validator {
    * @param keys - The list of allowed keys
    * @returns {boolean}
    */
-  protected checkForInvalidAttributeValues(structure: Record<string, any>, keys: Record<string, any>): boolean {
+  protected checkForInvalidAttributeValues(structure: Record<string, any>): boolean {
     for (const key in structure) {
       const value = structure[key];
-      const attribute = keys[key] ?? {};
+      const attribute = this.keys[key] ?? {};
       const type = attribute['type'] ?? '';
       const array = attribute['array'] ?? false;
       const required = attribute['required'] ?? false;
@@ -309,7 +313,7 @@ export class Structure extends Validator {
           continue;
         }
 
-        if (!Array.isArray(value) || !value.every((v) => typeof v === 'object')) {
+        if (!Array.isArray(value)) {
           this.message = `Attribute "${key}" must be an array`;
           return false;
         }

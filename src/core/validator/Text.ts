@@ -61,7 +61,7 @@ export class Text extends Validator {
       return false;
     }
 
-    if (value.length < this.min || (this.length > 0 && value.length > this.length)) {
+    if (value.length <= this.min || (this.length > 0 && value.length >= this.length)) {
       return false;
     }
 

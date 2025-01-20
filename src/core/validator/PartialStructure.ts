@@ -1,6 +1,6 @@
 import { Structure } from './Structure';
 import { Document } from '../Document';
-import { Database } from '../database';
+import { Constant as Database } from '../constant';
 
 export class PartialStructure extends Structure {
   /**
@@ -22,20 +22,22 @@ export class PartialStructure extends Structure {
       return false;
     }
 
-    const keys: Record<string, any> = {};
     const structure = document.getArrayCopy();
-    const attributes = { ...this.attributes, ...this.collection.getAttribute('attributes', []) };
+    const attributes = [
+      ...this.attributes, ...this.collection.getAttribute('attributes', [])
+        .map((v: any) => v instanceof Document ? v.getArrayCopy() : v)
+    ];
 
     for (const attribute of attributes) {
       const name = attribute['$id'] ?? '';
-      keys[name] = attribute;
+      this.keys[name] = attribute;
     }
 
-    if (!this.checkForUnknownAttributes(structure, keys)) {
+    if (!this.checkForUnknownAttributes(structure)) {
       return false;
     }
 
-    if (!this.checkForInvalidAttributeValues(structure, keys)) {
+    if (!this.checkForInvalidAttributeValues(structure)) {
       return false;
     }
 

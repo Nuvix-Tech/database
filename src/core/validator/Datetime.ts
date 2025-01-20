@@ -1,6 +1,6 @@
 // src/Validator/Datetime.ts
 
-import { Validator } from './Validator'; // Adjust the import based on your project structure
+import { Validator } from './Validator'; 
 
 export class Datetime extends Validator {
     public static readonly PRECISION_DAYS = 'days';

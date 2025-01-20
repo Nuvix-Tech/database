@@ -1,6 +1,6 @@
 import { Base } from './Base';
 import { Query } from '../../query';
-import {Database} from '../../database';
+import { Constant as Database } from '../../constant';
 import { Document } from '../../Document';
 
 export class Select extends Base {

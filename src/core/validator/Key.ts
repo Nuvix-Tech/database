@@ -1,5 +1,4 @@
-import { Validator } from './Validator'; // Adjust the import based on your project structure
-
+import { Validator } from './Validator';
 export class Key extends Validator {
   protected allowInternal: boolean; // If true, keys starting with $ are allowed
   protected message: string = "Parameter must contain at most 36 chars. Valid chars are a-z, A-Z, 0-9, period, hyphen, and underscore. Can't start with a special char";

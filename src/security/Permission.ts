@@ -1,4 +1,4 @@
-import { Database } from "../core/database";
+import { Constant as Database } from "../core/constant";
 import { DatabaseError as Exception } from "../errors/base";
 import Role from "./Role";
 

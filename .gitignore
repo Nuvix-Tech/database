@@ -18,3 +18,5 @@ npm-debug.log
 dist
 temp
 test
+
+src/**/*.js

@@ -1,6 +1,6 @@
 
 import { IndexedQueries } from '../IndexedQueries';
-import { Database } from '../../database';
+import { Constant as Database } from '../../constant';
 import { Document as DatabaseDocument } from '../../Document';
 import { Limit } from '../Query/Limit';
 import { Offset } from '../Query/Offset';
@@ -20,7 +20,7 @@ export class Documents extends IndexedQueries {
    * @param maxAllowedDate - Maximum allowed date
    */
   constructor(
-    attributes: DatabaseDocument[],
+    attributes: DatabaseDocument[] = [],
     indexes: any[], // Adjust the type based on your index structure
     maxValuesCount: number = 100,
     minAllowedDate: Date = new Date('0000-01-01'),

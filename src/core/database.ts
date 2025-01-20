@@ -27,248 +27,12 @@ import { Document as DocumentValidator } from './validator/Queries/Document';
 import { Documents as DocumentsValidator } from './validator/Queries/Documents';
 import { PartialStructure } from "./validator/PartialStructure";
 import { DateTime } from "./date-time";
+import { Constant } from "./constant";
+import { Logger } from "./logger";
 
 
 
-export class Database {
-  public static VAR_STRING = 'string';
-  // Simple Types
-  public static VAR_INTEGER = 'integer';
-  public static VAR_FLOAT = 'double';
-  public static VAR_BOOLEAN = 'boolean';
-  public static VAR_DATETIME = 'datetime';
-
-  public static INT_MAX = 2147483647;
-  public static BIG_INT_MAX = Number.MAX_SAFE_INTEGER;
-  public static DOUBLE_MAX = Number.MAX_VALUE;
-
-  // Relationship Types
-  public static VAR_RELATIONSHIP = 'relationship';
-
-  // Index Types
-  public static INDEX_KEY = 'key';
-  public static INDEX_FULLTEXT = 'fulltext';
-  public static INDEX_UNIQUE = 'unique';
-  public static INDEX_SPATIAL = 'spatial';
-  public static ARRAY_INDEX_LENGTH = 255;
-
-  // Relation Types
-  public static RELATION_ONE_TO_ONE = 'oneToOne';
-  public static RELATION_ONE_TO_MANY = 'oneToMany';
-  public static RELATION_MANY_TO_ONE = 'manyToOne';
-  public static RELATION_MANY_TO_MANY = 'manyToMany';
-
-  // Relation Actions
-  public static RELATION_MUTATE_CASCADE = 'cascade';
-  public static RELATION_MUTATE_RESTRICT = 'restrict';
-  public static RELATION_MUTATE_SET_NULL = 'setNull';
-
-  // Relation Sides
-  public static RELATION_SIDE_PARENT = 'parent';
-  public static RELATION_SIDE_CHILD = 'child';
-
-  public static RELATION_MAX_DEPTH = 3;
-
-  // Orders
-  public static ORDER_ASC = 'ASC';
-  public static ORDER_DESC = 'DESC';
-
-  // Permissions
-  public static PERMISSION_CREATE = 'create';
-  public static PERMISSION_READ = 'read';
-  public static PERMISSION_UPDATE = 'update';
-  public static PERMISSION_DELETE = 'delete';
-
-  // Aggregate permissions
-  public static PERMISSION_WRITE = 'write';
-
-  public static PERMISSIONS = [
-    this.PERMISSION_CREATE,
-    this.PERMISSION_READ,
-    this.PERMISSION_UPDATE,
-    this.PERMISSION_DELETE,
-  ];
-
-  // Collections
-  public static METADATA = '_metadata';
-
-  // Cursor
-  public static CURSOR_BEFORE = 'before';
-  public static CURSOR_AFTER = 'after';
-
-  // Lengths
-  public static LENGTH_KEY = 255;
-
-  // Cache
-  public static TTL = 60 * 60 * 24; // 24 hours
-
-  // Events
-  public static EVENT_ALL = '*';
-
-  public static EVENT_DATABASE_LIST = 'database_list';
-  public static EVENT_DATABASE_CREATE = 'database_create';
-  public static EVENT_DATABASE_DELETE = 'database_delete';
-
-  public static EVENT_COLLECTION_LIST = 'collection_list';
-  public static EVENT_COLLECTION_CREATE = 'collection_create';
-  public static EVENT_COLLECTION_UPDATE = 'collection_update';
-  public static EVENT_COLLECTION_READ = 'collection_read';
-  public static EVENT_COLLECTION_DELETE = 'collection_delete';
-
-  public static EVENT_DOCUMENT_FIND = 'document_find';
-  public static EVENT_DOCUMENT_CREATE = 'document_create';
-  public static EVENT_DOCUMENTS_CREATE = 'documents_create';
-  public static EVENT_DOCUMENTS_DELETE = 'documents_delete';
-  public static EVENT_DOCUMENT_READ = 'document_read';
-  public static EVENT_DOCUMENT_UPDATE = 'document_update';
-  public static EVENT_DOCUMENTS_UPDATE = 'documents_update';
-  public static EVENT_DOCUMENT_DELETE = 'document_delete';
-  public static EVENT_DOCUMENT_COUNT = 'document_count';
-  public static EVENT_DOCUMENT_SUM = 'document_sum';
-  public static EVENT_DOCUMENT_INCREASE = 'document_increase';
-  public static EVENT_DOCUMENT_DECREASE = 'document_decrease';
-
-  public static EVENT_PERMISSIONS_CREATE = 'permissions_create';
-  public static EVENT_PERMISSIONS_READ = 'permissions_read';
-  public static EVENT_PERMISSIONS_DELETE = 'permissions_delete';
-
-  public static EVENT_ATTRIBUTE_CREATE = 'attribute_create';
-  public static EVENT_ATTRIBUTE_UPDATE = 'attribute_update';
-  public static EVENT_ATTRIBUTE_DELETE = 'attribute_delete';
-
-  public static EVENT_INDEX_RENAME = 'index_rename';
-  public static EVENT_INDEX_CREATE = 'index_create';
-  public static EVENT_INDEX_DELETE = 'index_delete';
-
-  public static INSERT_BATCH_SIZE = 100;
-  public static DELETE_BATCH_SIZE = 100;
-
-
-  public static INTERNAL_ATTRIBUTES = [
-    {
-      '$id': '$id',
-      'type': Database.VAR_STRING,
-      'size': Database.LENGTH_KEY,
-      'required': true,
-      'signed': true,
-      'array': false,
-      'filters': [],
-    },
-    {
-      '$id': '$internalId',
-      'type': Database.VAR_STRING,
-      'size': Database.LENGTH_KEY,
-      'required': true,
-      'signed': true,
-      'array': false,
-      'filters': [],
-    },
-    {
-      '$id': '$collection',
-      'type': Database.VAR_STRING,
-      'size': Database.LENGTH_KEY,
-      'required': true,
-      'signed': true,
-      'array': false,
-      'filters': [],
-    },
-    {
-      '$id': '$tenant',
-      'type': Database.VAR_INTEGER,
-      'size': 0,
-      'required': false,
-      'default': null,
-      'signed': true,
-      'array': false,
-      'filters': [],
-    },
-    {
-      '$id': '$createdAt',
-      'type': Database.VAR_DATETIME,
-      'format': '',
-      'size': 0,
-      'signed': false,
-      'required': false,
-      'default': null,
-      'array': false,
-      'filters': ['datetime'],
-    },
-    {
-      '$id': '$updatedAt',
-      'type': Database.VAR_DATETIME,
-      'format': '',
-      'size': 0,
-      'signed': false,
-      'required': false,
-      'default': null,
-      'array': false,
-      'filters': ['datetime'],
-    },
-  ];
-
-  public static INTERNAL_INDEXES = [
-    '_id',
-    '_uid',
-    '_createdAt',
-    '_updatedAt',
-    '_permissions_id',
-    '_permissions',
-  ];
-
-  /**
-   * Parent Collection
-   * Defines the structure for both system and custom collections
-   *
-   * @var Object<string, mixed>
-   */
-  protected static COLLECTION = {
-    '$id': Database.METADATA,
-    '$collection': Database.METADATA,
-    'name': 'collections',
-    'attributes': [
-      {
-        '$id': 'name',
-        'key': 'name',
-        'type': Database.VAR_STRING,
-        'size': 256,
-        'required': true,
-        'signed': true,
-        'array': false,
-        'filters': [],
-      },
-      {
-        '$id': 'attributes',
-        'key': 'attributes',
-        'type': Database.VAR_STRING,
-        'size': 1000000,
-        'required': false,
-        'signed': true,
-        'array': false,
-        'filters': ['json'],
-      },
-      {
-        '$id': 'indexes',
-        'key': 'indexes',
-        'type': Database.VAR_STRING,
-        'size': 1000000,
-        'required': false,
-        'signed': true,
-        'array': false,
-        'filters': ['json'],
-      },
-      {
-        '$id': 'documentSecurity',
-        'key': 'documentSecurity',
-        'type': Database.VAR_BOOLEAN,
-        'size': 0,
-        'required': true,
-        'signed': true,
-        'array': false,
-        'filters': []
-      }
-    ],
-    'indexes': [],
-  };
+export class Database extends Constant {
 
   protected adapter: Adapter;
 
@@ -312,23 +76,32 @@ export class Database {
 
   protected relationshipDeleteStack: Document[] = [];
 
+  protected logger: Logger;
+
   constructor(adapter: Adapter, cache?: any, filters: Record<string, Filter> = {}) {
+    super()
+    if (!adapter.isInitialized()) throw new DatabaseError("Adapter Should Initialize before passing to Database.")
     this.adapter = adapter;
     this.cache = cache;
     this.instanceFilters = filters;
+    this.cacheName = "default"
+    this.logger = new Logger()
 
     Database.addFilter(
       'json',
-      (value: any) => {
-        value = (value instanceof Document) ? value.getArrayCopy() : value;
-
-        if (!Array.isArray(value) && !(value instanceof Object)) {
-          return value;
+      (value: any, ...args) => {
+        if (Array.isArray(value)) {
+          value = value.map(item => (item instanceof Document) ? item.getArrayCopy() : item);
+        } else if (value instanceof Document) {
+          value = value.getArrayCopy();
         }
 
+        if (!Array.isArray(value) && typeof value === 'object') {
+          return value;
+        }
         return JSON.stringify(value);
       },
-      (value: any) => {
+      (value: any, ...args) => {
         if (typeof value !== 'string') {
           return value;
         }
@@ -339,28 +112,28 @@ export class Database {
           return new Document(value);
         } else {
           value = value.map((item: any) => {
-            if (Array.isArray(item) && '$id' in item) {
+            if (typeof item === 'object' && '$id' in item) {
               return new Document(item);
             }
             return item;
           });
         }
-
         return value;
       }
     );
 
     Database.addFilter(
       'datetime',
-      (value: any) => {
+      (value: any, ...args) => {
         if (value === null) {
           return;
         }
         try {
           value = new Date(value);
-          value.setTimezone(new Date().getTimezoneOffset());
+          (value as Date).setMinutes(value.getMinutes() - (value as Date).getTimezoneOffset());
           return DateTime.format(value);
         } catch (error) {
+          this.logger.error(error)
           return value;
         }
       },
@@ -879,7 +652,7 @@ export class Database {
 
     await this.adapter.create(database);
 
-    const attributes = Database.COLLECTION.attributes.map((attribute: any) => new Document(attribute));
+    const attributes: Document[] = Database.COLLECTION.attributes.map(att => new Document(att));
 
     await this.silent(async () => await this.createCollection(Database.METADATA, attributes));
 
@@ -954,8 +727,9 @@ export class Database {
       }
     }
 
-    let collection = await this.silent(async () => this.getCollection(id));
+    let collection = await this.silent(async () => await this.getCollection(id));
 
+    console.log(collection)
     if (!collection.isEmpty() && id !== Database.METADATA) {
       throw new DuplicateException(`Collection ${id} already exists`);
     }
@@ -997,7 +771,6 @@ export class Database {
           `Attribute limit of ${this.adapter.getLimitForAttributes()} exceeded. Cannot create collection.`
         );
       }
-
       if (
         this.adapter.getDocumentSizeLimit() > 0 &&
         this.adapter.getAttributeWidth(collection) > this.adapter.getDocumentSizeLimit()
@@ -1014,7 +787,7 @@ export class Database {
       return new Document(Database.COLLECTION);
     }
 
-    const createdCollection = await this.silent(async () => this.createDocument(Database.METADATA, collection));
+    const createdCollection = await this.silent(async () => await this.createDocument(Database.METADATA, collection));
 
     this.trigger(Database.EVENT_COLLECTION_CREATE, createdCollection);
 
@@ -1075,8 +848,7 @@ export class Database {
   * @throws DatabaseException
   */
   public async getCollection(id: string): Promise<Document> {
-    const collection = await this.silent(async () => this.getDocument(Database.METADATA, id));
-
+    const collection = await this.silent(async () => await this.getDocument(Database.METADATA, id));
     const tenant = collection.getAttribute('$tenant');
 
     if (
@@ -1167,7 +939,7 @@ export class Database {
    * @throws DatabaseException
    */
   public async deleteCollection(id: string): Promise<boolean> {
-    const collection = await this.silent(async () => this.getDocument(Database.METADATA, id));
+    const collection = await this.silent(async () => await this.getDocument(Database.METADATA, id));
 
     if (collection.isEmpty()) {
       throw new NotFoundException('Collection not found');
@@ -1176,6 +948,8 @@ export class Database {
     if (this.adapter.getSharedTables() && collection.getAttribute('$tenant') != this.adapter.getTenantId()) {
       throw new NotFoundException('Collection not found');
     }
+
+    this.logger.debug(collection, "WILL BE DELTED")
 
     const relationships = collection.getAttribute('attributes').filter((attribute: any) =>
       attribute.type === Database.VAR_RELATIONSHIP
@@ -2619,7 +2393,7 @@ export class Database {
       throw new NotFoundException('Collection not found');
     }
 
-    const attributes = _collection.getAttribute('attributes', []);
+    const attributes: any[] = _collection.getAttribute('attributes', []) ?? [];
 
     if (this.validate) {
       const validator = new DocumentValidator(attributes);
@@ -3045,7 +2819,7 @@ export class Database {
     });
 
     if (this.resolveRelationships) {
-      document = await this.silent(() => this.populateDocumentRelationships(_collection, document));
+      document = await this.silent(async () => await this.populateDocumentRelationships(_collection, document));
     }
 
     document = this.decode(_collection, document);
@@ -5035,7 +4809,7 @@ export class Database {
       orderAttributes,
       orderTypes,
       cursor,
-      cursorDirection ?? Database.CURSOR_AFTER,
+      cursorDirection ?? Database.CURSOR_AFTER as any,
       forPermission
     );
 
@@ -5215,13 +4989,13 @@ export class Database {
       return attribute['$id'] !== '$permissions';
     });
 
-    const allAttributes = [...attributes, ...internalAttributes];
+    const allAttributes = [...attributes, ...internalAttributes.map((v) => new Document(v))];
 
     for (const attribute of allAttributes) {
-      const key = attribute['$id'] ?? '';
-      const array = attribute['array'] ?? false;
-      const defaultValue = attribute['default'] ?? null;
-      const filters = attribute['filters'] ?? [];
+      const key = attribute.getAttribute("$id");
+      const array = attribute.getAttribute("array", false)
+      const defaultValue = attribute.getAttribute("default", null)
+      const filters = attribute.getAttribute("filters", [])
       let value = document.getAttribute(key);
 
       // Continue on optional param with no default
@@ -5236,13 +5010,14 @@ export class Database {
         value = array ? value : [value];
       }
 
-      for (let node of value) {
+      value = value.map((node: any) => {
         if (node !== null) {
           for (const filter of filters) {
             node = this.encodeAttribute(filter, node, document);
           }
         }
-      }
+        return node;
+      });
 
       if (!array) {
         value = value[0];
@@ -5265,15 +5040,15 @@ export class Database {
    */
   public decode(collection: Document, document: Document, selections: string[] = []): Document {
     const attributes = collection.getAttribute('attributes', []).filter(
-      (attribute: any) => attribute['type'] !== Database.VAR_RELATIONSHIP
+      (attribute: any) => attribute.getAttribute("type") !== Database.VAR_RELATIONSHIP
     );
 
     const relationships = collection.getAttribute('attributes', []).filter(
-      (attribute: any) => attribute['type'] === Database.VAR_RELATIONSHIP
+      (attribute: any) => attribute.getAttribute("type") === Database.VAR_RELATIONSHIP
     );
 
     for (const relationship of relationships) {
-      const key = relationship['$id'] ?? '';
+      const key = relationship.getAttribute("$id")
 
       if (
         document.hasOwnProperty(key) ||
@@ -5286,14 +5061,14 @@ export class Database {
       }
     }
 
-    const allAttributes = [...attributes, ...this.getInternalAttributes()];
-
+    const allAttributes = [...attributes,
+    ...this.getInternalAttributes().map(v => new Document(v))];
     for (const attribute of allAttributes) {
-      const key = attribute['$id'] ?? '';
-      const array = attribute['array'] ?? false;
-      const filters = attribute['filters'] ?? [];
+      const key = attribute.getAttribute("key", attribute.getAttribute("$id"))
+      const array = attribute.getAttribute("array", false)
+      const filters = attribute.getAttribute("filters", false)
       let value = document.getAttribute(key);
-
+      this.logger.log(key, value)
       if (value === null) {
         value = document.getAttribute(this.adapter.filter(key));
 
@@ -5305,11 +5080,12 @@ export class Database {
       value = array ? value : [value];
       value = value === null ? [] : value;
 
-      for (let node of value) {
+      value = value.map((val: any) => {
         for (const filter of filters.reverse()) {
-          node = this.decodeAttribute(filter, node, document);
+          val = this.decodeAttribute(filter, val, document);
         }
-      }
+        return val;
+      });
 
       if (
         selections.length === 0 ||

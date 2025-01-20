@@ -1,33 +1,43 @@
 {
-  "extends": "@tsconfig/node16/tsconfig.json",
   "compilerOptions": {
-    "allowSyntheticDefaultImports": true,
-    "declaration": true,
-    "downlevelIteration": true,
-    "emitDecoratorMetadata": true,
-    "experimentalDecorators": true,
-    "importHelpers": true,
-    "module": "commonjs",
+    // Module Configuration
+    "target": "ES2022",
+    "module": "CommonJS",
     "moduleResolution": "node",
-    "noFallthroughCasesInSwitch": true,
-    "noImplicitAny": true,
-    "noImplicitReturns": true,
-    "noUnusedLocals": true,
-    "outDir": "dist",
-    "pretty": true,
+    // Module Interop
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    // Source Maps & Declaration
     "sourceMap": true,
-    "strictFunctionTypes": false,
-    "strictPropertyInitialization": false,
-    "stripInternal": true,
-    "useUnknownInCatchVariables": false
+    "declaration": true,
+    "declarationMap": true,
+    // Path Configuration
+    "baseUrl": ".",
+    "outDir": "dist",
+    "rootDir": ".",
+    // Type Checking
+    "strict": true,
+    "noImplicitAny": true,
+    "skipLibCheck": true,
+    // Decorators
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    // Additional Checks
+    "noFallthroughCasesInSwitch": true,
+    "forceConsistentCasingInFileNames": true,
+    // Path Aliases
+    "paths": {
+      "@/*": [
+        "src/*"
+      ]
+    }
   },
   "include": [
-    "src/**/*.ts", // Include all TypeScript files in the src directory.
-    "test/**/*.ts" // Include all TypeScript files in the test directory.
+    "src/**/*",
+    "test/**/*"
   ],
   "exclude": [
-    "node_modules", // Exclude dependencies.
-    "dist", // Exclude output directory.
-    "temp"
+    "node_modules",
+    "dist"
   ]
 }

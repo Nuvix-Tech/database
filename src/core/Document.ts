@@ -1,5 +1,5 @@
 import { DatabaseError } from '../errors/base';
-import { Database } from './database';
+import { Constant as Database } from './constant';
 
 
 export class Document extends Map<string, any> {
@@ -15,23 +15,32 @@ export class Document extends Map<string, any> {
    */
   constructor(input: Record<string, any> = {}) {
     super();
-
     if (input['$permissions'] && !Array.isArray(input['$permissions'])) {
       throw new DatabaseError('$permissions must be of type array');
     }
 
     for (const [key, value] of Object.entries(input)) {
-      if (Array.isArray(value)) {
-        if (value.some(item => item['$id'] || item['$collection'])) {
-          this.set(key, new Document(value));
+      if (!Array.isArray(value)) {
+        if (value !== null && typeof value === 'object' && (value['$id'] || value['$collection'])) {
+          this.set(key, value instanceof Document ? value : new Document(value));
         } else {
-          this.set(key, value.map(item => (item['$id'] || item['$collection']) ? new Document(item) : item));
+          this.set(key, value);
         }
-      } else if (value && typeof value === 'object' && (value['$id'] || value['$collection'])) {
-        this.set(key, new Document(value));
-      } else {
-        this.set(key, value);
+        continue;
       }
+
+      // Handle array values
+      if (value.some(item => item['$id'] || item['$collection'])) {
+        const newValue = value.map(item =>
+          (item !== null && typeof item === 'object' && (item['$id'] || item['$collection']))
+            ? item instanceof Document ? item : new Document(item)
+            : item
+        );
+        this.set(key, newValue);
+      } else {
+        this.set(key, value)
+      }
+      continue;
     }
   }
 
@@ -98,7 +107,7 @@ export class Document extends Map<string, any> {
     return attributes;
   }
 
-  public getAttribute(name: string, defaultValue: any = null): any {
+  public getAttribute(name: string, defaultValue: any = null): string | number | any {
     return this.has(name) ? this.get(name) : defaultValue;
   }
 
@@ -189,7 +198,13 @@ export class Document extends Map<string, any> {
       if (allow.length && !allow.includes(key)) continue;
       if (disallow.includes(key)) continue;
 
-      output[key] = value instanceof Document ? value.getArrayCopy(allow, disallow) : value;
+      if (value instanceof Document) {
+        output[key] = value.getArrayCopy(allow, disallow);
+      } else if (Array.isArray(value)) {
+        output[key] = value.map(item => item instanceof Document ? item.getArrayCopy(allow, disallow) : item);
+      } else {
+        output[key] = value;
+      }
     }
     return output;
   }

@@ -1,6 +1,4 @@
-// src/Validator/Label.ts
-
-import { Key } from './Key'; // Adjust the import based on your project structure
+import { Key } from './Key'; 
 
 export class Label extends Key {
     protected message: string = 'Value must be a valid string between 1 and 36 chars containing only alphanumeric chars';

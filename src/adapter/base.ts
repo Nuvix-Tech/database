@@ -1,4 +1,4 @@
-import { Database } from "../core/database";
+import { Constant as Database } from "../core/constant";
 import { Document } from "../core/Document";
 import { Logger } from "../core/logger";
 import { Query } from "../core/query";
@@ -58,7 +58,7 @@ export interface Adapter {
 
   exists(name: string, collection?: string): Promise<boolean>;
 
-  createCollection(name: string, attributes: Attribute[] | Document[], indexes: Index[] | Document[], ifExists?: boolean): Promise<boolean>;
+  createCollection(name: string, attributes: Document[], indexes: Document[], ifExists?: boolean): Promise<boolean>;
 
   dropCollection(name: string, ifExists?: boolean): Promise<boolean>;
 
@@ -154,6 +154,8 @@ export interface Adapter {
 
   getMaxDateTime(): Date;
 
+  isInitialized(): boolean;
+
 }
 
 interface IDatabaseAdapter { }
@@ -166,14 +168,17 @@ export abstract class DatabaseAdapter implements IDatabaseAdapter {
 
   protected type: string;
 
+  // @ts-ignore
   protected database: string;
 
+  // @ts-ignore
   protected schema: string;
 
   protected sharedTables: boolean = false;
 
   protected tenantId: number | null = null;
 
+  // @ts-ignore
   protected perfix: string;
 
   protected transformations: Record<string, Record<string, Function>> = { '*': {} };

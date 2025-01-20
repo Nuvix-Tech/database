@@ -1,7 +1,6 @@
-import { Validator } from './Validator'; // Adjust the import based on your project structure
-import { Document } from '../Document'; // Adjust the import based on your project structure
-import { Database } from '../database';
-import { Attribute } from '../types/attribute';
+import { Validator } from './Validator';
+import { Document } from '../Document';
+import { Constant as Database } from '../constant';
 
 export class Index extends Validator {
     protected message: string = 'Invalid index';
