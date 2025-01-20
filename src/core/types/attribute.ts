@@ -1,7 +1,7 @@
 
 
 export interface Attribute {
-  name: string;
+  $id: string;
   type: string;
   size: number;
   format?: string;

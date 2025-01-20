@@ -1,4 +1,5 @@
 import { Database } from "../core/database";
+import { Document } from "../core/Document";
 import { Query } from "../core/query";
 import { DatabaseError } from "../errors/base";
 import { DatabaseAdapter } from "./base";
@@ -209,4 +210,93 @@ export abstract class Sql extends DatabaseAdapter {
     return false;
   }
 
+  public getLimitForString(): number {
+    return 4294967295;
+  }
+
+  public getLimitForInt(): number {
+    return 4294967295;
+  }
+
+  public getLimitForAttributes(): number {
+    return 1017;
+  }
+
+  public getLimitForIndexes(): number {
+    return 64;
+  }
+
+  public getCountOfAttributes(collection: Document): number {
+    const attributes = (collection.getAttribute('attributes') ?? []).length;
+    return attributes + this.getCountOfDefaultAttributes() + 1;
+  }
+
+  public getCountOfIndexes(collection: Document): number {
+    const indexes = (collection.getAttribute('indexes') ?? []).length;
+    return indexes + this.getCountOfDefaultIndexes();
+  }
+
+  public getCountOfDefaultAttributes(): number {
+    return Database.INTERNAL_ATTRIBUTES.length;
+  }
+
+  public getCountOfDefaultIndexes(): number {
+    return Database.INTERNAL_INDEXES.length;
+  }
+
+  public getDocumentSizeLimit(): number {
+    return 65535;
+  }
+
+  public getSupportForCasting(): boolean {
+    return false;
+  }
+
+  public getAttributeWidth(collection: Document): number {
+    let total = 1500;
+    const attributes = collection.getAttributes()['attributes'] || [];
+    for (const attribute of attributes) {
+      switch (attribute.type) {
+        case Database.VAR_STRING:
+          total += (() => {
+            if (attribute.size > 16777215) return 12;
+            if (attribute.size > 65535) return 11;
+            if (attribute.size > this.getMaxVarcharLength()) return 10;
+            if (attribute.size > 255) return attribute.size * 4 + 2;
+            return attribute.size * 4 + 1;
+          })();
+          break;
+        case Database.VAR_INTEGER:
+          total += attribute.size >= 8 ? 8 : 4;
+          break;
+        case Database.VAR_FLOAT:
+          total += 8;
+          break;
+        case Database.VAR_BOOLEAN:
+          total += 1;
+          break;
+        case Database.VAR_RELATIONSHIP:
+          total += Database.LENGTH_KEY * 4 + 2;
+          break;
+        case Database.VAR_DATETIME:
+          total += 19;
+          break;
+        default:
+          throw new DatabaseError('Unknown type: ' + attribute.type);
+      }
+    }
+    return total;
+  }
+
+  public getMaxVarcharLength(): number {
+    return 16381;
+  }
+
+  public getMaxIndexLength(): number {
+    return this.sharedTables ? 767 : 768;
+  }
+
+  public getInternalIndexesKeys(): string[] {
+    return [];
+  }
 }

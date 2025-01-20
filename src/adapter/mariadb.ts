@@ -92,6 +92,9 @@ export class MariaDB extends Sql implements Adapter {
     }
   }
 
+  getConnectionId(): string | number {
+    return this.pool.threadId
+  }
 
   /**
    * Start MariaDB transaction
@@ -271,6 +274,9 @@ export class MariaDB extends Sql implements Adapter {
     }
   }
 
+  async exists(name: string, collection?: string): Promise<boolean> {
+    return true;
+  }
 
   /**
    * Creates a new collection in the MariaDB database with the specified name, attributes, and indexes.
@@ -284,7 +290,7 @@ export class MariaDB extends Sql implements Adapter {
    */
   public async createCollection(name: string, attributes: Attribute[], indexes: Index[], ifExists: boolean = false): Promise<boolean> {
     const attributeSql = attributes.map((attribute) => {
-      const attrId = this.filter(attribute.name);
+      const attrId = this.filter(attribute.$id);
       const attrType = this.getSqlType(attribute.type, attribute.size, attribute.signed, attribute.array);
 
       // Ignore relationships with virtual attributes
@@ -752,6 +758,91 @@ export class MariaDB extends Sql implements Adapter {
   }
 
   /**
+   * Delete a relationship between collections.
+   * 
+   * @param collection - The name of the collection.
+   * @param relatedCollection - The name of the related collection.
+   * @param type - The type of relationship.
+   * @param twoWay - Indicates if the relationship is two-way.
+   * @param key - The name of the relationship attribute.
+   * @param twoWayKey - The name of the two-way relationship attribute.
+   * @param side - The side of the relationship.
+   * @returns A promise that resolves to a boolean indicating whether the relationship was successfully deleted.
+   * @throws {DatabaseError} If the relationship deletion fails.
+   */
+  public async deleteRelationship(collection: string, relatedCollection: string, type: string, twoWay: boolean, key: string, twoWayKey: string, side: string): Promise<boolean> {
+    const name = this.filter(collection);
+    const relatedName = this.filter(relatedCollection);
+    const table = this.getSqlTable(name);
+    const relatedTable = this.getSqlTable(relatedName);
+    key = this.filter(key);
+    twoWayKey = this.filter(twoWayKey);
+
+    let sql = '';
+
+    switch (type) {
+      case Database.RELATION_ONE_TO_ONE:
+        if (side === Database.RELATION_SIDE_PARENT) {
+          sql = `ALTER TABLE ${table} DROP COLUMN \`${key}\`;`;
+          if (twoWay) {
+            sql += `ALTER TABLE ${relatedTable} DROP COLUMN \`${twoWayKey}\`;`;
+          }
+        } else if (side === Database.RELATION_SIDE_CHILD) {
+          sql = `ALTER TABLE ${relatedTable} DROP COLUMN \`${twoWayKey}\`;`;
+          if (twoWay) {
+            sql += `ALTER TABLE ${table} DROP COLUMN \`${key}\`;`;
+          }
+        }
+        break;
+      case Database.RELATION_ONE_TO_MANY:
+        if (side === Database.RELATION_SIDE_PARENT) {
+          sql = `ALTER TABLE ${relatedTable} DROP COLUMN \`${twoWayKey}\`;`;
+        } else {
+          sql = `ALTER TABLE ${table} DROP COLUMN \`${key}\`;`;
+        }
+        break;
+      case Database.RELATION_MANY_TO_ONE:
+        if (side === Database.RELATION_SIDE_PARENT) {
+          sql = `ALTER TABLE ${table} DROP COLUMN \`${key}\`;`;
+        } else {
+          sql = `ALTER TABLE ${relatedTable} DROP COLUMN \`${twoWayKey}\`;`;
+        }
+        break;
+      case Database.RELATION_MANY_TO_MANY:
+        const collectionDoc = await this.getDocument(Database.METADATA, collection);
+        const relatedCollectionDoc = await this.getDocument(Database.METADATA, relatedCollection);
+
+        const junction = side === Database.RELATION_SIDE_PARENT
+          ? this.getSqlTable(`_${collectionDoc.getInternalId()}_${relatedCollectionDoc.getInternalId()}`)
+          : this.getSqlTable(`_${relatedCollectionDoc.getInternalId()}_${collectionDoc.getInternalId()}`);
+
+        const perms = side === Database.RELATION_SIDE_PARENT
+          ? this.getSqlTable(`_${collectionDoc.getInternalId()}_${relatedCollectionDoc.getInternalId()}_perms`)
+          : this.getSqlTable(`_${relatedCollectionDoc.getInternalId()}_${collectionDoc.getInternalId()}_perms`);
+
+        sql = `DROP TABLE ${junction}; DROP TABLE ${perms}`;
+        break;
+      default:
+        throw new DatabaseError('Invalid relationship type');
+    }
+
+    if (!sql) {
+      return true;
+    }
+
+    sql = this.trigger(Database.EVENT_ATTRIBUTE_DELETE, sql);
+
+    try {
+      const [result] = await this.pool.query<any>(sql);
+      this.logger.debug(result);
+      return true;
+    } catch (e) {
+      this.logger.error(e);
+      throw new DatabaseError("Relationship Deletion Failed.");
+    }
+  }
+
+  /**
    * Rename Index
    *
    * @param collection - The name of the collection.
@@ -1061,10 +1152,10 @@ export class MariaDB extends Sql implements Adapter {
    * @returns A promise that resolves to a boolean indicating whether the document was successfully updated.
    * @throws {DatabaseError} If the document update fails.
    */
-  public async updateDocument(collection: string, document: Document): Promise<Document> {
+  public async updateDocument(collection: string, id: string, document: Document): Promise<Document> {
     const name = this.filter(collection);
 
-    if (!document.getId()) throw new DatabaseError("Document ID is required.");
+    if (!id) throw new DatabaseError("Document ID is required.");
 
     const attributes = document.getAttributes();
     if (document.getCreatedAt()) {
@@ -1089,7 +1180,7 @@ export class MariaDB extends Sql implements Adapter {
     ) ?? [];
 
     let sql = `UPDATE ${this.getSqlTable(name)} SET ${columns} WHERE _uid = ?`;
-    values.push(document.getId());
+    values.push(id);
 
     sql = this.trigger(Database.EVENT_DOCUMENT_UPDATE, sql);
 
@@ -1098,15 +1189,15 @@ export class MariaDB extends Sql implements Adapter {
 
       // Handle permissions if any
       if (document.getPermissions()) {
-        const currentPermissions = await this.getCurrentPermissions(name, document.getId());
+        const currentPermissions = await this.getCurrentPermissions(name, id);
         const { additions, removals } = this.getPermissionChanges(currentPermissions, document.getPermissions());
 
         if (Object.values(removals).some((perms: any) => perms.length > 0)) {
-          await this.removePermissions(name, document.getId(), removals);
+          await this.removePermissions(name, id, removals);
         }
 
         if (Object.values(additions).some((perms: any) => perms.length > 0)) {
-          await this.addPermissions(name, document.getId(), additions);
+          await this.addPermissions(name, id, additions);
         }
       }
 
@@ -1263,7 +1354,7 @@ export class MariaDB extends Sql implements Adapter {
     * @param removals - An object where keys are permission types and values are arrays of permissions to be removed.
     * @returns A promise that resolves when the permissions have been removed.
     *
-    * @remarks
+    * @remarkspublic async 
     * This method constructs a SQL DELETE statement to remove permissions from the specified document.
     * If `sharedTables` is enabled, it will also consider tenant-specific conditions.
     * The method triggers the `Database.EVENT_PERMISSIONS_DELETE` event before executing the query.
@@ -1807,6 +1898,50 @@ export class MariaDB extends Sql implements Adapter {
     }
   }
 
+  public async getSizeOfCollectionOnDisk(collection: string): Promise<number> {
+    const filteredCollection = this.filter(collection);
+    let prefixPart = this.perfix ? `${this.perfix}_` : '';
+    const name = `${this.getDatabase()}/${prefixPart}${filteredCollection}`;
+    const permissions = `${this.getDatabase()}/${prefixPart}${filteredCollection}_perms`;
+
+    const sql = `
+      SELECT SUM(FS_BLOCK_SIZE + ALLOCATED_SIZE)  
+      FROM INFORMATION_SCHEMA.INNODB_SYS_TABLESPACES
+      WHERE NAME IN (?, ?)
+    `;
+
+    try {
+      const [result] = await this.pool.query<any>(sql, [name, permissions]);
+      return Number(result[0]['SUM(FS_BLOCK_SIZE + ALLOCATED_SIZE)']) || 0;
+    } catch (e) {
+      this.logger.error(e);
+      throw this.processException(e);
+    }
+  }
+
+  public async getSizeOfCollection(collection: string): Promise<number> {
+    const filteredCollection = this.filter(collection);
+    let prefixPart = this.perfix ? `${this.perfix}_` : '';
+    const tableName = `${prefixPart}${filteredCollection}`;
+    const permissionsTable = `${prefixPart}${tableName}_perms`;
+    const database = this.getDatabase();
+
+    const sql = `
+      SELECT SUM(data_length + index_length)
+      FROM INFORMATION_SCHEMA.TABLES
+      WHERE table_schema = ?
+      AND table_name IN (?, ?)
+    `;
+
+    try {
+      const [result] = await this.pool.query<any>(sql, [database, tableName, permissionsTable]);
+      return Number(result[0]['SUM(data_length + index_length)']) || 0;
+    } catch (e) {
+      this.logger.error(e);
+      throw this.processException(e);
+    }
+  }
+
   /**
    * Converts a given object to a Document instance by mapping and renaming specific properties.
    * 
@@ -1916,6 +2051,40 @@ export class MariaDB extends Sql implements Adapter {
     }
 
     return e;
+  }
+
+  public getSupportForIndex(): boolean {
+    return true;
+  }
+
+  public getSupportForUniqueIndex(): boolean {
+    return true;
+  }
+
+  public getSupportForFulltextIndex(): boolean {
+    return true;
+  }
+
+  public getSupportForFulltextWildcardIndex(): boolean {
+    return true;
+  }
+
+  /**
+   * Get the minimum DateTime value supported by MariaDB.
+   *
+   * @returns {Date} The minimum DateTime value as a Date object.
+   */
+  public getMinDateTime(): Date {
+    return new Date('1000-01-01T00:00:00Z');
+  }
+
+  /**
+   * Get the maximum DateTime value supported by MariaDB.
+   *
+   * @returns {Date} The maximum DateTime value as a Date object.
+   */
+  public getMaxDateTime(): Date {
+    return new Date('9999-12-31T23:59:59Z');
   }
 
 }

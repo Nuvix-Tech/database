@@ -1,198 +1,144 @@
-# Document Class
+# Database Library
 
-The `Document` class is a flexible and strongly-typed utility designed for handling structured data with advanced features like attribute manipulation, permission management, and serialization. This README provides an overview of its usage and capabilities.
-
----
+A powerful, extensible, and dynamic database library written in TypeScript. This library allows developers to define and manipulate schemas, perform efficient queries, and manage data seamlessly across different databases. It currently includes a MariaDB adapter with plans for future expansion.
 
 ## Features
 
-1. **Strong Typing**: TypeScript generics ensure type safety for document attributes.
-2. **Immutable Patterns**: Supports immutable updates to avoid unintended mutations.
-3. **Advanced Permissions Handling**: Easy-to-use methods for managing read, write, create, update, and delete permissions.
-4. **Serialization Options**: Flexible export options for JSON and custom formats.
-5. **Hooks for Validation**: Lifecycle hooks like `beforeSave` for extensibility.
-6. **Deep Cloning**: Built-in support for creating deep copies of documents.
-
----
+- **Dynamic and Static Schema Definition**: Support for defining schemas using repository patterns (static) or structured objects (dynamic).
+- **Multi-Tenancy**: Built-in support for shared tables for multi-tenant applications.
+- **Query Builders**: Chainable and intuitive query builders for constructing complex queries.
+- **MariaDB Adapter**: Full support for MariaDB with efficient query execution and parameter binding.
+- **Customizable Adapters**: Easily extend or create new adapters for other databases.
+- **Real-Time Logging**: Debug queries with parameterized outputs.
+- **Extensibility**: Designed for developers to extend functionality easily.
 
 ## Installation
 
-To use the `Document` class in your project:
-
 ```bash
-npm install @your-namespace/document
+npm install @nuvix/database
 ```
 
----
-
-## Usage
-
-### Import the Class
-
-```typescript
-import { Document } from '@your-namespace/document';
-```
+## Getting Started
 
 ### Basic Usage
 
-Create a new document with attributes:
-
 ```typescript
-const doc = new Document<{ id: string; name: string; permissions: string[] }>(
-    { id: '123', name: 'My Document', permissions: ['read(user1)', 'write(user2)'] }
-);
+import { Database, MariaDBAdapter, Query } from '@nuvix/database';
 
-console.log(doc.getAttribute('name')); // "My Document"
+// Initialize the database
+const db = new Database(new MariaDBAdapter({
+  host: 'localhost',
+  user: 'root',
+  password: 'password',
+  database: 'test_db',
+}));
+
+// Perform a query
+const documents = await db.find('users', [
+  Query.contains('name', ['John']),
+  Query.equal('status', 'active'),
+], 10, 0);
+
+console.log(documents);
 ```
 
-### Updating Attributes
+### Schema Definition
 
-Immutable updates:
-
-```typescript
-const updatedDoc = doc.cloneWith({ name: 'Updated Document' });
-console.log(updatedDoc.getAttribute('name')); // "Updated Document"
-```
-
-Mutable updates:
+#### Static Schema (Repository Pattern)
 
 ```typescript
-doc.setAttribute('name', 'Updated Name');
-console.log(doc.getAttribute('name')); // "Updated Name"
-```
+import { Entity, Column, PrimaryGeneratedColumn } from '@nuvix/database';
 
-### Permissions Management
+@Entity('users')
+class User {
+  @PrimaryGeneratedColumn()
+  id: number;
 
-Extract permissions by type:
+  @Column({ type: 'string' })
+  name: string;
 
-```typescript
-const readPermissions = doc.getPermissionsByType('read');
-console.log(readPermissions); // ["user1"]
-```
-
-### Serialization
-
-Export document attributes to JSON:
-
-```typescript
-const json = doc.toJSON();
-console.log(json); // { id: '123', name: 'My Document', permissions: [...] }
-```
-
-Export with filters:
-
-```typescript
-const filteredJson = doc.toJSON(['id']);
-console.log(filteredJson); // { id: '123' }
-```
-
-### Lifecycle Hooks
-
-Extend the class to implement custom hooks:
-
-```typescript
-class CustomDocument extends Document {
-    async beforeSave(): Promise<void> {
-        console.log('Validating document...');
-    }
-
-    async save(): Promise<this> {
-        await this.beforeSave();
-        // Save logic here
-        return this;
-    }
+  @Column({ type: 'string' })
+  email: string;
 }
 ```
 
----
-
-## API Reference
-
-### Constructor
+#### Dynamic Schema
 
 ```typescript
-new Document<T extends Record<string, any>>(attributes: T);
+const schema = {
+  name: 'users',
+  fields: [
+    { name: 'id', type: 'number', primary: true },
+    { name: 'name', type: 'string' },
+    { name: 'email', type: 'string' },
+  ],
+};
 ```
 
-- **attributes**: Initial attributes for the document.
+### Multi-Tenancy Support
 
-### Methods
-
-#### `getAttribute`
+Enable shared tables and tenant isolation:
 
 ```typescript
-getAttribute<K extends keyof T>(key: K, defaultValue?: T[K]): T[K] | undefined;
+db.enableSharedTables(true);
+db.setTenantId('tenant_1');
+
+const tenantDocuments = await db.find('shared_table', []);
 ```
 
-Retrieve an attribute value by key.
+## MariaDB Adapter
 
-#### `setAttribute`
+The MariaDB adapter enables efficient interaction with MariaDB databases:
+
+### Initialization
 
 ```typescript
-setAttribute<K extends keyof T>(key: K, value: T[K]): this;
+const mariadbAdapter = new MariaDBAdapter({
+  host: 'localhost',
+  user: 'root',
+  password: 'password',
+  database: 'my_database',
+});
+
+const db = new Database(mariadbAdapter);
 ```
 
-Set or update an attribute.
-
-#### `cloneWith`
+### Query Execution Example
 
 ```typescript
-cloneWith(changes: Partial<T>): Document<T>;
+const documents = await db.find('products', [
+  Query.contains('category', ['Electronics']),
+]);
+
+console.log(documents);
 ```
 
-Create a new document with updated attributes.
+## Logging and Debugging
 
-#### `getPermissionsByType`
+Enable debug mode to log SQL queries and parameters:
 
 ```typescript
-getPermissionsByType(type: string): string[];
+db.enableDebug(true);
 ```
 
-Retrieve permissions filtered by type (e.g., `read`, `write`).
+## Contributing
 
-#### `toJSON`
+We welcome contributions! Please follow these steps:
 
-```typescript
-toJSON(allowedKeys?: (keyof T)[]): Partial<T>;
-```
-
-Export document attributes as a plain object.
-
----
-
-## Testing
-
-Run the test suite to ensure all features work as expected:
-
-```bash
-npm test
-```
-
----
+1. Fork the repository.
+2. Create a feature branch: `git checkout -b feature-name`.
+3. Commit your changes: `git commit -m 'Add some feature'`.
+4. Push to the branch: `git push origin feature-name`.
+5. Open a pull request.
 
 ## License
 
 This project is licensed under the BSD 3-Clause License. See the [LICENSE](LICENSE) file for details.
 
----
+## Acknowledgments
 
-## Contributing
-
-We welcome contributions! Please read our [CONTRIBUTING](CONTRIBUTING.md) guide to get started.
+Special thanks to all the contributors and the open-source community for making this project possible.
 
 ---
 
-## Changelog
-
-See the [CHANGELOG](CHANGELOG.md) for details about recent updates.
-
----
-
-## Feedback
-
-Feel free to open an issue or submit a pull request on our [GitHub repository](https://github.com/your-repo/document).
-
----
-
-Happy coding! 🚀
-
+Happy coding! 🎉
