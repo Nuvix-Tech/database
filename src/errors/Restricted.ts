@@ -1,6 +1,3 @@
 import { DatabaseError } from "./base";
 
-
-
-export default class Restricted extends DatabaseError
- {}
+export default class Restricted extends DatabaseError {}

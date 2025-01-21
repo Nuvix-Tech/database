@@ -1,6 +1,3 @@
 import { DatabaseError } from "./base";
 
-
-
-export default class Truncate extends DatabaseError
- { }
+export default class Truncate extends DatabaseError {}

@@ -1,7 +1,8 @@
-import { Key } from './Key'; 
+import { Key } from "./Key";
 
 export class Label extends Key {
-    protected message: string = 'Value must be a valid string between 1 and 36 chars containing only alphanumeric chars';
+    protected message: string =
+        "Value must be a valid string between 1 and 36 chars containing only alphanumeric chars";
 
     /**
      * Is valid.

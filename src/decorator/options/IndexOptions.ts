@@ -1,12 +1,11 @@
-
 export interface IndexOptions {
-  $id: string;
+    $id: string;
 
-  type: 'fulltext' | 'unique' | 'spatial' | 'key';
+    type: "fulltext" | "unique" | "spatial" | "key";
 
-  attributes: string[];
+    attributes: string[];
 
-  lengths?: number[] | any[];
+    lengths?: number[] | any[];
 
-  orders?: ('ASC' | 'DESC')[];
+    orders?: ("ASC" | "DESC")[];
 }

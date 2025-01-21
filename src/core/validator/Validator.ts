@@ -1,9 +1,5 @@
-
-
 export abstract class Validator {
+    abstract isValid(value: any): boolean;
 
-  abstract isValid(value: any): boolean;
-
-  abstract getDescription(): string;
-
+    abstract getDescription(): string;
 }

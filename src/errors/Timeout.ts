@@ -1,5 +1,3 @@
 import { DatabaseError } from "./base";
 
-
-
-export default class Timeout extends DatabaseError { }
+export default class Timeout extends DatabaseError {}

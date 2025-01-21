@@ -1,13 +1,13 @@
 // src/Validator/Datetime.ts
 
-import { Validator } from './Validator'; 
+import { Validator } from "./Validator";
 
 export class Datetime extends Validator {
-    public static readonly PRECISION_DAYS = 'days';
-    public static readonly PRECISION_HOURS = 'hours';
-    public static readonly PRECISION_MINUTES = 'minutes';
-    public static readonly PRECISION_SECONDS = 'seconds';
-    public static readonly PRECISION_ANY = 'any';
+    public static readonly PRECISION_DAYS = "days";
+    public static readonly PRECISION_HOURS = "hours";
+    public static readonly PRECISION_MINUTES = "minutes";
+    public static readonly PRECISION_SECONDS = "seconds";
+    public static readonly PRECISION_ANY = "any";
 
     private min: Date;
     private max: Date;
@@ -26,11 +26,11 @@ export class Datetime extends Validator {
      * @throws Error if offset is negative
      */
     constructor(
-        min: Date = new Date('0000-01-01'),
-        max: Date = new Date('9999-12-31'),
+        min: Date = new Date("0000-01-01"),
+        max: Date = new Date("9999-12-31"),
         requireDateInFuture: boolean = false,
         precision: string = Datetime.PRECISION_ANY,
-        offset: number = 0
+        offset: number = 0,
     ) {
         super();
         this.min = min;
@@ -40,7 +40,7 @@ export class Datetime extends Validator {
         this.offset = offset;
 
         if (offset < 0) {
-            throw new Error('Offset must be a positive integer.');
+            throw new Error("Offset must be a positive integer.");
         }
     }
 
@@ -52,20 +52,20 @@ export class Datetime extends Validator {
      * @returns {string}
      */
     public getDescription(): string {
-        let message = 'Value must be a valid date';
+        let message = "Value must be a valid date";
 
         if (this.offset > 0) {
             message += ` at least ${this.offset} seconds in the future and`;
         } else if (this.requireDateInFuture) {
-            message += ' in the future and';
+            message += " in the future and";
         }
 
         if (this.precision !== Datetime.PRECISION_ANY) {
             message += ` with ${this.precision} precision`;
         }
 
-        const min = this.min.toISOString().slice(0, 19).replace('T', ' ');
-        const max = this.max.toISOString().slice(0, 19).replace('T', ' ');
+        const min = this.min.toISOString().slice(0, 19).replace("T", " ");
+        const max = this.max.toISOString().slice(0, 19).replace("T", " ");
 
         message += ` between ${min} and ${max}.`;
         return message;
@@ -80,7 +80,7 @@ export class Datetime extends Validator {
      * @returns {boolean}
      */
     public isValid(value: any): boolean {
-        if (typeof value !== 'string' || value.trim() === '') {
+        if (typeof value !== "string" || value.trim() === "") {
             return false;
         }
 
@@ -108,22 +108,24 @@ export class Datetime extends Validator {
         const denyConstants: string[] = [];
         switch (this.precision) {
             case Datetime.PRECISION_DAYS:
-                denyConstants.push('Hours', 'Minutes', 'Seconds');
+                denyConstants.push("Hours", "Minutes", "Seconds");
                 break;
             case Datetime.PRECISION_HOURS:
-                denyConstants.push('Minutes', 'Seconds');
+                denyConstants.push("Minutes", "Seconds");
                 break;
             case Datetime.PRECISION_MINUTES:
-                denyConstants.push('Seconds');
+                denyConstants.push("Seconds");
                 break;
             case Datetime.PRECISION_SECONDS:
                 break; // No restrictions
         }
 
         for (const constant of denyConstants) {
-            if ((constant === 'Hours' && date.getHours() !== 0) ||
-                (constant === 'Minutes' && date.getMinutes() !== 0) ||
-                (constant === 'Seconds' && date.getSeconds() !== 0)) {
+            if (
+                (constant === "Hours" && date.getHours() !== 0) ||
+                (constant === "Minutes" && date.getMinutes() !== 0) ||
+                (constant === "Seconds" && date.getSeconds() !== 0)
+            ) {
                 return false;
             }
         }
@@ -146,7 +148,7 @@ export class Datetime extends Validator {
     /**
      * Is array
      *
- * Function will return true if object is array.
+     * Function will return true if object is array.
      *
      * @returns {boolean}
      */
@@ -162,6 +164,6 @@ export class Datetime extends Validator {
      * @returns {string}
      */
     public getType(): string {
-        return 'string';
+        return "string";
     }
 }

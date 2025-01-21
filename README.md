@@ -23,21 +23,25 @@ npm install @nuvix/database
 ### Basic Usage
 
 ```typescript
-import { Database, MariaDBAdapter, Query } from '@nuvix/database';
+import { Database, MariaDBAdapter, Query } from "@nuvix/database";
 
 // Initialize the database
-const db = new Database(new MariaDBAdapter({
-  host: 'localhost',
-  user: 'root',
-  password: 'password',
-  database: 'test_db',
-}));
+const db = new Database(
+    new MariaDBAdapter({
+        host: "localhost",
+        user: "root",
+        password: "password",
+        database: "test_db",
+    }),
+);
 
 // Perform a query
-const documents = await db.find('users', [
-  Query.contains('name', ['John']),
-  Query.equal('status', 'active'),
-], 10, 0);
+const documents = await db.find(
+    "users",
+    [Query.contains("name", ["John"]), Query.equal("status", "active")],
+    10,
+    0,
+);
 
 console.log(documents);
 ```
@@ -47,18 +51,18 @@ console.log(documents);
 #### Static Schema (Repository Pattern)
 
 ```typescript
-import { Entity, Column, PrimaryGeneratedColumn } from '@nuvix/database';
+import { Entity, Column, PrimaryGeneratedColumn } from "@nuvix/database";
 
-@Entity('users')
+@Entity("users")
 class User {
-  @PrimaryGeneratedColumn()
-  id: number;
+    @PrimaryGeneratedColumn()
+    id: number;
 
-  @Column({ type: 'string' })
-  name: string;
+    @Column({ type: "string" })
+    name: string;
 
-  @Column({ type: 'string' })
-  email: string;
+    @Column({ type: "string" })
+    email: string;
 }
 ```
 
@@ -66,12 +70,12 @@ class User {
 
 ```typescript
 const schema = {
-  name: 'users',
-  fields: [
-    { name: 'id', type: 'number', primary: true },
-    { name: 'name', type: 'string' },
-    { name: 'email', type: 'string' },
-  ],
+    name: "users",
+    fields: [
+        { name: "id", type: "number", primary: true },
+        { name: "name", type: "string" },
+        { name: "email", type: "string" },
+    ],
 };
 ```
 
@@ -81,9 +85,9 @@ Enable shared tables and tenant isolation:
 
 ```typescript
 db.enableSharedTables(true);
-db.setTenantId('tenant_1');
+db.setTenantId("tenant_1");
 
-const tenantDocuments = await db.find('shared_table', []);
+const tenantDocuments = await db.find("shared_table", []);
 ```
 
 ## MariaDB Adapter
@@ -94,10 +98,10 @@ The MariaDB adapter enables efficient interaction with MariaDB databases:
 
 ```typescript
 const mariadbAdapter = new MariaDBAdapter({
-  host: 'localhost',
-  user: 'root',
-  password: 'password',
-  database: 'my_database',
+    host: "localhost",
+    user: "root",
+    password: "password",
+    database: "my_database",
 });
 
 const db = new Database(mariadbAdapter);
@@ -106,8 +110,8 @@ const db = new Database(mariadbAdapter);
 ### Query Execution Example
 
 ```typescript
-const documents = await db.find('products', [
-  Query.contains('category', ['Electronics']),
+const documents = await db.find("products", [
+    Query.contains("category", ["Electronics"]),
 ]);
 
 console.log(documents);

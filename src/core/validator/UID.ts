@@ -1,4 +1,3 @@
 import { Key } from "./Key";
 
-
-export class UID extends Key { }
+export class UID extends Key {}
