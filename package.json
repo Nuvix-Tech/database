@@ -1,17 +1,14 @@
 {
   "name": "@nuvix/database",
-  "version": "1.0.0",
+  "version": "0.0.1",
   "description": "A modern TypeScript database library inspired by .",
-  "main": "dist/src/index.js",
-  "types": "dist/src/index.d.ts",
-  "private": "false",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "scripts": {
+    "clean": "rm -rf dist src/**/*.js",
+    "prebuild": "npm run clean",
     "build": "tsc",
-    "test": "jest",
-    "lint": "eslint . --ext .ts",
-    "format": "prettier --write .",
-    "clean": "rm -rf dist",
-    "prepare": "bun run build"
+    "prepare": "npm run build"
   },
   "keywords": [
     "typescript",
@@ -38,9 +35,6 @@
   "files": [
     "dist"
   ],
-  "publishConfig": {
-    "access": "public"
-  },
   "engines": {
     "node": ">=16.0.0"
   }
