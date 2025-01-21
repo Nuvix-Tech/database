@@ -279,8 +279,43 @@ export class MariaDB extends Sql implements Adapter {
     }
   }
 
+  /**
+   * Check if a schema, collection, or attribute exists.
+   *
+   * @param name - The name of the schema or collection to check.
+   * @param collection - Optional. The name of the collection to check within the schema.
+   * @returns A promise that resolves to a boolean indicating whether the item exists.
+   * @throws {DatabaseError} If the existence check fails.
+   */
   async exists(name: string, collection?: string): Promise<boolean> {
-    return true;
+    const values: any[] = [name];
+    let sql: string;
+
+    if (collection) {
+      // Check if collection exists
+      sql = `
+        SELECT COUNT(*) as count 
+        FROM information_schema.tables 
+        WHERE table_schema = ? 
+        AND table_name = ?
+      `;
+      values.push(collection);
+    } else {
+      // Check if schema exists
+      sql = `
+        SELECT COUNT(*) as count 
+        FROM information_schema.schemata 
+        WHERE schema_name = ?
+      `;
+    }
+
+    try {
+      const [result] = await this.pool.query<any>(sql, values);
+      return result[0].count > 0;
+    } catch (e) {
+      this.logger.error(e);
+      throw new DatabaseError("Existence check failed");
+    }
   }
 
   /**

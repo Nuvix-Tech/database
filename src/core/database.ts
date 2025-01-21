@@ -5072,7 +5072,7 @@ export class Database extends Constant {
       const array = attribute.getAttribute("array", false)
       const filters = attribute.getAttribute("filters", [])
       let value = document.getAttribute(key);
-      this.logger.log(key, value)
+
       if (value === null) {
         value = document.getAttribute(this.adapter.filter(key));
 
