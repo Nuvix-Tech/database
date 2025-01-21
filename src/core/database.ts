@@ -575,6 +575,10 @@ export class Database extends Constant {
     return this.adapter;
   }
 
+  public async close(): Promise<void> {
+    return await this.adapter.close();
+  }
+
   /**
    * Start a new transaction.
    *
@@ -1014,7 +1018,7 @@ export class Database extends Constant {
     formatOptions: Record<string, any> = {},
     filters: string[] = []
   ): Promise<boolean> {
-    const col = await this.silent(async () => this.getCollection(collection));
+    const col = await this.silent(async () => await this.getCollection(collection));
 
     if (col.isEmpty()) {
       throw new NotFoundException('Collection not found');
@@ -1023,7 +1027,7 @@ export class Database extends Constant {
     // Attribute IDs are case-insensitive
     const attributes = col.getAttribute('attributes', []);
     for (const attribute of attributes) {
-      if (attribute.$id.toLowerCase() === id.toLowerCase()) {
+      if (attribute.getAttribute("$id", '').toLowerCase() === id.toLowerCase()) {
         throw new DuplicateException('Attribute already exists');
       }
     }
@@ -1544,7 +1548,7 @@ export class Database extends Constant {
     let attribute: Document | null = null;
 
     for (let i = 0; i < attributes.length; i++) {
-      if (attributes[i].$id === id) {
+      if (attributes[i].getAttribute("$id") === id) {
         attribute = attributes[i];
         attributes.splice(i, 1);
         break;
@@ -1555,7 +1559,7 @@ export class Database extends Constant {
       throw new NotFoundException('Attribute not found');
     }
 
-    if ((attribute as any).type === Database.VAR_RELATIONSHIP) {
+    if ((attribute as Document).getAttribute("type") === Database.VAR_RELATIONSHIP) {
       throw new DatabaseException('Cannot delete relationship as an attribute');
     }
 
@@ -5066,7 +5070,7 @@ export class Database extends Constant {
     for (const attribute of allAttributes) {
       const key = attribute.getAttribute("key", attribute.getAttribute("$id"))
       const array = attribute.getAttribute("array", false)
-      const filters = attribute.getAttribute("filters", false)
+      const filters = attribute.getAttribute("filters", [])
       let value = document.getAttribute(key);
       this.logger.log(key, value)
       if (value === null) {

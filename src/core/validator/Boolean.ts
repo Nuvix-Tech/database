@@ -65,6 +65,6 @@ export class Boolean extends Validator {
         return true;
       }
     }
-    return typeof value === 'boolean';
+    return typeof value === 'boolean' || value === 1 || value === 0;
   }
 }

@@ -1094,12 +1094,19 @@ export class MariaDB extends Sql implements Adapter {
         }
 
         if (index === 0) {
-          columns.push(...Object.keys(attributes).map(attr => `\`${this.filter(attr)}\``));
+          columns.push(...Object.keys(attributes)
+            .filter(attr => !Database.INTERNAL_ATTRIBUTES.map((v) => v.$id).includes(attr))
+            .map(attr => `\`${this.filter(attr)}\``));
         }
 
-        //  if (Database.INTERNAL_ATTRIBUTES.map((v) => v.$id).includes(attribute)) return null;
-        placeholders.push(`(${Object.keys(attributes).map(() => '?').join(', ')})`);
-        bindValues.push(...Object.values(attributes).map(value => Array.isArray(value) || typeof value === 'object' ? JSON.stringify(value) : value));
+        const filteredAttributes = Object.entries(attributes)
+          .filter(([attr]) => !Database.INTERNAL_ATTRIBUTES.map((v) => v.$id).includes(attr))
+          .reduce((obj, [key, value]) => ({ ...obj, [key]: value }), {});
+
+        placeholders.push(`(${Object.keys(filteredAttributes).map(() => '?').join(', ')})`);
+        bindValues.push(...Object.values(filteredAttributes).map(value =>
+          Array.isArray(value) || typeof value === 'object' ? JSON.stringify(value) : value
+        ));
 
         Database.PERMISSIONS.forEach(type => {
           document.getPermissionsByType(type)?.forEach(permission => {
@@ -1184,10 +1191,17 @@ export class MariaDB extends Sql implements Adapter {
       attributes._tenant = this.tenantId;
     }
 
-    const columns = Object.keys(attributes).map(attr => `\`${this.filter(attr)}\` = ?`).join(', ');
-    const values = Object.values(attributes).map(value =>
-      Array.isArray(value) || typeof value === 'object' ? JSON.stringify(value) : value
-    ) ?? [];
+    const columns = Object.keys(attributes)
+      .filter(attr => !Database.INTERNAL_ATTRIBUTES.map((v) => v.$id).includes(attr))
+      .map(attr => `\`${this.filter(attr)}\` = ?`)
+      .join(', ');
+
+    const values = Object.keys(attributes)
+      .filter(attr => !Database.INTERNAL_ATTRIBUTES.map((v) => v.$id).includes(attr))
+      .map(attr => {
+        const value = attributes[attr];
+        return Array.isArray(value) || typeof value === 'object' ? JSON.stringify(value) : value;
+      }) ?? [];
 
     let sql = `UPDATE ${this.getSqlTable(name)} SET ${columns} WHERE _uid = ?`;
     values.push(id);
@@ -1247,7 +1261,22 @@ export class MariaDB extends Sql implements Adapter {
     const name = this.filter(collection);
     const ids = documents.map(doc => doc.getId());
     const where = [`_uid IN (${ids.map(() => '?').join(', ')})`];
-    const values: any[] = [...ids];
+
+    // First collect update values
+    const updateColumns = Object.keys(attributes)
+      .filter(attr => !Database.INTERNAL_ATTRIBUTES.map((v) => v.$id).includes(attr))
+      .map((attr) => `\`${this.filter(attr)}\` = ?`)
+      .join(', ');
+
+    const updateValues = Object.keys(attributes)
+      .filter(attr => !Database.INTERNAL_ATTRIBUTES.map((v) => v.$id).includes(attr))
+      .map(attr => {
+        const value = attributes[attr];
+        return Array.isArray(value) || typeof value === 'object' ? JSON.stringify(value) : value;
+      });
+
+    // Then collect WHERE clause values
+    const values: any[] = [...updateValues, ...ids];
 
     if (this.sharedTables) {
       where.push('_tenant = ?');
@@ -1255,13 +1284,10 @@ export class MariaDB extends Sql implements Adapter {
     }
 
     const sqlWhere = `WHERE ${where.join(' AND ')}`;
-    const columns = Object.keys(attributes).map((attr, i) => `\`${this.filter(attr)}\` = ?`).join(', ');
-    const updateValues = Object.values(attributes).map(value => Array.isArray(value) || typeof value === 'object' ? JSON.stringify(value) : value);
-    values.push(...updateValues);
 
     let sql = `
       UPDATE ${this.getSqlTable(name)}
-      SET ${columns}
+      SET ${updateColumns}
       ${sqlWhere}
     `;
 
@@ -1415,12 +1441,20 @@ export class MariaDB extends Sql implements Adapter {
 
     for (const type in additions) {
       additions[type].forEach((perm: string) => {
-        values.push(documentId, type, perm, this.tenantId);
-        placeholders.push('(?, ?, ?, ?)');
+        const columnValues: any[] = [documentId, type, perm];
+        const placeholder = ['?', '?', '?'];
+
+        if (this.sharedTables) {
+          columnValues.push(this.getTenantId());
+          placeholder.push('?');
+        }
+
+        values.push(...columnValues);
+        placeholders.push(`(${placeholder.join(', ')})`);
       });
     }
 
-    let sql = `INSERT INTO ${this.getSqlTable(name + '_perms')} (_document, _type, _permission, _tenant) VALUES ${placeholders.join(', ')}`;
+    let sql = `INSERT INTO ${this.getSqlTable(name + '_perms')} (_document, _type, _permission${this.sharedTables ? ', _tenant' : ''}) VALUES ${placeholders.join(', ')}`;
     sql = this.trigger(Database.EVENT_PERMISSIONS_CREATE, sql);
     await this.pool.query<any>(sql, values);
   }

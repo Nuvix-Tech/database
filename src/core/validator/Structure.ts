@@ -17,7 +17,7 @@ export class Structure extends Validator {
     },
     {
       '$id': '$internalId',
-      'type': Database.VAR_STRING,
+      'type': Database.VAR_INTEGER,
       'size': 255,
       'required': false,
       'signed': true,
