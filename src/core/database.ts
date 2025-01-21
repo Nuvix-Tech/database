@@ -29,7 +29,16 @@ import { PartialStructure } from "./validator/PartialStructure";
 import { DateTime } from "./date-time";
 import { Constant } from "./constant";
 import { Logger } from "./logger";
+import { Repository } from "./repository";
+import { MigrationGenerator } from "./migrator";
 
+
+interface DatabaseOPtions {
+  cache?: any;
+  filters?: Record<string, Filter>;
+  entities?: any[];
+  logger?: boolean;
+}
 
 
 export class Database extends Constant {
@@ -39,6 +48,10 @@ export class Database extends Constant {
   protected cache: any;
 
   protected cacheName: string;
+
+  protected repositories: Map<any, Repository<any>> = new Map();
+
+  protected entities: any[] = [];
 
   protected map: Record<string, boolean | string> = {};
 
@@ -78,27 +91,33 @@ export class Database extends Constant {
 
   protected logger: Logger;
 
-  constructor(adapter: Adapter, cache?: any, filters: Record<string, Filter> = {}) {
+  constructor(adapter: Adapter, options: DatabaseOPtions = {
+    filters: {},
+    entities: []
+  }) {
     super()
     if (!adapter.isInitialized()) throw new DatabaseError("Adapter Should Initialize before passing to Database.")
     this.adapter = adapter;
-    this.cache = cache;
-    this.instanceFilters = filters;
+    this.cache = options.cache;
+    this.instanceFilters = options.filters ?? {};
     this.cacheName = "default"
-    this.logger = new Logger()
+    this.logger = new Logger(options.logger)
+
+    this.entities = options.entities as any[];
 
     Database.addFilter(
       'json',
       (value: any, ...args) => {
+        if (typeof value === 'string') {
+          return value;
+        }
+
         if (Array.isArray(value)) {
           value = value.map(item => (item instanceof Document) ? item.getArrayCopy() : item);
         } else if (value instanceof Document) {
           value = value.getArrayCopy();
         }
 
-        if (!Array.isArray(value) && typeof value === 'object') {
-          return value;
-        }
         return JSON.stringify(value);
       },
       (value: any, ...args) => {
@@ -106,19 +125,31 @@ export class Database extends Constant {
           return value;
         }
 
-        value = JSON.parse(value) ?? [];
+        try {
+          const parsed = JSON.parse(value);
 
-        if ('$id' in value) {
-          return new Document(value);
-        } else {
-          value = value.map((item: any) => {
-            if (typeof item === 'object' && '$id' in item) {
-              return new Document(item);
-            }
-            return item;
-          });
+          if (!parsed) {
+            return parsed;
+          }
+
+          if (Array.isArray(parsed)) {
+            return parsed.map(item => {
+              if (item && typeof item === 'object' && '$id' in item) {
+                return new Document(item);
+              }
+              return item;
+            });
+          }
+
+          if (parsed && typeof parsed === 'object' && '$id' in parsed) {
+            return new Document(parsed);
+          }
+
+          return parsed;
+        } catch (e) {
+          this.logger.error("JSON FILTER ERROR:", e)
+          return value;
         }
-        return value;
       }
     );
 
@@ -5081,8 +5112,19 @@ export class Database extends Constant {
         }
       }
 
-      value = array ? value : [value];
-      value = value === null ? [] : value;
+      if (array) {
+        if (typeof value === "string") {
+          try {
+            value = JSON.parse(value)
+          } catch { value = [value] }
+        } else {
+          value = value
+        }
+      } else {
+        value = [value]
+      }
+
+      value = (value === null || value === undefined) ? [] : value;
 
       value = value.map((val: any) => {
         for (const filter of filters.reverse()) {
@@ -5397,4 +5439,79 @@ export class Database extends Constant {
     return attributes;
   }
 
+
+  public getRepository<Entity extends { [key: string]: any }>(
+    target: any,
+  ): Repository<Entity> {
+    const repoMap = this.repositories.get(target);
+
+    if (repoMap) {
+      return repoMap as Repository<any>;
+    }
+
+    const repo = new Repository<any>(target, this);
+    this.repositories.set(target, repo);
+
+    return repo;
+  }
+
+  // public async genrateMigration(): Promise<void> {
+
+  //   if (!this.entities?.length) {
+  //     this.logger.error('No entities found');
+  //     return;
+  //   }
+
+  //   this.logger.info('Generating migration...');
+
+  //   const entities = this.entities.map(entity =>
+  //     this.getRepository(entity).getMeta()
+  //   );
+
+  //   this.logger.debug(entities)
+
+  //   MigrationGenerator.generateMigrationFile(entities, `Migration_${new Date().getTime()}`);
+  // }
+
+
+  public async applyMigration(stopOnErrors: boolean = false): Promise<void> {
+
+    if (!this.entities.length) {
+      this.logger.error('No entities found');
+      return;
+    }
+
+    this.logger.info('Applying migration...');
+
+    const entities = this.entities.map(entity =>
+      this.getRepository(entity).getMeta()
+    );
+
+    for (const entity of entities) {
+      this.logger.info("SELECTED: ", entity?.getId())
+
+      try {
+        await this.createCollection(
+          entity.getId(),
+          entity.getAttribute("attributes", []),
+          entity.getAttribute("indexes", []),
+          entity.getAttribute("$permissions", undefined),
+          entity.getAttribute("documentSecurity", false)
+        )
+
+        this.logger.info("Collection Created: ", entity.getId())
+      } catch (e) {
+
+        if (e instanceof DuplicateException) {
+          this.logger.warn("Collection Already Exists?")
+        } else this.logger.error(e);
+
+        if (stopOnErrors) {
+          throw e;
+        }
+      }
+    }
+
+    this.logger.info('Migration applied successfully');
+  }
 }

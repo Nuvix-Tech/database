@@ -117,12 +117,12 @@ export class Authorization {
    * @param callback - The callback to execute
    * @returns {T}
    */
-  public static skip<T>(callback: () => T): T {
+  public static async skip<T>(callback: () => Promise<T>): Promise<T> {
     const initialStatus = Authorization.status;
     Authorization.disable();
 
     try {
-      return callback();
+      return await callback();
     } finally {
       Authorization.status = initialStatus;
     }

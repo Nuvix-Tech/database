@@ -4,6 +4,16 @@ export class Logger {
   private LOG: boolean = true;
   private DEBUG: boolean = true;
   private ERROR: boolean = true;
+  private WARN: boolean = true;
+  private INFO: boolean = true;
+
+  constructor(options?: any) {
+    if (typeof options === "boolean" && !options) {
+      this.LOG = false;
+      this.DEBUG = false;
+      this.ERROR = false;
+    }
+  }
 
   public log(...messages: any[]): void {
     if (this.LOG) {
@@ -20,6 +30,18 @@ export class Logger {
   public debug(...messages: any[]): void {
     if (this.DEBUG) {
       console.debug(...this.formatMessages(messages, chalk.greenBright, 'DEBUG'));
+    }
+  }
+
+  public warn(...messages: any[]): void {
+    if (this.WARN) {
+      console.warn(...this.formatMessages(messages, chalk.yellowBright, 'WARN'));
+    }
+  }
+
+  public info(...messages: any[]): void {
+    if (this.INFO) {
+      console.info(...this.formatMessages(messages, chalk.cyanBright, 'INFO'));
     }
   }
 

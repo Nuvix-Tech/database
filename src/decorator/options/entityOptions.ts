@@ -1,3 +1,4 @@
+import Permission from "../../security/Permission";
 
 
 export interface EntityOptions {
@@ -5,6 +6,10 @@ export interface EntityOptions {
    * The name of the entity
    */
   name: string;
+
+  documentSecurity?: boolean;
+
+  permissions?: Permission[] | string[]
 
   /**
    * The name of the database

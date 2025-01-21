@@ -13,22 +13,21 @@ export interface ColumnOptions {
   /**
    * The name of the column.
    */
-  $id?: string;
-
-  /**
-   * The key of the column.
-   */
-  key: string;
+  name?: string;
 
   /**
    * The type of the column.
    */
-  type: ColumnType;
+  type: "string" | "boolean" | "integer" | "datetime" | "varchar" | "text" | "json" | "timestamp";
 
   /**
    * The size of the column.
    */
   size?: number;
+
+  nullable?: boolean;
+
+  length?: number;
 
   /**
    * Whether the column is required.
@@ -49,4 +48,6 @@ export interface ColumnOptions {
    * The filters to apply to the column.
    */
   filters?: any[];
+
+  default?: any;
 }

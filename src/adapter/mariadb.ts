@@ -1,19 +1,24 @@
-import { Constant as Database } from "../core/constant";
-import { Document } from "../core/Document";
-import { Query } from "../core/query";
-import { Attribute } from "../core/types/attribute";
-import { Index, IndexType } from "../core/types/indexes";
-import { InitializeError } from "../errors/adapter";
-import { DatabaseError } from "../errors/base";
-import { Authorization } from "../security/authorization";
-import { Adapter } from "./base";
-import * as mysql2 from 'mysql2/promise';
 import { Sql } from "./sql";
-import { DuplicateException, NotFoundException, TimeoutException, TruncateException } from "../errors";
+import { Adapter } from "./base";
+import { Query } from "@/core/query";
+import { Document } from "@/core/Document";
+import { DatabaseError } from "@/errors/base";
+import { InitializeError } from "@/errors/adapter";
+import { Constant as Database } from "@/core/constant";
+import { Authorization } from "@/security/authorization";
+import {
+  DuplicateException, NotFoundException,
+  TimeoutException, TruncateException
+} from "../errors";
+
+// import * as mysql2 from 'mysql2/promise';
+
 
 interface MariaDBOptions {
-  connection: mysql2.PoolOptions;
+  connection: any // mysql2.PoolOptions;
 }
+
+type Pool<a extends any> = a;
 
 /**
  * MariaDB adapter class
@@ -23,12 +28,12 @@ export class MariaDB extends Sql implements Adapter {
    * MariaDB pool / connection
    */
   // @ts-ignore
-  pool: mysql2.Pool;
+  pool: Pool;
 
   /**
    * MariaDB adapter library
    */
-  library: typeof mysql2;
+  library: any; // typeof mysql2;
 
   /**
    * MariaDB adapter instance
@@ -67,6 +72,7 @@ export class MariaDB extends Sql implements Adapter {
         namedPlaceholders: true
       });
 
+      // TODO:
       const connection = await pool.getConnection();
       await connection.ping();
       connection.release();
@@ -93,7 +99,8 @@ export class MariaDB extends Sql implements Adapter {
       connection.release();
       this.logger.debug('PING SUCCESS')
     } catch (e) {
-      throw new InitializeError('MariaDB adapter ping failed');
+      this.logger.error(e)
+      throw this.processException(e, 'MariaDB adapter ping failed')
     }
   }
 
@@ -113,7 +120,8 @@ export class MariaDB extends Sql implements Adapter {
       this.inTransaction++;
       return true;
     } catch (e) {
-      throw new DatabaseError('MariaDB adapter start transaction failed');
+      this.logger.error(e)
+      throw this.processException(e, 'MariaDB adapter start transaction failed')
     }
   }
 
@@ -128,7 +136,8 @@ export class MariaDB extends Sql implements Adapter {
       this.inTransaction--;
       return true
     } catch (e) {
-      throw new DatabaseError('MariaDB adapter commit transaction failed');
+      this.logger.error(e)
+      throw this.processException(e, 'MariaDB adapter commit transaction failed')
     }
   }
 
@@ -143,7 +152,8 @@ export class MariaDB extends Sql implements Adapter {
       this.inTransaction--;
       return true
     } catch (e) {
-      throw new DatabaseError('MariaDB adapter rollback transaction failed');
+      this.logger.error(e)
+      throw this.processException(e, 'MariaDB adapter rollback transaction failed')
     }
   }
 
@@ -154,7 +164,8 @@ export class MariaDB extends Sql implements Adapter {
     try {
       await this.pool.end();
     } catch (e) {
-      throw new DatabaseError('MariaDB adapter close failed');
+      this.logger.error(e)
+      throw this.processException(e, 'MariaDB adapter close failed')
     }
   }
 
@@ -167,7 +178,7 @@ export class MariaDB extends Sql implements Adapter {
       return result.affectedRows > 0;
     } catch (e) {
       this.logger.error(e)
-      throw new DatabaseError("Database Selection Failed.")
+      throw this.processException(e, "Database Selection Failed.")
     }
   }
 
@@ -257,7 +268,7 @@ export class MariaDB extends Sql implements Adapter {
       return true;
     } catch (e) {
       this.logger.error(e)
-      throw new DatabaseError("Database Creation Failed.")
+      throw this.processException(e, "Database Creation Failed.")
     }
   }
 
@@ -275,7 +286,7 @@ export class MariaDB extends Sql implements Adapter {
       return true;
     } catch (e) {
       this.logger.error(e)
-      throw new DatabaseError("Database Drop Failed.")
+      throw this.processException(e, "Database Drop Failed.")
     }
   }
 
@@ -314,7 +325,7 @@ export class MariaDB extends Sql implements Adapter {
       return result[0].count > 0;
     } catch (e) {
       this.logger.error(e);
-      throw new DatabaseError("Existence check failed");
+      throw this.processException(e, "Existence check failed")
     }
   }
 
@@ -369,12 +380,12 @@ export class MariaDB extends Sql implements Adapter {
         if (attribute === '$createdAt') indexAttribute = '_createdAt';
         if (attribute === '$updatedAt') indexAttribute = '_updatedAt';
 
-        if (indexType === IndexType.FULLTEXT) indexOrder = '';
+        if (indexType === Database.INDEX_FULLTEXT) indexOrder = '';
 
         return `\`${indexAttribute}\`${indexLength} ${indexOrder}`;
       }).join(', ');
 
-      if (this.sharedTables && indexType !== IndexType.FULLTEXT) {
+      if (this.sharedTables && indexType !== Database.INDEX_FULLTEXT) {
         return `${indexType} \`${indexId}\` (_tenant, ${indexAttributes})`;
       }
 
@@ -389,7 +400,7 @@ export class MariaDB extends Sql implements Adapter {
         _uid VARCHAR(255) NOT NULL,
         _createdAt DATETIME(3) DEFAULT NULL,
         _updatedAt DATETIME(3) DEFAULT NULL,
-        _permissions JSON DEFAULT NULL,
+        _permissions MEDIUMTEXT DEFAULT NULL,
         PRIMARY KEY (_id),
         ${attributeSql}${attributeSql ? ',' : ''} 
         ${indexSql}${indexSql ? ',' : ''}
@@ -445,7 +456,7 @@ export class MariaDB extends Sql implements Adapter {
       return true;
     } catch (e) {
       this.logger.error(e);
-      throw new DatabaseError("Table Creation Failed.");
+      throw this.processException(e, "Collection Creation Failed.")
     }
   }
 
@@ -470,7 +481,7 @@ export class MariaDB extends Sql implements Adapter {
       return true;
     } catch (e) {
       this.logger.error(e);
-      throw new DatabaseError("Table Drop Failed.");
+      throw this.processException(e, "Collection Drop Failed.")
     }
   }
 
@@ -558,7 +569,7 @@ export class MariaDB extends Sql implements Adapter {
       return true;
     } catch (e) {
       this.logger.error(e);
-      throw new DatabaseError("Attribute Creation Failed.");
+      throw this.processException(e, "Attribute Creation Failed.")
     }
   }
 
@@ -596,7 +607,7 @@ export class MariaDB extends Sql implements Adapter {
       return true;
     } catch (e) {
       this.logger.error(e);
-      throw new DatabaseError("Attribute Update Failed.");
+      throw this.processException(e, "Attribute Update Failed.")
     }
   }
 
@@ -621,7 +632,7 @@ export class MariaDB extends Sql implements Adapter {
       return true;
     } catch (e) {
       this.logger.error(e);
-      throw new DatabaseError("Attribute Deletion Failed.");
+      throw this.processException(e, "Attribute Deletion Failed.")
     }
   }
 
@@ -648,7 +659,7 @@ export class MariaDB extends Sql implements Adapter {
       return true;
     } catch (e) {
       this.logger.error(e);
-      throw new DatabaseError("Attribute Rename Failed.");
+      throw this.processException(e, "Attribute Rename Failed.")
     }
   }
 
@@ -702,7 +713,7 @@ export class MariaDB extends Sql implements Adapter {
       return true;
     } catch (e) {
       this.logger.error(e);
-      throw new DatabaseError("Relationship Creation Failed.");
+      throw this.processException(e, "Relationship Creation Failed.")
     }
   }
 
@@ -798,7 +809,7 @@ export class MariaDB extends Sql implements Adapter {
       return true;
     } catch (e) {
       this.logger.error(e);
-      throw new DatabaseError("Relationship Update Failed.");
+      throw this.processException(e, "Relationship Update Failed.")
     }
   }
 
@@ -883,7 +894,7 @@ export class MariaDB extends Sql implements Adapter {
       return true;
     } catch (e) {
       this.logger.error(e);
-      throw new DatabaseError("Relationship Deletion Failed.");
+      throw this.processException(e, "Relationship Deletion Failed.")
     }
   }
 
@@ -910,7 +921,7 @@ export class MariaDB extends Sql implements Adapter {
       return true;
     } catch (e) {
       this.logger.error(e);
-      throw new DatabaseError("Index Rename Failed.");
+      throw this.processException(e, "Index Rename Failed.")
     }
   }
 
@@ -938,19 +949,19 @@ export class MariaDB extends Sql implements Adapter {
       return `\`${attribute}\`${length}${order}`;
     }).join(', ');
 
-    if (this.sharedTables && type !== IndexType.FULLTEXT) {
+    if (this.sharedTables && type !== Database.INDEX_FULLTEXT) {
       indexAttributes = `_tenant, ${indexAttributes}`;
     }
 
     let sqlType;
     switch (type) {
-      case IndexType.KEY:
+      case Database.INDEX_KEY:
         sqlType = 'INDEX';
         break;
-      case IndexType.UNIQUE:
+      case Database.INDEX_UNIQUE:
         sqlType = 'UNIQUE INDEX';
         break;
-      case IndexType.FULLTEXT:
+      case Database.INDEX_FULLTEXT:
         sqlType = 'FULLTEXT INDEX';
         break;
       default:
@@ -966,7 +977,7 @@ export class MariaDB extends Sql implements Adapter {
       return true;
     } catch (e) {
       this.logger.error(e);
-      throw new DatabaseError("Index Creation Failed.");
+      throw this.processException(e, "Index Creation Failed.")
     }
   }
 
@@ -991,7 +1002,7 @@ export class MariaDB extends Sql implements Adapter {
       return true;
     } catch (e) {
       this.logger.error(e);
-      throw new DatabaseError("Index Deletion Failed.");
+      throw this.processException(e, "Index Deletion Failed.")
     }
   }
 
@@ -1084,7 +1095,7 @@ export class MariaDB extends Sql implements Adapter {
       return document;
     } catch (e) {
       this.logger.error(e);
-      throw new DatabaseError("Document Creation Failed");
+      throw this.processException(e, "Document Creation Failed")
     }
   }
 
@@ -1167,7 +1178,7 @@ export class MariaDB extends Sql implements Adapter {
         }
       } catch (e) {
         this.logger.error(e);
-        throw new DatabaseError("Batch Document Creation Failed.");
+        throw this.processException(e, "Batch Document Creation Failed.")
       }
     }
 
@@ -1263,7 +1274,7 @@ export class MariaDB extends Sql implements Adapter {
       return document;
     } catch (e) {
       this.logger.error(e);
-      throw new DatabaseError("Document Update Failed.");
+      throw this.processException(e, "Document Update Failed.")
     }
   }
 
@@ -1350,7 +1361,7 @@ export class MariaDB extends Sql implements Adapter {
       return affected;
     } catch (e) {
       this.logger.error(e);
-      throw new DatabaseError("Documents Update Failed.");
+      throw this.processException(e, "Documents Update Failed.")
     }
   }
 
@@ -1554,7 +1565,7 @@ export class MariaDB extends Sql implements Adapter {
       return result.affectedRows > 0;
     } catch (e) {
       this.logger.error(e);
-      throw new DatabaseError("Failed to update attribute");
+      throw this.processException(e, "Failed to update attribute")
     }
   }
 
@@ -1597,7 +1608,7 @@ export class MariaDB extends Sql implements Adapter {
       return deleted;
     } catch (e) {
       this.logger.error(e);
-      throw new DatabaseError("Document Deletion Failed");
+      throw this.processException(e, "Document Deletion Failed")
     }
   }
 
@@ -1640,7 +1651,7 @@ export class MariaDB extends Sql implements Adapter {
       return deletedCount;
     } catch (e) {
       this.logger.error(e);
-      throw new DatabaseError("Documents Deletion Failed");
+      throw this.processException(e, "Documents Deletion Failed")
     }
   }
 
@@ -1785,7 +1796,7 @@ export class MariaDB extends Sql implements Adapter {
     try {
       const [results] = await this.pool.execute<any[]>(sql, params);
 
-      let res = results.map(result => this.objectToDocument(result));
+      let res = results.map((result: any) => this.objectToDocument(result));
 
       if (cursorDirection === Database.CURSOR_BEFORE) {
         res = res.reverse();
@@ -1863,7 +1874,7 @@ export class MariaDB extends Sql implements Adapter {
       return result.sum ?? 0;
     } catch (error) {
       this.logger.error(error);
-      throw new DatabaseError("Document Count Failed.");
+      throw this.processException(error, "Document Count Failed.")
     }
   }
 
@@ -1933,7 +1944,7 @@ export class MariaDB extends Sql implements Adapter {
       return result.sum ?? 0;
     } catch (error) {
       this.logger.error(error);
-      throw new DatabaseError("Sum Operation Failed.");
+      throw this.processException(error, "Sum Operation Failed.")
     }
   }
 
@@ -2094,7 +2105,7 @@ export class MariaDB extends Sql implements Adapter {
    * @param e - The MySQL error object.
    * @returns The mapped custom exception.
    */
-  protected processException(e: any): DatabaseError {
+  protected processException(e: any, m?: any): DatabaseError {
     // Timeout
     if (e.code === 'PROTOCOL_SEQUENCE_TIMEOUT') {
       return new TimeoutException('Query timed out', e.code, e);

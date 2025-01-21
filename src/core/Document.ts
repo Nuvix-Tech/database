@@ -108,7 +108,7 @@ export class Document extends Map<string, any> {
   }
 
   public getAttribute(name: string, defaultValue: any = null): string | number | any {
-    return this.has(name) ? this.get(name) : defaultValue;
+    return (this.has(name) && this.get(name) !== undefined) ? this.get(name) : defaultValue;
   }
 
   public setAttribute(key: string, value: any, type: string = Document.SET_TYPE_ASSIGN): this {
