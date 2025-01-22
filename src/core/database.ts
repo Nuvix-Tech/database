@@ -11,26 +11,26 @@ import {
     RestrictedException,
     StructureException,
 } from "../errors";
-import { Filter } from "./types/filter";
-import Permission from "../security/Permission";
-import Role from "../security/Role";
-import { Permissions } from "../security/Permissions";
-import { DatabaseError } from "../errors/base";
 import { ID } from "./ID";
-import { IndexValidator } from "./validator";
 import { Query } from "./query";
+import Role from "../security/Role";
+import { Filter } from "./types/filter";
+import { IndexValidator } from "./validator";
+import { DatabaseError } from "../errors/base";
+import Permission from "../security/Permission";
+import { Permissions } from "../security/Permissions";
 
-import { DatabaseError as DatabaseException } from "../errors/base";
-import { Structure } from "./validator/Structure";
-import { Authorization } from "../security/authorization";
-import { Document as DocumentValidator } from "./validator/Queries/Document";
-import { Documents as DocumentsValidator } from "./validator/Queries/Documents";
-import { PartialStructure } from "./validator/PartialStructure";
-import { DateTime } from "./date-time";
-import { Constant } from "./constant";
 import { Logger } from "./logger";
+import { Constant } from "./constant";
+import { DateTime } from "./date-time";
 import { Repository } from "./repository";
 import { MigrationGenerator } from "./migrator";
+import { Structure } from "./validator/Structure";
+import { Authorization } from "../security/authorization";
+import { PartialStructure } from "./validator/PartialStructure";
+import { DatabaseError as DatabaseException } from "../errors/base";
+import { Document as DocumentValidator } from "./validator/Queries/Document";
+import { Documents as DocumentsValidator } from "./validator/Queries/Documents";
 
 interface DatabaseOPtions {
     cache?: any;
@@ -306,7 +306,7 @@ export class Database extends Constant {
      * @param args
      * @return void
      */
-    private trigger(event: string, args: any = null): void {
+    private async trigger(event: string, args: any = null): Promise<void> {
         if (this.silentListeners === null) {
             return;
         }
@@ -731,7 +731,7 @@ export class Database extends Constant {
                 await this.createCollection(Database.METADATA, attributes),
         );
 
-        this.trigger(Database.EVENT_DATABASE_CREATE, database);
+        await this.trigger(Database.EVENT_DATABASE_CREATE, database);
 
         return true;
     }
@@ -766,7 +766,7 @@ export class Database extends Constant {
 
         const deleted = await this.adapter.drop(database);
 
-        this.trigger(Database.EVENT_DATABASE_DELETE, {
+        await this.trigger(Database.EVENT_DATABASE_DELETE, {
             name: database,
             deleted: deleted,
         });
@@ -809,7 +809,6 @@ export class Database extends Constant {
             async () => await this.getCollection(id),
         );
 
-        console.log(collection);
         if (!collection.isEmpty() && id !== Database.METADATA) {
             throw new DuplicateException(`Collection ${id} already exists`);
         }
@@ -878,7 +877,7 @@ export class Database extends Constant {
                 await this.createDocument(Database.METADATA, collection),
         );
 
-        this.trigger(Database.EVENT_COLLECTION_CREATE, createdCollection);
+        await this.trigger(Database.EVENT_COLLECTION_CREATE, createdCollection);
 
         return createdCollection;
     }
@@ -905,7 +904,9 @@ export class Database extends Constant {
             }
         }
 
-        let collection = await this.silent(async () => this.getCollection(id));
+        let collection = await this.silent(
+            async () => await this.getCollection(id),
+        );
 
         if (collection.isEmpty()) {
             throw new NotFoundException("Collection not found");
@@ -922,15 +923,16 @@ export class Database extends Constant {
             .setAttribute("$permissions", permissions)
             .setAttribute("documentSecurity", documentSecurity);
 
-        collection = await this.silent(async () =>
-            this.updateDocument(
-                Database.METADATA,
-                collection.getId(),
-                collection,
-            ),
+        collection = await this.silent(
+            async () =>
+                await this.updateDocument(
+                    Database.METADATA,
+                    collection.getId(),
+                    collection,
+                ),
         );
 
-        this.trigger(Database.EVENT_COLLECTION_UPDATE, collection);
+        await this.trigger(Database.EVENT_COLLECTION_UPDATE, collection);
 
         return collection;
     }
@@ -957,7 +959,7 @@ export class Database extends Constant {
             return new Document();
         }
 
-        this.trigger(Database.EVENT_COLLECTION_READ, collection);
+        await this.trigger(Database.EVENT_COLLECTION_READ, collection);
 
         return collection;
     }
@@ -974,14 +976,15 @@ export class Database extends Constant {
         limit: number = 25,
         offset: number = 0,
     ): Promise<Document[]> {
-        const result = await this.silent(async () =>
-            this.find(Database.METADATA, [
-                Query.limit(limit),
-                Query.offset(offset),
-            ]),
+        const result = await this.silent(
+            async () =>
+                await this.find(Database.METADATA, [
+                    Query.limit(limit),
+                    Query.offset(offset),
+                ]),
         );
 
-        this.trigger(Database.EVENT_COLLECTION_LIST, result);
+        await this.trigger(Database.EVENT_COLLECTION_LIST, result);
 
         return result;
     }
@@ -994,8 +997,8 @@ export class Database extends Constant {
      * @throws DatabaseException
      */
     public async getSizeOfCollection(collection: string): Promise<number> {
-        const col = await this.silent(async () =>
-            this.getCollection(collection),
+        const col = await this.silent(
+            async () => await this.getCollection(collection),
         );
 
         if (col.isEmpty()) {
@@ -1009,7 +1012,7 @@ export class Database extends Constant {
             throw new NotFoundException("Collection not found");
         }
 
-        return this.adapter.getSizeOfCollection(col.getId());
+        return await this.adapter.getSizeOfCollection(col.getId());
     }
 
     /**
@@ -1028,8 +1031,8 @@ export class Database extends Constant {
             );
         }
 
-        const col = await this.silent(async () =>
-            this.getCollection(collection),
+        const col = await this.silent(
+            async () => await this.getCollection(collection),
         );
 
         if (col.isEmpty()) {
@@ -1043,7 +1046,7 @@ export class Database extends Constant {
             throw new NotFoundException("Collection not found");
         }
 
-        return this.adapter.getSizeOfCollectionOnDisk(col.getId());
+        return await this.adapter.getSizeOfCollectionOnDisk(col.getId());
     }
 
     /**
@@ -1069,8 +1072,6 @@ export class Database extends Constant {
             throw new NotFoundException("Collection not found");
         }
 
-        this.logger.debug(collection, "WILL BE DELTED");
-
         const relationships = collection
             .getAttribute("attributes")
             .filter(
@@ -1088,13 +1089,13 @@ export class Database extends Constant {
         if (id === Database.METADATA) {
             deleted = true;
         } else {
-            deleted = await this.silent(async () =>
-                this.deleteDocument(Database.METADATA, id),
+            deleted = await this.silent(
+                async () => await this.deleteDocument(Database.METADATA, id),
             );
         }
 
         if (deleted) {
-            this.trigger(Database.EVENT_COLLECTION_DELETE, collection);
+            await this.trigger(Database.EVENT_COLLECTION_DELETE, collection);
         }
 
         // this.purgeCachedCollection(id);
@@ -1269,15 +1270,20 @@ export class Database extends Constant {
         }
 
         if (col.getId() !== Database.METADATA) {
-            await this.silent(async () =>
-                this.updateDocument(Database.METADATA, col.getId(), col),
+            await this.silent(
+                async () =>
+                    await this.updateDocument(
+                        Database.METADATA,
+                        col.getId(),
+                        col,
+                    ),
             );
         }
 
         // this.purgeCachedCollection(col.getId());
         // this.purgeCachedDocument(Database.METADATA, col.getId());
 
-        this.trigger(Database.EVENT_ATTRIBUTE_CREATE, attribute);
+        await this.trigger(Database.EVENT_ATTRIBUTE_CREATE, attribute);
 
         return true;
     }
@@ -1361,10 +1367,10 @@ export class Database extends Constant {
             index: Document,
             collection: Document,
             indexPosition: number,
-        ) => void,
+        ) => void | Promise<void>,
     ): Promise<Document> {
-        const col = await this.silent(async () =>
-            this.getCollection(collection),
+        const col = await this.silent(
+            async () => await this.getCollection(collection),
         );
 
         if (col.getId() === Database.METADATA) {
@@ -1373,7 +1379,7 @@ export class Database extends Constant {
 
         const indexes = col.getAttribute("indexes", []);
         const indexPosition = indexes.findIndex(
-            (index: any) => index.$id === id,
+            (index: any) => index.getId() === id,
         );
 
         if (indexPosition === -1) {
@@ -1381,16 +1387,20 @@ export class Database extends Constant {
         }
 
         // Execute update from callback
-        updateCallback(indexes[indexPosition], col, indexPosition);
+        await updateCallback(indexes[indexPosition], col, indexPosition);
 
         // Save
         col.setAttribute("indexes", indexes);
 
-        await this.silent(async () =>
-            this.updateDocument(Database.METADATA, col.getId(), col),
+        await this.silent(
+            async () =>
+                await this.updateDocument(Database.METADATA, col.getId(), col),
         );
 
-        this.trigger(Database.EVENT_ATTRIBUTE_UPDATE, indexes[indexPosition]);
+        await this.trigger(
+            Database.EVENT_ATTRIBUTE_UPDATE,
+            indexes[indexPosition],
+        );
 
         return indexes[indexPosition];
     }
@@ -1412,10 +1422,10 @@ export class Database extends Constant {
             attribute: Document,
             collection: Document,
             index: number,
-        ) => void,
+        ) => void | Promise<void>,
     ): Promise<Document> {
-        const col = await this.silent(async () =>
-            this.getCollection(collection),
+        const col = await this.silent(
+            async () => await this.getCollection(collection),
         );
 
         if (col.getId() === Database.METADATA) {
@@ -1424,7 +1434,7 @@ export class Database extends Constant {
 
         const attributes = col.getAttribute("attributes", []);
         const index = attributes.findIndex(
-            (attribute: any) => attribute.$id === id,
+            (attribute: any) => attribute.getId() === id,
         );
 
         if (index === -1) {
@@ -1432,16 +1442,17 @@ export class Database extends Constant {
         }
 
         // Execute update from callback
-        updateCallback(attributes[index], col, index);
+        await updateCallback(attributes[index], col, index);
 
         // Save
         col.setAttribute("attributes", attributes);
 
-        await this.silent(async () =>
-            this.updateDocument(Database.METADATA, col.getId(), col),
+        await this.silent(
+            async () =>
+                await this.updateDocument(Database.METADATA, col.getId(), col),
         );
 
-        this.trigger(Database.EVENT_ATTRIBUTE_UPDATE, attributes[index]);
+        await this.trigger(Database.EVENT_ATTRIBUTE_UPDATE, attributes[index]);
 
         return attributes[index];
     }
@@ -1461,7 +1472,7 @@ export class Database extends Constant {
         id: string,
         required: boolean,
     ): Promise<Document> {
-        return this.updateAttributeMeta(collection, id, async (attribute) => {
+        return await this.updateAttributeMeta(collection, id, (attribute) => {
             attribute.setAttribute("required", required);
         });
     }
@@ -1481,7 +1492,7 @@ export class Database extends Constant {
         id: string,
         format: string,
     ): Promise<Document> {
-        return this.updateAttributeMeta(collection, id, async (attribute) => {
+        return await this.updateAttributeMeta(collection, id, (attribute) => {
             if (!Structure.hasFormat(format, attribute.getAttribute("type"))) {
                 throw new DatabaseException(
                     `Format "${format}" not available for attribute type "${attribute.getAttribute("type")}"`,
@@ -1507,7 +1518,7 @@ export class Database extends Constant {
         id: string,
         formatOptions: Record<string, any>,
     ): Promise<Document> {
-        return this.updateAttributeMeta(collection, id, async (attribute) => {
+        return await this.updateAttributeMeta(collection, id, (attribute) => {
             attribute.setAttribute("formatOptions", formatOptions);
         });
     }
@@ -1527,7 +1538,7 @@ export class Database extends Constant {
         id: string,
         filters: string[],
     ): Promise<Document> {
-        return this.updateAttributeMeta(collection, id, async (attribute) => {
+        return await this.updateAttributeMeta(collection, id, (attribute) => {
             attribute.setAttribute("filters", filters);
         });
     }
@@ -1547,7 +1558,7 @@ export class Database extends Constant {
         id: string,
         defaultValue: any = null,
     ): Promise<Document> {
-        return this.updateAttributeMeta(collection, id, async (attribute) => {
+        return await this.updateAttributeMeta(collection, id, (attribute) => {
             if (attribute.getAttribute("required") === true) {
                 throw new DatabaseException(
                     "Cannot set a default value on a required attribute",
@@ -1595,7 +1606,7 @@ export class Database extends Constant {
         filters: string[] | null = null,
         newKey: string | null = null,
     ): Promise<Document> {
-        return this.updateAttributeMeta(
+        return await this.updateAttributeMeta(
             collection,
             id,
             async (attribute, collectionDoc, attributeIndex) => {
@@ -1891,7 +1902,7 @@ export class Database extends Constant {
         await this.purgeCachedCollection(col.getId());
         await this.purgeCachedDocument(Database.METADATA, col.getId());
 
-        this.trigger(Database.EVENT_ATTRIBUTE_DELETE, attribute);
+        await this.trigger(Database.EVENT_ATTRIBUTE_DELETE, attribute);
 
         return true;
     }
@@ -1970,7 +1981,7 @@ export class Database extends Constant {
             );
         }
 
-        this.trigger(Database.EVENT_ATTRIBUTE_UPDATE, attribute);
+        await this.trigger(Database.EVENT_ATTRIBUTE_UPDATE, attribute);
 
         return renamed;
     }
@@ -2194,7 +2205,7 @@ export class Database extends Constant {
             }
         });
 
-        this.trigger(Database.EVENT_ATTRIBUTE_CREATE, relationship);
+        await this.trigger(Database.EVENT_ATTRIBUTE_CREATE, relationship);
 
         return true;
     }
@@ -2232,7 +2243,7 @@ export class Database extends Constant {
         }
 
         const attributeIndex = attributes.findIndex(
-            (attr: any) => attr.$id === id,
+            (attr: any) => attr.getId() === id,
         );
 
         if (attributeIndex === -1) {
@@ -2240,10 +2251,11 @@ export class Database extends Constant {
         }
 
         const attribute = attributes[attributeIndex];
-        const type = attribute.options.relationType;
-        const side = attribute.options.side;
+        const type = attribute.getAttribute("options").relationType;
+        const side = attribute.getAttribute("options").side;
 
-        const relatedCollectionId = attribute.options.relatedCollection;
+        const relatedCollectionId =
+            attribute.getAttribute("options").relatedCollection;
         const relatedCollection = await this.getCollection(relatedCollectionId);
 
         await this.updateAttributeMeta(
@@ -2253,7 +2265,8 @@ export class Database extends Constant {
                 const altering =
                     (newKey && newKey !== id) ||
                     (newTwoWayKey &&
-                        newTwoWayKey !== attribute.options.twoWayKey);
+                        newTwoWayKey !==
+                            attribute.getAttribute("options").twoWayKey);
 
                 const relatedAttributes = relatedCollection.getAttribute(
                     "attributes",
@@ -2263,7 +2276,8 @@ export class Database extends Constant {
                 if (
                     newTwoWayKey &&
                     relatedAttributes.some(
-                        (attr: any) => attr.key === newTwoWayKey,
+                        (attr: any) =>
+                            attr.getAttribute("key") === newTwoWayKey,
                     )
                 ) {
                     throw new DuplicateException(
@@ -2271,11 +2285,13 @@ export class Database extends Constant {
                     );
                 }
 
-                newKey = newKey ?? attribute.key;
-                const twoWayKey = attribute.options.twoWayKey;
-                newTwoWayKey = newTwoWayKey ?? attribute.options.twoWayKey;
-                twoWay = twoWay ?? attribute.options.twoWay;
-                onDelete = onDelete ?? attribute.options.onDelete;
+                newKey = newKey ?? attribute.getAttribute("key");
+                const twoWayKey = attribute.getAttribute("options").twoWayKey;
+                newTwoWayKey =
+                    newTwoWayKey ?? attribute.getAttribute("options").twoWayKey;
+                twoWay = twoWay ?? attribute.getAttribute("options").twoWay;
+                onDelete =
+                    onDelete ?? attribute.getAttribute("options").onDelete;
 
                 attribute.setAttribute("$id", newKey);
                 attribute.setAttribute("key", newKey);
@@ -2307,7 +2323,7 @@ export class Database extends Constant {
                 );
 
                 if (type === Database.RELATION_MANY_TO_MANY) {
-                    const junction = await this.getJunctionCollection(
+                    const junction = this.getJunctionCollection(
                         col,
                         relatedCollection,
                         side,
@@ -2367,20 +2383,22 @@ export class Database extends Constant {
                     index.setAttribute("attributes", [newKey]);
                 },
             );
-            await this.silent(async () =>
-                this.renameIndex(
-                    collection,
-                    `_index_${key}`,
-                    `_index_${newKey}`,
-                ),
+            await this.silent(
+                async () =>
+                    await this.renameIndex(
+                        collection,
+                        `_index_${key}`,
+                        `_index_${newKey}`,
+                    ),
             );
         };
 
-        newKey = newKey ?? (attribute.key as string);
-        const twoWayKey = attribute.options.twoWayKey;
-        newTwoWayKey = newTwoWayKey ?? (attribute.options.twoWayKey as string);
-        twoWay = twoWay ?? attribute.options.twoWay;
-        onDelete = onDelete ?? attribute.options.onDelete;
+        newKey = newKey ?? (attribute.getAttribute("key") as string);
+        const options = attribute.getAttribute("options");
+        const twoWayKey = options.twoWayKey;
+        newTwoWayKey = newTwoWayKey ?? (options.twoWayKey as string);
+        twoWay = twoWay ?? options.twoWay;
+        onDelete = onDelete ?? options.onDelete;
 
         switch (type) {
             case Database.RELATION_ONE_TO_ONE:
@@ -2426,7 +2444,7 @@ export class Database extends Constant {
                 }
                 break;
             case Database.RELATION_MANY_TO_MANY:
-                const junction = await this.getJunctionCollection(
+                const junction = this.getJunctionCollection(
                     col,
                     relatedCollection,
                     side,
@@ -2484,11 +2502,12 @@ export class Database extends Constant {
 
         col.setAttribute("attributes", attributes);
 
-        const relatedCollectionId = relationship.options.relatedCollection;
-        const type = relationship.options.relationType;
-        const twoWay = relationship.options.twoWay;
-        const twoWayKey = relationship.options.twoWayKey;
-        const side = relationship.options.side;
+        const relatedCollectionId =
+            relationship.getAttribute("options").relatedCollection;
+        const type = relationship.getAttribute("options").relationType;
+        const twoWay = relationship.getAttribute("options").twoWay;
+        const twoWayKey = relationship.getAttribute("options").twoWayKey;
+        const side = relationship.getAttribute("options").side;
 
         const relatedCollection = await this.silent(
             async () => await this.getCollection(relatedCollectionId),
@@ -2560,7 +2579,7 @@ export class Database extends Constant {
                     }
                     break;
                 case Database.RELATION_MANY_TO_MANY:
-                    const junction = await this.getJunctionCollection(
+                    const junction = this.getJunctionCollection(
                         col,
                         relatedCollection,
                         side,
@@ -2592,7 +2611,7 @@ export class Database extends Constant {
         await this.purgeCachedCollection(col.getId());
         await this.purgeCachedCollection(relatedCollection.getId());
 
-        this.trigger(Database.EVENT_ATTRIBUTE_DELETE, relationship);
+        await this.trigger(Database.EVENT_ATTRIBUTE_DELETE, relationship);
 
         return true;
     }
@@ -2628,7 +2647,7 @@ export class Database extends Constant {
         }
 
         const newIndexExists = indexes.some(
-            (index: any) => index.$id === newId,
+            (index: any) => index.getId() === newId,
         );
 
         if (newIndexExists) {
@@ -2637,9 +2656,9 @@ export class Database extends Constant {
 
         let indexNew = null;
         for (const index of indexes) {
-            if (index.$id === oldId) {
-                index.key = newId;
-                index.$id = newId;
+            if (index.getId() === oldId) {
+                index.setAttribute("key", newId);
+                index.setAttribute("$id", newId);
                 indexNew = index;
                 break;
             }
@@ -2660,7 +2679,7 @@ export class Database extends Constant {
             );
         }
 
-        this.trigger(Database.EVENT_INDEX_RENAME, indexNew);
+        await this.trigger(Database.EVENT_INDEX_RENAME, indexNew);
 
         return true;
     }
@@ -2702,7 +2721,7 @@ export class Database extends Constant {
         const indexes = col.getAttribute("indexes", []);
 
         for (const index of indexes) {
-            if (index.$id.toLowerCase() === id.toLowerCase()) {
+            if (index.getId().toLowerCase() === id.toLowerCase()) {
                 throw new DuplicateException("Index already exists");
             }
         }
@@ -2750,18 +2769,23 @@ export class Database extends Constant {
         for (let i = 0; i < attributes.length; i++) {
             const attr = attributes[i];
             for (const collectionAttribute of collectionAttributes) {
-                if (collectionAttribute.key === attr) {
-                    if (collectionAttribute.type === Database.VAR_STRING) {
+                if (collectionAttribute.getAttribute("key") === attr) {
+                    if (
+                        collectionAttribute.getAttribute("type") ===
+                        Database.VAR_STRING
+                    ) {
                         if (
                             lengths[i] &&
-                            lengths[i] === collectionAttribute.size &&
+                            lengths[i] ===
+                                collectionAttribute.getAttribute("size") &&
                             this.adapter.getMaxIndexLength() > 0
                         ) {
                             lengths[i] = null as any;
                         }
                     }
 
-                    const isArray = collectionAttribute.array || false;
+                    const isArray =
+                        collectionAttribute.getAttribute("array") || false;
                     if (isArray) {
                         if (this.adapter.getMaxIndexLength() > 0) {
                             lengths[i] = Database.ARRAY_INDEX_LENGTH;
@@ -2829,7 +2853,7 @@ export class Database extends Constant {
             );
         }
 
-        this.trigger(Database.EVENT_INDEX_CREATE, index);
+        await this.trigger(Database.EVENT_INDEX_CREATE, index);
 
         return true;
     }
@@ -2858,7 +2882,7 @@ export class Database extends Constant {
 
         let indexDeleted = null;
         for (const [key, value] of Object.entries(indexes)) {
-            if ((value as any)["$id"] && (value as any)["$id"] === id) {
+            if ((value as any).getAttribute("$id") === id) {
                 indexDeleted = value;
                 delete indexes[key];
             }
@@ -2879,7 +2903,7 @@ export class Database extends Constant {
             );
         }
 
-        this.trigger(Database.EVENT_INDEX_DELETE, indexDeleted);
+        await this.trigger(Database.EVENT_INDEX_DELETE, indexDeleted);
 
         return deleted;
     }
@@ -3014,7 +3038,7 @@ export class Database extends Constant {
                 }
             }
 
-            this.trigger(Database.EVENT_DOCUMENT_READ, document);
+            await this.trigger(Database.EVENT_DOCUMENT_READ, document);
 
             return document;
         }
@@ -3062,7 +3086,8 @@ export class Database extends Constant {
         }
 
         const hasTwoWayRelationship = relationships.some(
-            (relationship: any) => relationship["options"]["twoWay"],
+            (relationship: any) =>
+                relationship.getAttribute("options", {})["twoWay"],
         );
 
         // for (const [key, value] of Object.entries(this.map)) {
@@ -3094,7 +3119,7 @@ export class Database extends Constant {
             }
         }
 
-        this.trigger(Database.EVENT_DOCUMENT_READ, document);
+        await this.trigger(Database.EVENT_DOCUMENT_READ, document);
 
         return document;
     }
@@ -3114,7 +3139,8 @@ export class Database extends Constant {
         const attributes = collection.getAttribute("attributes", []);
 
         const relationships = attributes.filter(
-            (attribute: any) => attribute["type"] === Database.VAR_RELATIONSHIP,
+            (attribute: any) =>
+                attribute.getAttribute("type") === Database.VAR_RELATIONSHIP,
         );
 
         for (const relationship of relationships) {
@@ -3350,17 +3376,18 @@ export class Database extends Constant {
                     this.relationshipFetchDepth++;
                     this.relationshipFetchStack.push(relationship);
 
-                    const junction = await this.getJunctionCollection(
+                    const junction = this.getJunctionCollection(
                         collection,
                         relatedCollection,
                         side,
                     );
 
-                    const junctions = await this.skipRelationships(async () =>
-                        this.find(junction, [
-                            Query.equal(twoWayKey, [document.getId()]),
-                            Query.limit(Number.MAX_SAFE_INTEGER),
-                        ]),
+                    const junctions = await this.skipRelationships(
+                        async () =>
+                            await this.find(junction, [
+                                Query.equal(twoWayKey, [document.getId()]),
+                                Query.limit(Number.MAX_SAFE_INTEGER),
+                            ]),
                     );
 
                     const related = [];
@@ -3479,7 +3506,10 @@ export class Database extends Constant {
                 );
             }
 
-            return this.adapter.createDocument(_collection.getId(), document);
+            return await this.adapter.createDocument(
+                _collection.getId(),
+                document,
+            );
         });
 
         if (this.resolveRelationships) {
@@ -3494,7 +3524,7 @@ export class Database extends Constant {
 
         document = await this.decode(_collection, document);
 
-        this.trigger(Database.EVENT_DOCUMENT_CREATE, document);
+        await this.trigger(Database.EVENT_DOCUMENT_CREATE, document);
 
         return document;
     }
@@ -3593,7 +3623,7 @@ export class Database extends Constant {
             documents[i] = await this.decode(_collection, document);
         }
 
-        this.trigger(
+        await this.trigger(
             Database.EVENT_DOCUMENTS_CREATE,
             new Document({
                 $collection: _collection.getId(),
@@ -3617,7 +3647,8 @@ export class Database extends Constant {
         const attributes = collection.getAttribute("attributes", []);
 
         const relationships = attributes.filter(
-            (attribute: any) => attribute.type === Database.VAR_RELATIONSHIP,
+            (attribute: any) =>
+                attribute.getAttribute("type") === Database.VAR_RELATIONSHIP,
         );
 
         const stackCount = this.relationshipWriteStack.length;
@@ -3901,7 +3932,7 @@ export class Database extends Constant {
         }
 
         if (relationType === Database.RELATION_MANY_TO_MANY) {
-            const junction = await this.getJunctionCollection(
+            const junction = this.getJunctionCollection(
                 collection,
                 relatedCollection,
                 side,
@@ -4007,7 +4038,7 @@ export class Database extends Constant {
                     relationId,
                 );
 
-                const junction = await this.getJunctionCollection(
+                const junction = this.getJunctionCollection(
                     collection,
                     relatedCollection,
                     side,
@@ -4326,7 +4357,7 @@ export class Database extends Constant {
 
         await this.purgeRelatedDocuments(_collection, id);
         await this.purgeCachedDocument(_collection.getId(), id);
-        this.trigger(Database.EVENT_DOCUMENT_UPDATE, document);
+        await this.trigger(Database.EVENT_DOCUMENT_UPDATE, document);
 
         return document;
     }
@@ -4524,7 +4555,7 @@ export class Database extends Constant {
                 );
             }
 
-            this.trigger(
+            await this.trigger(
                 Database.EVENT_DOCUMENTS_UPDATE,
                 new Document({
                     $collection: _collection.getId(),
@@ -5044,7 +5075,7 @@ export class Database extends Constant {
                         );
 
                         for (const relation of removedDocuments) {
-                            const junction = await this.getJunctionCollection(
+                            const junction = this.getJunctionCollection(
                                 collection,
                                 relatedCollection,
                                 side,
@@ -5131,7 +5162,7 @@ export class Database extends Constant {
                             await this.skipRelationships(
                                 async () =>
                                     await this.createDocument(
-                                        await this.getJunctionCollection(
+                                        this.getJunctionCollection(
                                             collection,
                                             relatedCollection,
                                             side,
@@ -5279,7 +5310,7 @@ export class Database extends Constant {
 
         await this.purgeCachedDocument(_collection.getId(), id);
 
-        this.trigger(Database.EVENT_DOCUMENT_INCREASE, document);
+        await this.trigger(Database.EVENT_DOCUMENT_INCREASE, document);
 
         return result;
     }
@@ -5324,8 +5355,8 @@ export class Database extends Constant {
             return false;
         }
 
-        const _collection = await this.silent(async () =>
-            this.getCollection(collection),
+        const _collection = await this.silent(
+            async () => await this.getCollection(collection),
         );
 
         if (_collection.getId() !== Database.METADATA) {
@@ -5391,7 +5422,7 @@ export class Database extends Constant {
 
         await this.purgeCachedDocument(_collection.getId(), id);
 
-        this.trigger(Database.EVENT_DOCUMENT_DECREASE, document);
+        await this.trigger(Database.EVENT_DOCUMENT_DECREASE, document);
 
         return result;
     }
@@ -5480,7 +5511,7 @@ export class Database extends Constant {
         await this.purgeRelatedDocuments(_collection, id);
         await this.purgeCachedDocument(_collection.getId(), id);
 
-        this.trigger(Database.EVENT_DOCUMENT_DELETE, _document);
+        await this.trigger(Database.EVENT_DOCUMENT_DELETE, _document);
 
         return deleted;
     }
@@ -6066,7 +6097,7 @@ export class Database extends Constant {
                 return [];
             }
 
-            this.trigger(
+            await this.trigger(
                 Database.EVENT_DOCUMENTS_DELETE,
                 new Document({
                     $collection: _collection.getId(),
@@ -6268,7 +6299,7 @@ export class Database extends Constant {
         }
 
         const getResults = async () =>
-            this.adapter.find(
+            await this.adapter.find(
                 _collection.getId(),
                 queries,
                 limit ?? 25,
@@ -6319,7 +6350,7 @@ export class Database extends Constant {
             }
         }
 
-        this.trigger(Database.EVENT_DOCUMENT_FIND, results);
+        await this.trigger(Database.EVENT_DOCUMENT_FIND, results);
 
         return results;
     }
@@ -6343,7 +6374,7 @@ export class Database extends Constant {
 
         const found = results[0];
 
-        this.trigger(Database.EVENT_DOCUMENT_FIND, found);
+        await this.trigger(Database.EVENT_DOCUMENT_FIND, found);
 
         if (!found) {
             return new Document();
@@ -6400,7 +6431,7 @@ export class Database extends Constant {
             ? await Authorization.skip(getCount)
             : await getCount();
 
-        this.trigger(Database.EVENT_DOCUMENT_COUNT, count);
+        await this.trigger(Database.EVENT_DOCUMENT_COUNT, count);
 
         return count;
     }
@@ -6452,7 +6483,7 @@ export class Database extends Constant {
             max,
         );
 
-        this.trigger(Database.EVENT_DOCUMENT_SUM, sum);
+        await this.trigger(Database.EVENT_DOCUMENT_SUM, sum);
 
         return sum;
     }
@@ -6516,18 +6547,20 @@ export class Database extends Constant {
                 value = array ? value : [value];
             }
 
-            value = await value.map(async (node: any) => {
-                if (node !== null) {
-                    for (const filter of filters) {
-                        node = await this.encodeAttribute(
-                            filter,
-                            node,
-                            document,
-                        );
+            value = await Promise.all(
+                value.map(async (node: any) => {
+                    if (node !== null) {
+                        for (const filter of filters) {
+                            node = await this.encodeAttribute(
+                                filter,
+                                node,
+                                document,
+                            );
+                        }
                     }
-                }
-                return node;
-            });
+                    return node;
+                }),
+            );
 
             if (!array) {
                 value = value[0];
@@ -6621,12 +6654,14 @@ export class Database extends Constant {
 
             value = value === null || value === undefined ? [] : value;
 
-            value = await value.map(async (val: any) => {
-                for (const filter of filters.reverse()) {
-                    val = await this.decodeAttribute(filter, val, document);
-                }
-                return val;
-            });
+            value = await Promise.all(
+                value.map(async (val: any) => {
+                    for (const filter of filters.reverse()) {
+                        val = await this.decodeAttribute(filter, val, document);
+                    }
+                    return val;
+                }),
+            );
 
             if (
                 selections.length === 0 ||

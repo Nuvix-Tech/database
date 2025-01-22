@@ -313,7 +313,6 @@ export abstract class Sql extends DatabaseAdapter {
                     total += 19;
                     break;
                 default:
-                    console.log(attribute);
                     throw new DatabaseError(
                         "Unknown type: " + attribute.getAttribute("type"),
                     );

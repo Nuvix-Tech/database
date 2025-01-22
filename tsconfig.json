@@ -10,7 +10,9 @@
     // Source Maps & Declaration
     "sourceMap": true,
     "declaration": true,
-    "declarationMap": true,
+    "declarationMap": false,
+    "inlineSourceMap": false,
+    "inlineSources": false,
     // Path Configuration
     "baseUrl": ".",
     "outDir": "dist",

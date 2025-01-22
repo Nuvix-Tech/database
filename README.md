@@ -26,14 +26,16 @@ npm install @nuvix/database
 import { Database, MariaDBAdapter, Query } from "@nuvix/database";
 
 // Initialize the database
-const db = new Database(
-    new MariaDBAdapter({
-        host: "localhost",
-        user: "root",
-        password: "password",
-        database: "test_db",
-    }),
-);
+const adapter = new MariaDB({
+    host: "localhost",
+    user: "root",
+    password: "password",
+    database: "test_db",
+});
+
+await adapter.init();
+
+const db = new Database(adapter);
 
 // Perform a query
 const documents = await db.find(
@@ -51,11 +53,11 @@ console.log(documents);
 #### Static Schema (Repository Pattern)
 
 ```typescript
-import { Entity, Column, PrimaryGeneratedColumn } from "@nuvix/database";
+import { Entity, Column } from "@nuvix/database";
 
 @Entity("users")
 class User {
-    @PrimaryGeneratedColumn()
+    @Column()
     id: number;
 
     @Column({ type: "string" })
@@ -69,14 +71,21 @@ class User {
 #### Dynamic Schema
 
 ```typescript
-const schema = {
-    name: "users",
-    fields: [
-        { name: "id", type: "number", primary: true },
-        { name: "name", type: "string" },
-        { name: "email", type: "string" },
-    ],
-};
+const col1 = db.createCollection(
+    ID.uniqe(),
+    [], // attributes
+    [], // indexes
+    true, // documentSecurity
+    [Permission.read(Role.any())], // permissions
+);
+
+Document({
+    $id: "6758383663783833983",
+    attributes: [],
+    indexes: [],
+    documentSecurity: true,
+    $permissions: [`read(any)`],
+});
 ```
 
 ### Multi-Tenancy Support
@@ -97,7 +106,7 @@ The MariaDB adapter enables efficient interaction with MariaDB databases:
 ### Initialization
 
 ```typescript
-const mariadbAdapter = new MariaDBAdapter({
+const mariadbAdapter = new MariaDB({
     host: "localhost",
     user: "root",
     password: "password",

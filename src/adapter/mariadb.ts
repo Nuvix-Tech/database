@@ -17,6 +17,7 @@ import {
 
 interface MariaDBOptions {
     connection: any; // mysql2.PoolOptions;
+    maxVarCharLimit?: number;
 }
 
 type Pool<a extends any> = a;
@@ -568,6 +569,13 @@ export class MariaDB extends Sql implements Adapter {
 
         switch (type) {
             case Database.VAR_STRING:
+                if (
+                    this.options.maxVarCharLimit !== undefined &&
+                    size > this.options.maxVarCharLimit
+                ) {
+                    return `TEXT`;
+                }
+
                 if (size === 0) {
                     return `TEXT`;
                 }
