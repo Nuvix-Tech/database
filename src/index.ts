@@ -6,11 +6,14 @@ export * from "./decorator/Index";
 
 export * from "./adapter/mariadb";
 
-export * from "./security/Permission";
-export * from "./security/Role";
+export { default as Permission } from "./security/Permission";
+export { default as Role } from "./security/Role";
 export * from "./security/authorization";
 export * from "./security/Permissions";
 export * from "./security/Roles";
+
+export * from "./core/validator/Structure";
+export * from "./core/validator";
 
 export * from "./core/database";
 export * from "./core/Document";

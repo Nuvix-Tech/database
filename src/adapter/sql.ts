@@ -278,10 +278,6 @@ export abstract class Sql extends DatabaseAdapter {
         return 65535;
     }
 
-    public getSupportForCasting(): boolean {
-        return false;
-    }
-
     public getAttributeWidth(collection: Document): number {
         let total = 1500;
         const attributes = collection.getAttribute(

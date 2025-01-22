@@ -2550,4 +2550,8 @@ export class MariaDB extends Sql implements Adapter {
     public getMaxDateTime(): Date {
         return new Date("9999-12-31T23:59:59Z");
     }
+
+    public getSupportForCasting(): boolean {
+        return true;
+    }
 }

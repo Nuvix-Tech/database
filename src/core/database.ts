@@ -108,9 +108,8 @@ export class Database extends Constant {
 
         this.entities = options.entities as any[];
 
-        Database.addFilter(
-            "json",
-            (value: any, ...args) => {
+        Database.addFilter("json", {
+            encode: (value: any, ...args) => {
                 if (typeof value === "string") {
                     return value;
                 }
@@ -125,7 +124,7 @@ export class Database extends Constant {
 
                 return JSON.stringify(value);
             },
-            (value: any, ...args) => {
+            decode: (value: any, ...args) => {
                 if (typeof value !== "string") {
                     return value;
                 }
@@ -164,11 +163,10 @@ export class Database extends Constant {
                     return value;
                 }
             },
-        );
+        });
 
-        Database.addFilter(
-            "datetime",
-            (value: any, ...args) => {
+        Database.addFilter("datetime", {
+            encode: (value: any, ...args) => {
                 if (value === null) {
                     return;
                 }
@@ -184,10 +182,10 @@ export class Database extends Constant {
                     return value;
                 }
             },
-            (value: string | null) => {
+            decode: (value: string | null) => {
                 return DateTime.formatTz(value);
             },
-        );
+        });
     }
 
     /**
@@ -3046,7 +3044,7 @@ export class Database extends Constant {
         }
 
         document = this.casting(_collection, document);
-        document = this.decode(_collection, document, selections);
+        document = await this.decode(_collection, document, selections);
         this.map = {};
 
         if (
@@ -3452,7 +3450,7 @@ export class Database extends Constant {
             );
         }
 
-        document = this.encode(_collection, document);
+        document = await this.encode(_collection, document);
 
         if (this.validate) {
             const validator = new Permissions();
@@ -3494,7 +3492,7 @@ export class Database extends Constant {
             );
         }
 
-        document = this.decode(_collection, document);
+        document = await this.decode(_collection, document);
 
         this.trigger(Database.EVENT_DOCUMENT_CREATE, document);
 
@@ -3549,7 +3547,7 @@ export class Database extends Constant {
                     updatedAt && this.preserveDates ? updatedAt : time,
                 );
 
-            document = this.encode(_collection, document);
+            document = await this.encode(_collection, document);
 
             const validator = new Structure(
                 _collection,
@@ -3592,7 +3590,7 @@ export class Database extends Constant {
                         ),
                 );
             }
-            documents[i] = this.decode(_collection, document);
+            documents[i] = await this.decode(_collection, document);
         }
 
         this.trigger(
@@ -4280,7 +4278,7 @@ export class Database extends Constant {
                 );
             }
 
-            document = this.encode(_collection, document);
+            document = await this.encode(_collection, document);
 
             const structureValidator = new Structure(
                 _collection,
@@ -4324,7 +4322,7 @@ export class Database extends Constant {
             );
         }
 
-        document = this.decode(_collection, document);
+        document = await this.decode(_collection, document);
 
         await this.purgeRelatedDocuments(_collection, id);
         await this.purgeCachedDocument(_collection.getId(), id);
@@ -4400,7 +4398,7 @@ export class Database extends Constant {
             updates.setAttribute("$updatedAt", new Date());
         }
 
-        updates = this.encode(_collection, updates);
+        updates = await this.encode(_collection, updates);
 
         // Check new document structure
         const validator = new PartialStructure(
@@ -6207,7 +6205,9 @@ export class Database extends Constant {
             );
         }
 
-        cursor = cursor ? this.encode(_collection, cursor).getArrayCopy() : [];
+        cursor = cursor
+            ? (await this.encode(_collection, cursor)).getArrayCopy()
+            : [];
 
         queries = [
             ...selects,
@@ -6299,7 +6299,7 @@ export class Database extends Constant {
                 );
             }
             node = this.casting(_collection, node);
-            node = this.decode(_collection, node, selections);
+            node = await this.decode(_collection, node, selections);
 
             if (!node.isEmpty()) {
                 node.setAttribute("$collection", _collection.getId());
@@ -6466,15 +6466,8 @@ export class Database extends Constant {
      *
      * @returns void
      */
-    public static addFilter(
-        name: string,
-        encode: (value: any) => any,
-        decode: (value: any) => any,
-    ): void {
-        this.filters[name] = {
-            encode,
-            decode,
-        };
+    public static addFilter(name: string, filter: Filter): void {
+        this.filters[name] = filter;
     }
 
     /**
@@ -6486,7 +6479,10 @@ export class Database extends Constant {
      * @returns The encoded document.
      * @throws DatabaseException
      */
-    public encode(collection: Document, document: Document): Document {
+    public async encode(
+        collection: Document,
+        document: Document,
+    ): Promise<Document> {
         const attributes = collection.getAttribute("attributes", []);
 
         const internalAttributes = Database.INTERNAL_ATTRIBUTES.filter(
@@ -6520,10 +6516,14 @@ export class Database extends Constant {
                 value = array ? value : [value];
             }
 
-            value = value.map((node: any) => {
+            value = await value.map(async (node: any) => {
                 if (node !== null) {
                     for (const filter of filters) {
-                        node = this.encodeAttribute(filter, node, document);
+                        node = await this.encodeAttribute(
+                            filter,
+                            node,
+                            document,
+                        );
                     }
                 }
                 return node;
@@ -6548,11 +6548,11 @@ export class Database extends Constant {
      * @returns The decoded document.
      * @throws DatabaseException
      */
-    public decode(
+    public async decode(
         collection: Document,
         document: Document,
         selections: string[] = [],
-    ): Document {
+    ): Promise<Document> {
         const attributes = collection
             .getAttribute("attributes", [])
             .filter(
@@ -6621,9 +6621,9 @@ export class Database extends Constant {
 
             value = value === null || value === undefined ? [] : value;
 
-            value = value.map((val: any) => {
+            value = await value.map(async (val: any) => {
                 for (const filter of filters.reverse()) {
-                    val = this.decodeAttribute(filter, val, document);
+                    val = await this.decodeAttribute(filter, val, document);
                 }
                 return val;
             });
@@ -6719,24 +6719,28 @@ export class Database extends Constant {
      * @return any
      * @throws DatabaseException
      */
-    protected encodeAttribute(
+    protected async encodeAttribute(
         name: string,
         value: any,
         document: Document,
-    ): any {
+    ): Promise<any> {
         if (!(name in this.instanceFilters) && !(name in Database.filters)) {
             throw new NotFoundException(`Filter: ${name} not found`);
         }
 
         try {
             if (name in this.instanceFilters) {
-                value = this.instanceFilters[name].encode(
+                value = await this.instanceFilters[name].encode(
                     value,
                     document,
                     this,
                 );
             } else {
-                value = Database.filters[name].encode(value, document, this);
+                value = await Database.filters[name].encode(
+                    value,
+                    document,
+                    this,
+                );
             }
         } catch (error: any) {
             throw new DatabaseException(error.message, error.code, error);
@@ -6758,11 +6762,11 @@ export class Database extends Constant {
      * @return any
      * @throws DatabaseException
      */
-    protected decodeAttribute(
+    protected async decodeAttribute(
         name: string,
         value: any,
         document: Document,
-    ): any {
+    ): Promise<any> {
         if (!this.filter) {
             return value;
         }
@@ -6772,9 +6776,13 @@ export class Database extends Constant {
         }
 
         if (name in this.instanceFilters) {
-            value = this.instanceFilters[name].decode(value, document, this);
+            value = await this.instanceFilters[name].decode(
+                value,
+                document,
+                this,
+            );
         } else {
-            value = Database.filters[name].decode(value, document, this);
+            value = await Database.filters[name].decode(value, document, this);
         }
 
         return value;
