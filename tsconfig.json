@@ -1,24 +1,36 @@
 {
   "compilerOptions": {
-    "target": "ES2020",
-    "module": "ES6",
-    "moduleResolution": "node10",
-    "outDir": "./dist",
-    "rootDir": "./src",
+    // Module Configuration
+    "target": "ES2022",
+    "module": "CommonJS",
+    "moduleResolution": "node",
+    // Module Interop
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    // Source Maps & Declaration
     "sourceMap": true,
     "declaration": true,
     "declarationMap": true,
-    "removeComments": true,
+    // Path Configuration
+    "baseUrl": ".",
+    "outDir": "dist",
+    "rootDir": "./src",
+    // Type Checking
     "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true
+    "noImplicitAny": true,
+    "skipLibCheck": true,
+    "strictPropertyInitialization": false,
+    // Decorators
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    // Additional Checks
+    "noFallthroughCasesInSwitch": true,
+    "forceConsistentCasingInFileNames": true,
+    // Path Aliases
+    "paths": {
+      "@/*": ["src/*"]
+    }
   },
-  "include": [
-    "src/**/*"
-  ],
-  "exclude": [
-    "node_modules",
-    "dist",
-    "**/*.js"
-  ]
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist"]
 }

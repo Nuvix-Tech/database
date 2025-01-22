@@ -261,7 +261,7 @@ export interface Adapter {
     isInitialized(): boolean;
 }
 
-interface IDatabaseAdapter { }
+interface IDatabaseAdapter {}
 
 /**
  * Base adapter class
@@ -322,14 +322,14 @@ export abstract class DatabaseAdapter implements IDatabaseAdapter {
                     await this.rollbackTransaction();
                 } catch (rollback) {
                     if (attempts < 2) {
-                        setTimeout(() => { }, 5);
+                        setTimeout(() => {}, 5);
                         continue;
                     }
                     this.inTransaction = 0;
                     throw rollback;
                 }
                 if (attempts < 2) {
-                    setTimeout(() => { }, 5);
+                    setTimeout(() => {}, 5);
                     continue;
                 }
                 this.inTransaction = 0;

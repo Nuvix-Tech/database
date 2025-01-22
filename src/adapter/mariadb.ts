@@ -994,20 +994,20 @@ export class MariaDB extends Sql implements Adapter {
                 const junction =
                     side === Database.RELATION_SIDE_PARENT
                         ? this.getSqlTable(
-                            `_${collectionDoc.getInternalId()}_${relatedCollectionDoc.getInternalId()}`,
-                        )
+                              `_${collectionDoc.getInternalId()}_${relatedCollectionDoc.getInternalId()}`,
+                          )
                         : this.getSqlTable(
-                            `_${relatedCollectionDoc.getInternalId()}_${collectionDoc.getInternalId()}`,
-                        );
+                              `_${relatedCollectionDoc.getInternalId()}_${collectionDoc.getInternalId()}`,
+                          );
 
                 const perms =
                     side === Database.RELATION_SIDE_PARENT
                         ? this.getSqlTable(
-                            `_${collectionDoc.getInternalId()}_${relatedCollectionDoc.getInternalId()}_perms`,
-                        )
+                              `_${collectionDoc.getInternalId()}_${relatedCollectionDoc.getInternalId()}_perms`,
+                          )
                         : this.getSqlTable(
-                            `_${relatedCollectionDoc.getInternalId()}_${collectionDoc.getInternalId()}_perms`,
-                        );
+                              `_${relatedCollectionDoc.getInternalId()}_${collectionDoc.getInternalId()}_perms`,
+                          );
 
                 sql = `DROP TABLE ${junction}; DROP TABLE ${perms}`;
                 break;
@@ -1230,8 +1230,8 @@ export class MariaDB extends Sql implements Adapter {
                         ?.forEach((permission: string) => {
                             permPlaceholders.push(
                                 "(?, ?, ?" +
-                                (this.sharedTables ? ", ?" : "") +
-                                ")",
+                                    (this.sharedTables ? ", ?" : "") +
+                                    ")",
                             );
                             permValues.push(
                                 type,

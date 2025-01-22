@@ -18,5 +18,4 @@ export * from "./core/ID";
 export * from "./core/query";
 export * from "./core/repository";
 
-
-export * from "./errors"
+export * from "./errors";
