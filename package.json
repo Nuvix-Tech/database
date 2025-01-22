@@ -4,6 +4,17 @@
   "description": "A modern TypeScript database library inspired by .",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.js"
+    },
+    "./dist": {
+      "import": "./dist/index.js",
+      "require": "./dist/index.js"
+    }
+  },
   "scripts": {
     "clean": "rm -rf dist src/**/*.js",
     "prebuild": "npm run clean",

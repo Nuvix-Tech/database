@@ -11,3 +11,5 @@ export { default as StructureException } from "./Structure";
 export { default as TimeoutException } from "./Timeout";
 export { default as TransactionException } from "./Transaction";
 export { default as TruncateException } from "./Truncate";
+export * from "./adapter";
+export * from "./base";
