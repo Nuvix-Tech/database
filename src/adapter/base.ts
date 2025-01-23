@@ -473,17 +473,20 @@ export abstract class DatabaseAdapter implements IDatabaseAdapter {
         return this;
     }
 
-    protected trigger<T extends any>(event: string, query: T): T {
+    protected async trigger<T extends any>(
+        event: string,
+        query: T,
+    ): Promise<T> {
         this.logger.debug(`${event}: ${query}`);
         for (const callback of Object.values(
             this.transformations[Database.EVENT_ALL] || {},
         )) {
-            query = callback(query);
+            query = await callback(query);
         }
         for (const callback of Object.values(
             this.transformations[event] || {},
         )) {
-            query = callback(query);
+            query = await callback(query);
         }
         return query;
     }

@@ -508,10 +508,10 @@ export class MariaDB extends Sql implements Adapter {
         permissionsSql += `)`;
 
         try {
-            await this.pool.query<any>(permissionsSql);
             const [result] = await this.pool.query<any>(collectionSql);
+            await this.pool.query<any>(permissionsSql);
 
-            this.logger.debug(result);
+            this.logger.log(`COLLECTION (${name}) =>`, result);
             return true;
         } catch (e) {
             this.logger.error(e);
@@ -638,7 +638,7 @@ export class MariaDB extends Sql implements Adapter {
         const sqlType = this.getSqlType(type, size, signed, array);
 
         let sql = `ALTER TABLE ${this.getSqlTable(name)} ADD COLUMN \`${attributeId}\` ${sqlType};`;
-        sql = this.trigger(Database.EVENT_ATTRIBUTE_CREATE, sql);
+        sql = await this.trigger(Database.EVENT_ATTRIBUTE_CREATE, sql);
 
         try {
             const [result] = await this.pool.query<any>(sql);
@@ -684,7 +684,7 @@ export class MariaDB extends Sql implements Adapter {
             sql = `ALTER TABLE ${this.getSqlTable(name)} MODIFY \`${attributeId}\` ${sqlType};`;
         }
 
-        sql = this.trigger(Database.EVENT_ATTRIBUTE_UPDATE, sql);
+        sql = await this.trigger(Database.EVENT_ATTRIBUTE_UPDATE, sql);
 
         try {
             const [result] = await this.pool.query<any>(sql);
@@ -712,7 +712,7 @@ export class MariaDB extends Sql implements Adapter {
         const attributeId = this.filter(id);
 
         let sql = `ALTER TABLE ${this.getSqlTable(name)} DROP COLUMN \`${attributeId}\`;`;
-        sql = this.trigger(Database.EVENT_ATTRIBUTE_DELETE, sql);
+        sql = await this.trigger(Database.EVENT_ATTRIBUTE_DELETE, sql);
 
         try {
             const [result] = await this.pool.query<any>(sql);
@@ -743,7 +743,7 @@ export class MariaDB extends Sql implements Adapter {
         const newAttributeName = this.filter(newName);
 
         let sql = `ALTER TABLE ${this.getSqlTable(name)} RENAME COLUMN \`${oldAttributeName}\` TO \`${newAttributeName}\`;`;
-        sql = this.trigger(Database.EVENT_ATTRIBUTE_UPDATE, sql);
+        sql = await this.trigger(Database.EVENT_ATTRIBUTE_UPDATE, sql);
 
         try {
             const [result] = await this.pool.query<any>(sql);
@@ -804,7 +804,7 @@ export class MariaDB extends Sql implements Adapter {
                 throw new DatabaseError("Invalid relationship type");
         }
 
-        sql = this.trigger(Database.EVENT_ATTRIBUTE_CREATE, sql);
+        sql = await this.trigger(Database.EVENT_ATTRIBUTE_CREATE, sql);
 
         try {
             const [result] = await this.pool.query<any>(sql);
@@ -918,7 +918,7 @@ export class MariaDB extends Sql implements Adapter {
             return true;
         }
 
-        sql = this.trigger(Database.EVENT_ATTRIBUTE_UPDATE, sql);
+        sql = await this.trigger(Database.EVENT_ATTRIBUTE_UPDATE, sql);
 
         try {
             const [result] = await this.pool.query<any>(sql);
@@ -1027,7 +1027,7 @@ export class MariaDB extends Sql implements Adapter {
             return true;
         }
 
-        sql = this.trigger(Database.EVENT_ATTRIBUTE_DELETE, sql);
+        sql = await this.trigger(Database.EVENT_ATTRIBUTE_DELETE, sql);
 
         try {
             const [result] = await this.pool.query<any>(sql);
@@ -1058,7 +1058,7 @@ export class MariaDB extends Sql implements Adapter {
         const newIndexName = this.filter(newName);
 
         let sql = `ALTER TABLE ${this.getSqlTable(name)} RENAME INDEX \`${oldIndexName}\` TO \`${newIndexName}\`;`;
-        sql = this.trigger(Database.EVENT_INDEX_RENAME, sql);
+        sql = await this.trigger(Database.EVENT_INDEX_RENAME, sql);
 
         try {
             const [result] = await this.pool.query<any>(sql);
@@ -1123,7 +1123,7 @@ export class MariaDB extends Sql implements Adapter {
         }
 
         let sql = `CREATE ${sqlType} \`${indexId}\` ON ${this.getSqlTable(name)} (${indexAttributes})`;
-        sql = this.trigger(Database.EVENT_INDEX_CREATE, sql);
+        sql = await this.trigger(Database.EVENT_INDEX_CREATE, sql);
 
         try {
             const [result] = await this.pool.query<any>(sql);
@@ -1148,7 +1148,7 @@ export class MariaDB extends Sql implements Adapter {
         const indexId = this.filter(id);
 
         let sql = `ALTER TABLE ${this.getSqlTable(name)} DROP INDEX \`${indexId}\`;`;
-        sql = this.trigger(Database.EVENT_INDEX_DELETE, sql);
+        sql = await this.trigger(Database.EVENT_INDEX_DELETE, sql);
 
         try {
             const [result] = await this.pool.query<any>(sql);
@@ -1222,10 +1222,10 @@ export class MariaDB extends Sql implements Adapter {
     VALUES (${placeholders.join(", ")})
     `;
 
-        sql = this.trigger(Database.EVENT_DOCUMENT_CREATE, sql);
+        sql = await this.trigger(Database.EVENT_DOCUMENT_CREATE, sql);
 
         try {
-            const [result] = await this.pool.query<any>(sql, values);
+            const [result] = await this.pool.execute<any>(sql, values);
 
             // Handle permissions if any
             if (document.getPermissions()) {
@@ -1256,11 +1256,11 @@ export class MariaDB extends Sql implements Adapter {
                 (_type, _permission, _document${this.sharedTables ? ", _tenant" : ""})
                 VALUES ${permPlaceholders.join(", ")}
             `;
-                    permSql = this.trigger(
+                    permSql = await this.trigger(
                         Database.EVENT_PERMISSIONS_CREATE,
                         permSql,
                     );
-                    await this.pool.query(permSql, permValues);
+                    await this.pool.execute(permSql, permValues);
                 }
             }
 
@@ -1483,7 +1483,7 @@ export class MariaDB extends Sql implements Adapter {
         let sql = `UPDATE ${this.getSqlTable(name)} SET ${columns} WHERE _uid = ?`;
         values.push(id);
 
-        sql = this.trigger(Database.EVENT_DOCUMENT_UPDATE, sql);
+        sql = await this.trigger(Database.EVENT_DOCUMENT_UPDATE, sql);
 
         try {
             await this.pool.query<any>(sql, values);
@@ -1600,7 +1600,7 @@ export class MariaDB extends Sql implements Adapter {
       ${sqlWhere}
     `;
 
-        sql = this.trigger(Database.EVENT_DOCUMENTS_UPDATE, sql);
+        sql = await this.trigger(Database.EVENT_DOCUMENTS_UPDATE, sql);
 
         try {
             const [result] = await this.pool.query<any>(sql, values);
@@ -1759,7 +1759,7 @@ export class MariaDB extends Sql implements Adapter {
             sql += ` AND (${conditions.join(" OR ")})`;
         }
 
-        sql = this.trigger(Database.EVENT_PERMISSIONS_DELETE, sql);
+        sql = await this.trigger(Database.EVENT_PERMISSIONS_DELETE, sql);
 
         await this.pool.query<any>(sql, values);
     }
@@ -1801,7 +1801,7 @@ export class MariaDB extends Sql implements Adapter {
         }
 
         let sql = `INSERT INTO ${this.getSqlTable(name + "_perms")} (_document, _type, _permission${this.sharedTables ? ", _tenant" : ""}) VALUES ${placeholders.join(", ")}`;
-        sql = this.trigger(Database.EVENT_PERMISSIONS_CREATE, sql);
+        sql = await this.trigger(Database.EVENT_PERMISSIONS_CREATE, sql);
         await this.pool.query<any>(sql, values);
     }
 
@@ -1858,7 +1858,7 @@ export class MariaDB extends Sql implements Adapter {
             values.push(min);
         }
 
-        sql = this.trigger(Database.EVENT_DOCUMENT_UPDATE, sql);
+        sql = await this.trigger(Database.EVENT_DOCUMENT_UPDATE, sql);
 
         try {
             const [result] = await this.pool.query<any>(sql, values);
@@ -1891,7 +1891,7 @@ export class MariaDB extends Sql implements Adapter {
             values.push(this.tenantId);
         }
 
-        sql = this.trigger(Database.EVENT_DOCUMENT_DELETE, sql);
+        sql = await this.trigger(Database.EVENT_DOCUMENT_DELETE, sql);
 
         try {
             // Delete document
@@ -1905,7 +1905,10 @@ export class MariaDB extends Sql implements Adapter {
                 permSql += " AND (_tenant = ? OR _tenant IS NULL)";
             }
 
-            permSql = this.trigger(Database.EVENT_PERMISSIONS_DELETE, permSql);
+            permSql = await this.trigger(
+                Database.EVENT_PERMISSIONS_DELETE,
+                permSql,
+            );
             await this.pool.query(permSql, values);
 
             return deleted;
@@ -1937,7 +1940,7 @@ export class MariaDB extends Sql implements Adapter {
             values.push(this.tenantId);
         }
 
-        sql = this.trigger(Database.EVENT_DOCUMENTS_DELETE, sql);
+        sql = await this.trigger(Database.EVENT_DOCUMENTS_DELETE, sql);
 
         try {
             // Delete documents
@@ -1951,7 +1954,10 @@ export class MariaDB extends Sql implements Adapter {
                 permSql += " AND (_tenant = ? OR _tenant IS NULL)";
             }
 
-            permSql = this.trigger(Database.EVENT_PERMISSIONS_DELETE, permSql);
+            permSql = await this.trigger(
+                Database.EVENT_PERMISSIONS_DELETE,
+                permSql,
+            );
             await this.pool.query(permSql, values);
 
             return deletedCount;
