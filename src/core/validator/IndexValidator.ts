@@ -199,7 +199,10 @@ export class Index extends Validator {
                 indexLength = Database.ARRAY_INDEX_LENGTH;
             }
 
-            if (indexLength > attrDoc.getAttribute("size", 0)) {
+            if (
+                attrDoc.getAttribute("size", 0) !== 0 &&
+                indexLength > attrDoc.getAttribute("size", 0)
+            ) {
                 this.message = `Index length ${indexLength} is larger than the size for ${attributeName}: ${attrDoc.getAttribute("size", 0)}`;
                 return false;
             }

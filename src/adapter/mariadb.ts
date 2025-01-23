@@ -569,13 +569,6 @@ export class MariaDB extends Sql implements Adapter {
 
         switch (type) {
             case Database.VAR_STRING:
-                if (
-                    this.options.maxVarCharLimit !== undefined &&
-                    size > this.options.maxVarCharLimit
-                ) {
-                    return `TEXT`;
-                }
-
                 if (size === 0) {
                     return `TEXT`;
                 }
@@ -586,6 +579,13 @@ export class MariaDB extends Sql implements Adapter {
 
                 if (size > 65535) {
                     return "MEDIUMTEXT";
+                }
+
+                if (
+                    this.options.maxVarCharLimit !== undefined &&
+                    size > this.options.maxVarCharLimit
+                ) {
+                    return `TEXT`;
                 }
 
                 return `VARCHAR(${size})`;
@@ -2566,6 +2566,6 @@ export class MariaDB extends Sql implements Adapter {
     }
 
     public getSupportForCasting(): boolean {
-        return true;
+        return false;
     }
 }
