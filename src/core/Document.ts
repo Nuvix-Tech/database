@@ -59,7 +59,7 @@ export class Document extends Map<string, any> {
     }
 
     public getInternalId(): string {
-        return this.getAttribute("$internalId", "");
+        return String(this.getAttribute("$internalId", ""));
     }
 
     public getCollection(): string {

@@ -273,11 +273,17 @@ export class Query {
     }
 
     // Helper methods for creating specific query types
-    public static equal(attribute: string, values: any[]): Query {
+    public static equal(
+        attribute: string,
+        values: (string | number | boolean | any)[],
+    ): Query {
         return new Query(Query.TYPE_EQUAL, attribute, values);
     }
 
-    public static notEqual(attribute: string, value: any): Query {
+    public static notEqual(
+        attribute: string,
+        value: string | number | boolean | any,
+    ): Query {
         return new Query(Query.TYPE_NOT_EQUAL, attribute, [value]);
     }
 
@@ -297,11 +303,18 @@ export class Query {
         return new Query(Query.TYPE_GREATER_EQUAL, attribute, [value]);
     }
 
-    public static contains(attribute: string, values: any[]): Query {
+    public static contains(
+        attribute: string,
+        values: (string | number | boolean | any)[],
+    ): Query {
         return new Query(Query.TYPE_CONTAINS, attribute, values);
     }
 
-    public static between(attribute: string, start: any, end: any): Query {
+    public static between(
+        attribute: string,
+        start: string | number | boolean | any,
+        end: string | number | boolean | any,
+    ): Query {
         return new Query(Query.TYPE_BETWEEN, attribute, [start, end]);
     }
 

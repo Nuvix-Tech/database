@@ -284,7 +284,7 @@ export abstract class Sql extends DatabaseAdapter {
             "attributes",
             [],
         ) as Document[];
-        console.debug(attributes);
+
         for (const attribute of attributes) {
             switch (attribute.getAttribute("type", null)) {
                 case Database.VAR_STRING:
