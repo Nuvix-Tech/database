@@ -319,7 +319,9 @@ export class Structure extends Validator {
                 case Database.VAR_INTEGER:
                     validators.push(new IntegerValidator());
                     const max =
-                        size >= 8 ? Database.BIG_INT_MAX : Database.INT_MAX;
+                        size && size >= 8
+                            ? Database.BIG_INT_MAX
+                            : Database.INT_MAX;
                     const min = attribute["signed"] ? -max : 0;
                     validators.push(new RangeValidator(min, max, "integer"));
                     break;

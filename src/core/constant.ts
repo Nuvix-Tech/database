@@ -6,7 +6,7 @@ export class Constant {
     public static readonly VAR_BOOLEAN = "boolean";
     public static readonly VAR_DATETIME = "datetime";
 
-    public static readonly INT_MAX = 2147483647;
+    public static readonly INT_MAX = 2147483647; // Maximum value for a 32-bit signed integer in MariaDB
     public static readonly BIG_INT_MAX = Number.MAX_SAFE_INTEGER;
     public static readonly DOUBLE_MAX = Number.MAX_VALUE;
 

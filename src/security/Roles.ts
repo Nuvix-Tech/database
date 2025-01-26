@@ -270,7 +270,12 @@ export class Roles {
             return false;
         }
 
-        if (dimensionAllowed && dimension && !options.includes(dimension)) {
+        if (
+            dimensionAllowed &&
+            dimension &&
+            (options || (options as any)?.length > 0) &&
+            !options.includes(dimension)
+        ) {
             this.message =
                 'Role "' +
                 role +
