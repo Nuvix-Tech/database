@@ -8,6 +8,7 @@ export class Text extends Validator {
     protected length: number;
     protected min: number;
     protected allowList: string[];
+    protected loose: boolean;
 
     /**
      * Text constructor.
@@ -16,11 +17,17 @@ export class Text extends Validator {
      * @param min - Minimum length of the text
      * @param allowList - Allowed characters
      */
-    constructor(length: number, min: number = 1, allowList: string[] = []) {
+    constructor(
+        length: number,
+        min: number = 1,
+        allowList: string[] = [],
+        loose: boolean = true,
+    ) {
         super();
         this.length = length;
         this.min = min;
         this.allowList = allowList;
+        this.loose = loose;
     }
 
     /**
@@ -57,10 +64,16 @@ export class Text extends Validator {
      * @returns {boolean}
      */
     public isValid(value: any): boolean {
-        if (typeof value !== "string") {
-            return false;
+        if (this.loose) {
+            if (typeof value !== "string" && typeof value !== "number") {
+                return false;
+            }
+        } else {
+            if (typeof value !== "string") {
+                return false;
+            }
         }
-
+        value = value.toString();
         if (
             value.length < this.min ||
             (this.length > 0 && value.length > this.length)

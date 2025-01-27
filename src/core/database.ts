@@ -166,8 +166,8 @@ export class Database extends Constant {
         });
 
         Database.addFilter("datetime", {
-            encode: (value: any, ...args) => {
-                if (value === null) {
+            encode: (value: any) => {
+                if (value === null || value === undefined) {
                     return;
                 }
                 try {

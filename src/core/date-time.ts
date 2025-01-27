@@ -76,7 +76,17 @@ export class DateTime {
      * @returns {string | null}
      */
     public static formatTz(dbFormat: string | null): string | null {
-        if (dbFormat === null) {
+        if (
+            dbFormat === null ||
+            dbFormat === "" ||
+            dbFormat === "0000-00-00 00:00:00" ||
+            dbFormat === "0000-00-00" ||
+            dbFormat === "00:00:00" ||
+            dbFormat === "0000-00-00 00:00:00.000000" ||
+            dbFormat === "0000-00-00 00:00:00.000" ||
+            dbFormat === "0000-00-00 00:00:00.000000+00:00" ||
+            dbFormat === undefined
+        ) {
             return null;
         }
 

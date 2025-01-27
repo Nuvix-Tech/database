@@ -13,6 +13,9 @@ export class Constant {
     // Relationship Types
     public static readonly VAR_RELATIONSHIP = "relationship";
 
+    // Virtual Types
+    public static readonly VAR_VIRTUAL = "virtual";
+
     // Index Types
     public static readonly INDEX_KEY = "key";
     public static readonly INDEX_FULLTEXT = "fulltext";

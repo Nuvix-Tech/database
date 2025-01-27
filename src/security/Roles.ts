@@ -46,43 +46,43 @@ export class Roles {
             };
         }
     > = {
-            [Roles.ROLE_ANY]: {
-                identifier: { allowed: false, required: false },
-                dimension: { allowed: false, required: false },
+        [Roles.ROLE_ANY]: {
+            identifier: { allowed: false, required: false },
+            dimension: { allowed: false, required: false },
+        },
+        [Roles.ROLE_GUESTS]: {
+            identifier: { allowed: false, required: false },
+            dimension: { allowed: false, required: false },
+        },
+        [Roles.ROLE_USERS]: {
+            identifier: { allowed: false, required: false },
+            dimension: {
+                allowed: true,
+                required: false,
+                options: Roles.USER_DIMENSIONS,
             },
-            [Roles.ROLE_GUESTS]: {
-                identifier: { allowed: false, required: false },
-                dimension: { allowed: false, required: false },
+        },
+        [Roles.ROLE_USER]: {
+            identifier: { allowed: true, required: true },
+            dimension: {
+                allowed: true,
+                required: false,
+                options: Roles.USER_DIMENSIONS,
             },
-            [Roles.ROLE_USERS]: {
-                identifier: { allowed: false, required: false },
-                dimension: {
-                    allowed: true,
-                    required: false,
-                    options: Roles.USER_DIMENSIONS,
-                },
-            },
-            [Roles.ROLE_USER]: {
-                identifier: { allowed: true, required: true },
-                dimension: {
-                    allowed: true,
-                    required: false,
-                    options: Roles.USER_DIMENSIONS,
-                },
-            },
-            [Roles.ROLE_TEAM]: {
-                identifier: { allowed: true, required: true },
-                dimension: { allowed: true, required: false },
-            },
-            [Roles.ROLE_MEMBER]: {
-                identifier: { allowed: true, required: true },
-                dimension: { allowed: false, required: false },
-            },
-            [Roles.ROLE_LABEL]: {
-                identifier: { allowed: true, required: true },
-                dimension: { allowed: false, required: false },
-            },
-        };
+        },
+        [Roles.ROLE_TEAM]: {
+            identifier: { allowed: true, required: true },
+            dimension: { allowed: true, required: false },
+        },
+        [Roles.ROLE_MEMBER]: {
+            identifier: { allowed: true, required: true },
+            dimension: { allowed: false, required: false },
+        },
+        [Roles.ROLE_LABEL]: {
+            identifier: { allowed: true, required: true },
+            dimension: { allowed: false, required: false },
+        },
+    };
 
     /**
      * Roles constructor.
