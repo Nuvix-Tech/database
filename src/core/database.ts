@@ -31,6 +31,19 @@ import { PartialStructure } from "./validator/PartialStructure";
 import { DatabaseError as DatabaseException } from "../errors/base";
 import { Document as DocumentValidator } from "./validator/Queries/Document";
 import { Documents as DocumentsValidator } from "./validator/Queries/Documents";
+import {
+    CreateAttributeParams,
+    CreateCollectionParams,
+    CreateIndexParams,
+    CreateRelationshipParams,
+    DecreaseDocumentAttributeParams,
+    FindParams,
+    GetDocumentParams,
+    IncreaseDocumentAttributeParams,
+    UpdateAttributeParams,
+    UpdateCollectionParams,
+    UpdateRelationshipParams,
+} from "./types/database";
 
 interface DatabaseOPtions {
     cache?: any;
@@ -38,6 +51,8 @@ interface DatabaseOPtions {
     entities?: any[];
     logger?: boolean;
 }
+
+type IRecord = Record<string, unknown | any>;
 
 export class Database extends Constant {
     protected adapter: Adapter;
@@ -722,7 +737,7 @@ export class Database extends Constant {
 
         await this.adapter.create(database);
 
-        const attributes: Document[] = Database.COLLECTION.attributes.map(
+        const attributes: Document<any>[] = Database.COLLECTION.attributes.map(
             (att) => new Document(att),
         );
 
@@ -779,23 +794,40 @@ export class Database extends Constant {
     /**
      * Create Collection
      *
-     * @param id
-     * @param attributes
-     * @param indexes
-     * @param permissions
-     * @param documentSecurity
      * @return Promise<Document>
      * @throws DatabaseException
      * @throws DuplicateException
      * @throws LimitException
      */
-    public async createCollection(
+    public async createCollection<T extends IRecord>(
+        params: CreateCollectionParams,
+    ): Promise<Document<T>>;
+    public async createCollection<T extends IRecord>(
         id: string,
+        attributes?: Document[],
+        indexes?: Document[],
+        permissions?: string[] | null,
+        documentSecurity?: boolean,
+    ): Promise<Document<T>>;
+    public async createCollection<T extends IRecord>(
+        idOrParams: string | CreateCollectionParams,
         attributes: Document[] = [],
         indexes: Document[] = [],
         permissions: string[] | null = null,
         documentSecurity: boolean = true,
-    ): Promise<Document> {
+    ): Promise<Document<T>> {
+        let id: string;
+
+        if (typeof idOrParams === "string") {
+            id = idOrParams;
+        } else {
+            id = idOrParams.id;
+            attributes = idOrParams.attributes ?? [];
+            indexes = idOrParams.indexes ?? [];
+            permissions = idOrParams.permissions ?? null;
+            documentSecurity = idOrParams.documentSecurity ?? true;
+        }
+
         permissions ??= [Permission.create(Role.any())];
 
         if (this.validate) {
@@ -813,7 +845,7 @@ export class Database extends Constant {
             throw new DuplicateException(`Collection ${id} already exists`);
         }
 
-        collection = new Document({
+        collection = new Document<any>({
             $id: ID.custom(id),
             $permissions: permissions,
             name: id,
@@ -869,12 +901,12 @@ export class Database extends Constant {
         await this.adapter.createCollection(id, attributes, indexes);
 
         if (id === Database.METADATA) {
-            return new Document(Database.COLLECTION);
+            return new Document<any>(Database.COLLECTION);
         }
 
         const createdCollection = await this.silent(
             async () =>
-                await this.createDocument(Database.METADATA, collection),
+                await this.createDocument<any>(Database.METADATA, collection),
         );
 
         await this.trigger(Database.EVENT_COLLECTION_CREATE, createdCollection);
@@ -885,18 +917,33 @@ export class Database extends Constant {
     /**
      * Update Collections Permissions.
      *
-     * @param id
-     * @param permissions
-     * @param documentSecurity
      * @return Promise<Document>
      * @throws ConflictException
      * @throws DatabaseException
      */
-    public async updateCollection(
+    public async updateCollection<T extends IRecord>(
+        params: UpdateCollectionParams,
+    ): Promise<Document<T>>;
+    public async updateCollection<T extends IRecord>(
         id: string,
         permissions: string[],
         documentSecurity: boolean,
-    ): Promise<Document> {
+    ): Promise<Document<T>>;
+    public async updateCollection<T extends IRecord>(
+        idOrParams: string | UpdateCollectionParams,
+        permissions?: string[],
+        documentSecurity?: boolean,
+    ): Promise<Document<T>> {
+        let id: string;
+
+        if (typeof idOrParams === "string") {
+            id = idOrParams;
+        } else {
+            id = idOrParams.id;
+            permissions = idOrParams.permissions;
+            documentSecurity = idOrParams.documentSecurity;
+        }
+
         if (this.validate) {
             const validator = new Permissions();
             if (!validator.isValid(permissions)) {
@@ -905,7 +952,7 @@ export class Database extends Constant {
         }
 
         let collection = await this.silent(
-            async () => await this.getCollection(id),
+            async () => await this.getCollection<any>(id),
         );
 
         if (collection.isEmpty()) {
@@ -944,9 +991,15 @@ export class Database extends Constant {
      * @return Promise<Document>
      * @throws DatabaseException
      */
-    public async getCollection(id: string): Promise<Document> {
+    public async getCollection<T extends IRecord>(
+        id: string,
+    ): Promise<Document<T>> {
         const collection = await this.silent(
-            async () => await this.getDocument(Database.METADATA, id),
+            async () =>
+                await this.getDocument<{ $tenant: number } & any>(
+                    Database.METADATA,
+                    id,
+                ),
         );
         const tenant = collection.getAttribute("$tenant");
 
@@ -1106,18 +1159,6 @@ export class Database extends Constant {
     /**
      * Create Attribute
      *
-     * @param collection
-     * @param id
-     * @param type
-     * @param size utf8mb4 chars length
-     * @param required
-     * @param defaultValue
-     * @param signed
-     * @param array
-     * @param format optional validation format of attribute
-     * @param formatOptions assoc array with custom options that can be passed for the format validation
-     * @param filters
-     *
      * @return Promise<boolean>
      * @throws AuthorizationException
      * @throws ConflictException
@@ -1128,11 +1169,27 @@ export class Database extends Constant {
      * @throws Error
      */
     public async createAttribute(
+        params: CreateAttributeParams,
+    ): Promise<boolean>;
+    public async createAttribute(
         collection: string,
         id: string,
         type: string,
         size: number,
         required: boolean,
+        defaultValue?: any,
+        signed?: boolean,
+        array?: boolean,
+        format?: string | null,
+        formatOptions?: Record<string, any>,
+        filters?: string[],
+    ): Promise<boolean>;
+    public async createAttribute(
+        collectionOrParams: string | CreateAttributeParams,
+        id?: string,
+        type?: string,
+        size?: number,
+        required?: boolean,
         defaultValue: any = null,
         signed: boolean = true,
         array: boolean = false,
@@ -1140,6 +1197,24 @@ export class Database extends Constant {
         formatOptions: Record<string, any> = {},
         filters: string[] = [],
     ): Promise<boolean> {
+        let collection: string;
+
+        if (typeof collectionOrParams === "string") {
+            collection = collectionOrParams;
+        } else {
+            collection = collectionOrParams.collection;
+            id = collectionOrParams.id;
+            type = collectionOrParams.type;
+            size = collectionOrParams.size;
+            required = collectionOrParams.required;
+            defaultValue = collectionOrParams.defaultValue ?? null;
+            signed = collectionOrParams.signed ?? true;
+            array = collectionOrParams.array ?? false;
+            format = collectionOrParams.format ?? null;
+            formatOptions = collectionOrParams.formatOptions ?? {};
+            filters = collectionOrParams.filters ?? [];
+        }
+
         const col = await this.silent(
             async () => await this.getCollection(collection),
         );
@@ -1153,14 +1228,14 @@ export class Database extends Constant {
         for (const attribute of attributes) {
             if (
                 attribute.getAttribute("$id", "").toLowerCase() ===
-                id.toLowerCase()
+                id!.toLowerCase()
             ) {
                 throw new DuplicateException("Attribute already exists");
             }
         }
 
         // Ensure required filters for the attribute are passed
-        const requiredFilters = this.getRequiredFilters(type);
+        const requiredFilters = this.getRequiredFilters(type!);
         if (requiredFilters.some((filter: any) => !filters.includes(filter))) {
             throw new DatabaseException(
                 `Attribute of type: ${type} requires the following filters: ${requiredFilters.join(",")}`,
@@ -1177,14 +1252,14 @@ export class Database extends Constant {
             );
         }
 
-        if (format && !Structure.hasFormat(format, type)) {
+        if (format && !Structure.hasFormat(format, type!)) {
             throw new DatabaseException(
                 `Format ("${format}") not available for this attribute type ("${type}")`,
             );
         }
 
         const attribute = new Document({
-            $id: ID.custom(id),
+            $id: ID.custom(id!),
             key: id,
             type: type,
             size: size,
@@ -1211,7 +1286,7 @@ export class Database extends Constant {
 
         switch (type) {
             case Database.VAR_STRING:
-                if (size > this.adapter.getLimitForString()) {
+                if (size! > this.adapter.getLimitForString()) {
                     throw new DatabaseException(
                         `Max size allowed for string is: ${this.adapter.getLimitForString()}`,
                     );
@@ -1221,7 +1296,7 @@ export class Database extends Constant {
                 const limit = signed
                     ? this.adapter.getLimitForInt() / 2
                     : this.adapter.getLimitForInt();
-                if (size > limit) {
+                if (size! > limit) {
                     throw new DatabaseException(
                         `Max size allowed for int is: ${limit}`,
                     );
@@ -1250,9 +1325,9 @@ export class Database extends Constant {
         try {
             const created = await this.adapter.createAttribute(
                 col.getId(),
-                id,
+                id!,
                 type,
-                size,
+                size!,
                 signed,
                 array,
             );
@@ -1577,24 +1652,29 @@ export class Database extends Constant {
     /**
      * Update Attribute. This method is for updating data that causes underlying structure to change. Check out other updateAttribute methods if you are looking for metadata adjustments.
      *
-     * @param collection string
-     * @param id string
-     * @param type string | null
-     * @param size number | null utf8mb4 chars length
-     * @param required boolean | null
-     * @param defaultValue any
-     * @param signed boolean
-     * @param array boolean
-     * @param format string | null
-     * @param formatOptions Record<string, any> | null
-     * @param filters string[] | null
-     * @param newKey string | null
      * @return Promise<Document>
      * @throws Error
      */
     public async updateAttribute(
+        params: UpdateAttributeParams,
+    ): Promise<Document>;
+    public async updateAttribute(
         collection: string,
         id: string,
+        type?: string | null,
+        size?: number | null,
+        required?: boolean | null,
+        defaultValue?: any,
+        signed?: boolean | null,
+        array?: boolean | null,
+        format?: string | null,
+        formatOptions?: Record<string, any> | null,
+        filters?: string[] | null,
+        newKey?: string | null,
+    ): Promise<Document>;
+    public async updateAttribute(
+        collectionOrParams: string | UpdateAttributeParams,
+        id?: string,
         type: string | null = null,
         size: number | null = null,
         required: boolean | null = null,
@@ -1606,9 +1686,28 @@ export class Database extends Constant {
         filters: string[] | null = null,
         newKey: string | null = null,
     ): Promise<Document> {
+        let collection: string;
+
+        if (typeof collectionOrParams === "string") {
+            collection = collectionOrParams;
+        } else {
+            collection = collectionOrParams.collection;
+            id = collectionOrParams.id;
+            type = collectionOrParams.type ?? null;
+            size = collectionOrParams.size ?? null;
+            required = collectionOrParams.required ?? null;
+            defaultValue = collectionOrParams.defaultValue ?? null;
+            signed = collectionOrParams.signed ?? null;
+            array = collectionOrParams.array ?? null;
+            format = collectionOrParams.format ?? null;
+            formatOptions = collectionOrParams.formatOptions ?? null;
+            filters = collectionOrParams.filters ?? null;
+            newKey = collectionOrParams.newKey ?? null;
+        }
+
         return await this.updateAttributeMeta(
             collection,
-            id,
+            id!,
             async (attribute, collectionDoc, attributeIndex) => {
                 const altering =
                     type !== null ||
@@ -1759,7 +1858,7 @@ export class Database extends Constant {
 
                     const updated = await this.adapter.updateAttribute(
                         collection,
-                        id,
+                        id!,
                         type,
                         size as any,
                         signed as any,
@@ -1989,13 +2088,6 @@ export class Database extends Constant {
     /**
      * Create a relationship attribute
      *
-     * @param collection string
-     * @param relatedCollection string
-     * @param type string
-     * @param twoWay boolean
-     * @param id string | null
-     * @param twoWayKey string | null
-     * @param onDelete string
      * @return Promise<boolean>
      * @throws AuthorizationException
      * @throws ConflictException
@@ -2005,14 +2097,42 @@ export class Database extends Constant {
      * @throws StructureException
      */
     public async createRelationship(
+        params: CreateRelationshipParams,
+    ): Promise<boolean>;
+    public async createRelationship(
         collection: string,
         relatedCollection: string,
         type: string,
+        twoWay?: boolean,
+        id?: string | null,
+        twoWayKey?: string | null,
+        onDelete?: string,
+    ): Promise<boolean>;
+    public async createRelationship(
+        collectionOrParams: string | CreateRelationshipParams,
+        relatedCollection?: string,
+        type?: string,
         twoWay: boolean = false,
         id: string | null = null,
         twoWayKey: string | null = null,
         onDelete: string = Database.RELATION_MUTATE_RESTRICT,
     ): Promise<boolean> {
+        let collection: string;
+
+        if (typeof collectionOrParams === "string") {
+            collection = collectionOrParams;
+        } else {
+            collection = collectionOrParams.collection;
+            relatedCollection = collectionOrParams.relatedCollection;
+            type = collectionOrParams.type;
+            twoWay = collectionOrParams.twoWay ?? false;
+            id = collectionOrParams.id ?? null;
+            twoWayKey = collectionOrParams.twoWayKey ?? null;
+            onDelete =
+                collectionOrParams.onDelete ??
+                Database.RELATION_MUTATE_RESTRICT;
+        }
+
         const col = await this.silent(
             async () => await this.getCollection(collection),
         );
@@ -2022,7 +2142,7 @@ export class Database extends Constant {
         }
 
         const relatedCol = await this.silent(
-            async () => await this.getCollection(relatedCollection),
+            async () => await this.getCollection(relatedCollection!),
         );
 
         if (!relatedCol) {
@@ -2141,7 +2261,7 @@ export class Database extends Constant {
         const created = await this.adapter.createRelationship(
             col.getId(),
             relatedCol.getId(),
-            type,
+            type!,
             twoWay,
             id,
             twoWayKey,
@@ -2213,24 +2333,42 @@ export class Database extends Constant {
     /**
      * Update a relationship attribute
      *
-     * @param collection string
-     * @param id string
-     * @param newKey string | null
-     * @param newTwoWayKey string | null
-     * @param twoWay boolean | null
-     * @param onDelete string | null
      * @return Promise<boolean>
      * @throws ConflictException
      * @throws DatabaseException
      */
     public async updateRelationship(
+        params: UpdateRelationshipParams,
+    ): Promise<boolean>;
+    public async updateRelationship(
         collection: string,
         id: string,
+        newKey?: string | null,
+        newTwoWayKey?: string | null,
+        twoWay?: boolean | null,
+        onDelete?: string | null,
+    ): Promise<boolean>;
+    public async updateRelationship(
+        collectionOrParams: string | UpdateRelationshipParams,
+        id?: string,
         newKey: string | null = null,
         newTwoWayKey: string | null = null,
         twoWay: boolean | null = null,
         onDelete: string | null = null,
     ): Promise<boolean> {
+        let collection: string;
+
+        if (typeof collectionOrParams === "string") {
+            collection = collectionOrParams;
+        } else {
+            collection = collectionOrParams.collection;
+            id = collectionOrParams.id;
+            newKey = collectionOrParams.newKey ?? null;
+            newTwoWayKey = collectionOrParams.newTwoWayKey ?? null;
+            twoWay = collectionOrParams.twoWay ?? null;
+            onDelete = collectionOrParams.onDelete ?? null;
+        }
+
         if (!newKey && !newTwoWayKey && !twoWay && !onDelete) {
             return true;
         }
@@ -2263,7 +2401,7 @@ export class Database extends Constant {
 
         await this.updateAttributeMeta(
             col.getId(),
-            id,
+            id!,
             async (attribute: any) => {
                 const altering =
                     (newKey && newKey !== id) ||
@@ -2334,7 +2472,7 @@ export class Database extends Constant {
 
                     await this.updateAttributeMeta(
                         junction,
-                        id,
+                        id!,
                         async (junctionAttribute) => {
                             junctionAttribute.setAttribute("$id", newKey);
                             junctionAttribute.setAttribute("key", newKey);
@@ -2358,7 +2496,7 @@ export class Database extends Constant {
                         relatedCollection.getId(),
                         type,
                         twoWay as any,
-                        id,
+                        id!,
                         twoWayKey,
                         side,
                         newKey as any,
@@ -2406,7 +2544,7 @@ export class Database extends Constant {
         switch (type) {
             case Database.RELATION_ONE_TO_ONE:
                 if (id !== newKey) {
-                    await renameIndex(col.getId(), id, newKey);
+                    await renameIndex(col.getId(), id!, newKey);
                 }
                 if (twoWay && twoWayKey !== newTwoWayKey) {
                     await renameIndex(
@@ -2427,14 +2565,14 @@ export class Database extends Constant {
                     }
                 } else {
                     if (id !== newKey) {
-                        await renameIndex(col.getId(), id, newKey);
+                        await renameIndex(col.getId(), id!, newKey);
                     }
                 }
                 break;
             case Database.RELATION_MANY_TO_ONE:
                 if (side === Database.RELATION_SIDE_PARENT) {
                     if (id !== newKey) {
-                        await renameIndex(col.getId(), id, newKey);
+                        await renameIndex(col.getId(), id!, newKey);
                     }
                 } else {
                     if (twoWayKey !== newTwoWayKey) {
@@ -2454,7 +2592,7 @@ export class Database extends Constant {
                 );
 
                 if (id !== newKey) {
-                    await renameIndex(junction, id, newKey);
+                    await renameIndex(junction, id!, newKey);
                 }
                 if (twoWayKey !== newTwoWayKey) {
                     await renameIndex(junction, twoWayKey, newTwoWayKey);
@@ -2692,12 +2830,6 @@ export class Database extends Constant {
     /**
      * Create Index
      *
-     * @param collection string
-     * @param id string
-     * @param type string
-     * @param attributes string[]
-     * @param lengths number[]
-     * @param orders string[]
      * @return Promise<boolean>
      * @throws AuthorizationException
      * @throws ConflictException
@@ -2707,14 +2839,36 @@ export class Database extends Constant {
      * @throws StructureException
      * @throws Error
      */
+    public async createIndex(params: CreateIndexParams): Promise<boolean>;
     public async createIndex(
         collection: string,
         id: string,
         type: string,
         attributes: string[],
+        lengths?: number[],
+        orders?: string[],
+    ): Promise<boolean>;
+    public async createIndex(
+        collectionOrParams: string | CreateIndexParams,
+        id?: string,
+        type?: string,
+        attributes: string[] = [],
         lengths: number[] = [],
         orders: string[] = [],
     ): Promise<boolean> {
+        let collection: string;
+
+        if (typeof collectionOrParams === "string") {
+            collection = collectionOrParams;
+        } else {
+            collection = collectionOrParams.collection;
+            id = collectionOrParams.id;
+            type = collectionOrParams.type;
+            attributes = collectionOrParams.attributes;
+            lengths = collectionOrParams.lengths ?? [];
+            orders = collectionOrParams.orders ?? [];
+        }
+
         if (attributes.length === 0) {
             throw new DatabaseException("Missing attributes");
         }
@@ -2726,7 +2880,7 @@ export class Database extends Constant {
         const indexes = col.getAttribute("indexes", []);
 
         for (const index of indexes) {
-            if (index.getId().toLowerCase() === id.toLowerCase()) {
+            if (index.getId().toLowerCase() === id!.toLowerCase()) {
                 throw new DuplicateException("Index already exists");
             }
         }
@@ -2803,7 +2957,7 @@ export class Database extends Constant {
         }
 
         const index = new Document({
-            $id: ID.custom(id),
+            $id: ID.custom(id!),
             key: id,
             type: type,
             attributes: attributes,
@@ -2827,7 +2981,7 @@ export class Database extends Constant {
         try {
             const created = await this.adapter.createIndex(
                 col.getId(),
-                id,
+                id!,
                 type,
                 attributes,
                 lengths,
@@ -2916,23 +3070,38 @@ export class Database extends Constant {
     /**
      * Get Document
      *
-     * @param collection string
-     * @param id string
-     * @param queries Query[]
-     * @param forUpdate boolean
-     *
      * @return Promise<Document>
      * @throws DatabaseException
      * @throws Exception
      */
-    public async getDocument(
+    public async getDocument<T extends IRecord>(
+        params: GetDocumentParams,
+    ): Promise<Document<T>>;
+    public async getDocument<T extends IRecord>(
         collection: string,
         id: string,
+        queries?: Query[],
+        forUpdate?: boolean,
+    ): Promise<Document<T>>;
+    public async getDocument<T extends IRecord>(
+        collectionOrParams: string | GetDocumentParams,
+        id?: string,
         queries: Query[] = [],
         forUpdate: boolean = false,
-    ): Promise<Document> {
+    ): Promise<Document<T>> {
+        let collection: string;
+
+        if (typeof collectionOrParams === "string") {
+            collection = collectionOrParams;
+        } else {
+            collection = collectionOrParams.collection;
+            id = collectionOrParams.id;
+            queries = collectionOrParams.queries ?? [];
+            forUpdate = collectionOrParams.forUpdate ?? false;
+        }
+
         if (collection === Database.METADATA && id === Database.METADATA) {
-            return new Document(Database.COLLECTION);
+            return new Document(Database.COLLECTION as any);
         }
 
         if (!collection) {
@@ -2944,7 +3113,7 @@ export class Database extends Constant {
         }
 
         const _collection = await this.silent(
-            async () => await this.getCollection(collection),
+            async () => await this.getCollection<any>(collection),
         );
 
         if (_collection.isEmpty()) {
@@ -3030,7 +3199,7 @@ export class Database extends Constant {
         // const cache = await this.cache.load(documentCacheKey, Database.TTL, documentCacheHash);
         const cache = null;
         if (cache) {
-            const document = new Document(cache);
+            const document = new Document<any>(cache);
 
             if (_collection.getId() !== Database.METADATA) {
                 if (
@@ -3431,10 +3600,10 @@ export class Database extends Constant {
      * @throws DatabaseException
      * @throws StructureException
      */
-    public async createDocument(
+    public async createDocument<T extends IRecord>(
         collection: string,
-        document: Document,
-    ): Promise<Document> {
+        document: Document<T>,
+    ): Promise<Document<T>> {
         if (
             collection !== Database.METADATA &&
             this.adapter.getSharedTables() &&
@@ -4085,11 +4254,11 @@ export class Database extends Constant {
      * @throws DatabaseException
      * @throws StructureException
      */
-    public async updateDocument(
+    public async updateDocument<T extends IRecord>(
         collection: string,
         id: string,
         document: Document,
-    ): Promise<Document> {
+    ): Promise<Document<T>> {
         if (!id) {
             throw new DatabaseException("Must define id attribute");
         }
@@ -5220,11 +5389,6 @@ export class Database extends Constant {
     /**
      * Increase a document attribute by a value
      *
-     * @param collection - The collection name
-     * @param id - The document ID
-     * @param attribute - The attribute name
-     * @param value - The value to increase by
-     * @param max - The maximum value allowed
      * @returns boolean
      *
      * @throws AuthorizationException
@@ -5232,12 +5396,34 @@ export class Database extends Constant {
      * @throws Exception
      */
     public async increaseDocumentAttribute(
+        params: IncreaseDocumentAttributeParams,
+    ): Promise<boolean>;
+    public async increaseDocumentAttribute(
         collection: string,
         id: string,
         attribute: string,
+        value?: number,
+        max?: number | null,
+    ): Promise<boolean>;
+    public async increaseDocumentAttribute(
+        collectionOrParams: string | IncreaseDocumentAttributeParams,
+        id?: string,
+        attribute?: string,
         value: number = 1,
         max: number | null = null,
     ): Promise<boolean> {
+        let collection: string;
+
+        if (typeof collectionOrParams === "string") {
+            collection = collectionOrParams;
+        } else {
+            collection = collectionOrParams.collection;
+            id = collectionOrParams.id;
+            attribute = collectionOrParams.attribute;
+            value = collectionOrParams.value ?? 1;
+            max = collectionOrParams.max ?? null;
+        }
+
         if (value <= 0) {
             // Can be a float
             throw new DatabaseException(
@@ -5250,7 +5436,7 @@ export class Database extends Constant {
         const document = await Authorization.skip(
             async () =>
                 await this.silent(
-                    async () => await this.getDocument(collection, id),
+                    async () => await this.getDocument(collection, id!),
                 ),
         ); // Skip ensures user does not need read permission for this
 
@@ -5294,7 +5480,7 @@ export class Database extends Constant {
             );
         }
 
-        if (max && document.getAttribute(attribute) + value > max) {
+        if (max && document.getAttribute(attribute!) + value > max) {
             throw new DatabaseException(
                 "Attribute value exceeds maximum limit: " + max,
             );
@@ -5316,15 +5502,15 @@ export class Database extends Constant {
 
         const result = await this.adapter.increaseDocumentAttribute(
             _collection.getId(),
-            id,
-            attribute,
+            id!,
+            attribute!,
             value,
             updatedAt as string,
             undefined,
             max as number,
         );
 
-        await this.purgeCachedDocument(_collection.getId(), id);
+        await this.purgeCachedDocument(_collection.getId(), id!);
 
         await this.trigger(Database.EVENT_DOCUMENT_INCREASE, document);
 
@@ -5334,23 +5520,40 @@ export class Database extends Constant {
     /**
      * Decrease a document attribute by a value
      *
-     * @param collection - The collection name
-     * @param id - The document ID
-     * @param attribute - The attribute name
-     * @param value - The value to decrease by
-     * @param min - The minimum value allowed
      * @returns boolean
      *
      * @throws AuthorizationException
      * @throws DatabaseException
      */
     public async decreaseDocumentAttribute(
+        params: DecreaseDocumentAttributeParams,
+    ): Promise<boolean>;
+    public async decreaseDocumentAttribute(
         collection: string,
         id: string,
         attribute: string,
+        value?: number,
+        min?: number | null,
+    ): Promise<boolean>;
+    public async decreaseDocumentAttribute(
+        collectionOrParams: string | DecreaseDocumentAttributeParams,
+        id?: string,
+        attribute?: string,
         value: number = 1,
         min: number | null = null,
     ): Promise<boolean> {
+        let collection: string;
+
+        if (typeof collectionOrParams === "string") {
+            collection = collectionOrParams;
+        } else {
+            collection = collectionOrParams.collection;
+            id = collectionOrParams.id;
+            attribute = collectionOrParams.attribute;
+            value = collectionOrParams.value ?? 1;
+            min = collectionOrParams.min ?? null;
+        }
+
         if (value <= 0) {
             // Can be a float
             throw new DatabaseException(
@@ -5363,7 +5566,7 @@ export class Database extends Constant {
         const document = await Authorization.skip(
             async () =>
                 await this.silent(
-                    async () => await this.getDocument(collection, id),
+                    async () => await this.getDocument(collection, id!),
                 ),
         ); // Skip ensures user does not need read permission for this
 
@@ -5407,7 +5610,7 @@ export class Database extends Constant {
             );
         }
 
-        if (min && document.getAttribute(attribute) - value < min) {
+        if (min && document.getAttribute(attribute!) - value < min) {
             throw new DatabaseException(
                 "Attribute value exceeds minimum limit: " + min,
             );
@@ -5429,14 +5632,14 @@ export class Database extends Constant {
 
         const result = await this.adapter.increaseDocumentAttribute(
             _collection.getId(),
-            id,
-            attribute,
+            id!,
+            attribute!,
             value * -1,
             updatedAt as string,
             min as number,
         );
 
-        await this.purgeCachedDocument(_collection.getId(), id);
+        await this.purgeCachedDocument(_collection.getId(), id!);
 
         await this.trigger(Database.EVENT_DOCUMENT_DECREASE, document);
 
@@ -6177,21 +6380,36 @@ export class Database extends Constant {
     /**
      * Find Documents
      *
-     * @param collection string
-     * @param queries Query[]
-     * @param forPermission string
-     *
      * @return Promise<Document[]>
      * @throws DatabaseException
      * @throws QueryException
      * @throws TimeoutException
      * @throws Exception
      */
-    public async find(
+    public async find<T extends IRecord>(
+        params: FindParams,
+    ): Promise<Document<T>[]>;
+    public async find<T extends IRecord>(
         collection: string,
+        queries?: Query[],
+        forPermission?: string,
+    ): Promise<Document<T>[]>;
+    public async find<T extends IRecord>(
+        collectionOrParams: string | FindParams,
         queries: Query[] = [],
         forPermission: string = Database.PERMISSION_READ,
-    ): Promise<Document[]> {
+    ): Promise<Document<T>[]> {
+        let collection: string;
+
+        if (typeof collectionOrParams === "string") {
+            collection = collectionOrParams;
+        } else {
+            collection = collectionOrParams.collection;
+            queries = collectionOrParams.queries ?? [];
+            forPermission =
+                collectionOrParams.forPermission ?? Database.PERMISSION_READ;
+        }
+
         const _collection = await this.silent(
             async () => await this.getCollection(collection),
         );
@@ -6381,13 +6599,13 @@ export class Database extends Constant {
      * @returns A Document object.
      * @throws DatabaseException
      */
-    public async findOne(
+    public async findOne<T extends IRecord>(
         collection: string,
         queries: Query[] = [],
-    ): Promise<Document> {
+    ): Promise<Document<T>> {
         const results = await this.silent(
             async () =>
-                await this.find(collection, [Query.limit(1), ...queries]),
+                await this.find<T>(collection, [Query.limit(1), ...queries]),
         );
 
         const found = results[0];
@@ -6543,7 +6761,7 @@ export class Database extends Constant {
 
         const allAttributes = [
             ...attributes,
-            ...internalAttributes.map((v) => new Document(v)),
+            ...internalAttributes.map((v) => new Document(v as any)),
         ];
 
         for (const attribute of allAttributes) {
@@ -6948,7 +7166,7 @@ export class Database extends Constant {
         let attributes = collection.getAttribute("attributes", []);
 
         for (const attribute of Database.INTERNAL_ATTRIBUTES) {
-            attributes.push(new Document(attribute));
+            attributes.push(new Document(attribute as any));
         }
 
         for (const attribute of attributes) {
