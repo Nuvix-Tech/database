@@ -23,11 +23,7 @@ export class DateTime {
      * @returns {string}
      */
     public static format(date: Date): string {
-        return date
-            .toISOString()
-            .replace("T", " ")
-            .replace("Z", "")
-            .slice(0, 23);
+        return date.toISOString();
     }
 
     /**
@@ -43,12 +39,12 @@ export class DateTime {
             throw new DatabaseException("Invalid interval");
         }
 
-        const newDate = new Date(date.getTime() + seconds * 1000);
-        return this.format(newDate);
+        date.setSeconds(date.getSeconds() + seconds);
+        return this.format(date);
     }
 
     /**
-     * Set the timezone of a given datetime string
+     * Set the timezone of a datetime string and return the formatted string
      *
      * @param {string} datetime
      * @returns {string}
@@ -57,15 +53,13 @@ export class DateTime {
     public static setTimezone(datetime: string): string {
         try {
             const value = new Date(datetime);
-            const timezoneOffset = new Date().getTimezoneOffset() * 60000; // Convert to milliseconds
-            const localDate = new Date(value.getTime() - timezoneOffset);
-            return this.format(localDate);
-        } catch (e) {
-            throw new DatabaseException(
-                (e as Error).message,
-                (e as any)?.code,
-                e as Error,
-            );
+            const offset = value.getTimezoneOffset() * 60000;
+            const localISOTime = new Date(value.getTime() - offset)
+                .toISOString()
+                .slice(0, -1);
+            return localISOTime;
+        } catch (e: any) {
+            throw new DatabaseException(e.message);
         }
     }
 

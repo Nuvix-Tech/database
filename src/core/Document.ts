@@ -48,14 +48,15 @@ export class Document<
                         value instanceof Document
                             ? (value as (IDocument & T)[keyof (IDocument & T)])
                             : (new Document(
-                                value as Record<string, unknown>,
-                            ) as unknown as (IDocument & T)[keyof (IDocument &
-                                T)]),
+                                  value as Record<string, unknown>,
+                              ) as unknown as (IDocument & T)[keyof (IDocument &
+                                  T)]),
                     );
                 } else {
                     this.set(
                         key as keyof (IDocument & T),
-                        (value ?? null) as (IDocument & T)[keyof (IDocument & T)],
+                        (value ?? null) as (IDocument & T)[keyof (IDocument &
+                            T)],
                     );
                 }
                 continue;
@@ -65,14 +66,16 @@ export class Document<
             if (
                 value.some(
                     (item) =>
+                        item !== null &&
+                        item !== undefined &&
                         typeof item === "object" &&
                         (item["$id"] || item["$collection"]),
                 )
             ) {
                 const newValue = value.map((item) =>
                     item !== null &&
-                        typeof item === "object" &&
-                        (item["$id"] || item["$collection"])
+                    typeof item === "object" &&
+                    (item["$id"] || item["$collection"])
                         ? item instanceof Document
                             ? item
                             : new Document(item as Record<string, unknown>)
@@ -203,10 +206,13 @@ export class Document<
                 this.set(
                     key,
                     Array.isArray(prependArray)
-                        ? ([value ?? null, ...prependArray] as unknown as (IDocument &
-                            T)[keyof (IDocument & T)])
+                        ? ([
+                              value ?? null,
+                              ...prependArray,
+                          ] as unknown as (IDocument & T)[keyof (IDocument &
+                              T)])
                         : ([value] as unknown as (IDocument &
-                            T)[keyof (IDocument & T)]),
+                              T)[keyof (IDocument & T)]),
                 );
                 break;
         }
@@ -237,7 +243,9 @@ export class Document<
         if (Array.isArray(subjectData)) {
             return subjectData.find((value) => value[key] === find) || false;
         }
-        return this.has(key) && this.get(key) === find ? subjectData as any : false;
+        return this.has(key) && this.get(key) === find
+            ? (subjectData as any)
+            : false;
     }
 
     public findAndReplace(

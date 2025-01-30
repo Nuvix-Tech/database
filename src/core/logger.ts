@@ -1,4 +1,6 @@
 import chalk from "chalk";
+import fs from "fs";
+import path from "path";
 
 export class Logger {
     private LOG: boolean = true;
@@ -6,6 +8,8 @@ export class Logger {
     private ERROR: boolean = true;
     private WARN: boolean = true;
     private INFO: boolean = true;
+    private logFilePath: string;
+    private useStdout: boolean;
 
     constructor(options?: any) {
         if (typeof options === "boolean" && !options) {
@@ -13,11 +17,16 @@ export class Logger {
             this.DEBUG = false;
             this.ERROR = false;
         }
+        this.logFilePath = path.join(process.cwd(), "db-logs.txt");
+        this.useStdout = options?.useStdout ?? true;
     }
 
     public log(...messages: any[]): void {
         if (this.LOG) {
-            console.log(
+            this.writeToFile(
+                ...this.formatMessages(messages, chalk.blueBright, "LOG"),
+            );
+            this.writeToStdout(
                 ...this.formatMessages(messages, chalk.blueBright, "LOG"),
             );
         }
@@ -25,7 +34,10 @@ export class Logger {
 
     public error(...messages: any[]): void {
         if (this.ERROR) {
-            console.error(
+            this.writeToFile(
+                ...this.formatMessages(messages, chalk.redBright, "ERROR"),
+            );
+            this.writeToStderr(
                 ...this.formatMessages(messages, chalk.redBright, "ERROR"),
             );
         }
@@ -33,7 +45,10 @@ export class Logger {
 
     public debug(...messages: any[]): void {
         if (this.DEBUG) {
-            console.debug(
+            this.writeToFile(
+                ...this.formatMessages(messages, chalk.greenBright, "DEBUG"),
+            );
+            this.writeToStdout(
                 ...this.formatMessages(messages, chalk.greenBright, "DEBUG"),
             );
         }
@@ -41,7 +56,10 @@ export class Logger {
 
     public warn(...messages: any[]): void {
         if (this.WARN) {
-            console.warn(
+            this.writeToFile(
+                ...this.formatMessages(messages, chalk.yellowBright, "WARN"),
+            );
+            this.writeToStdout(
                 ...this.formatMessages(messages, chalk.yellowBright, "WARN"),
             );
         }
@@ -49,7 +67,10 @@ export class Logger {
 
     public info(...messages: any[]): void {
         if (this.INFO) {
-            console.info(
+            this.writeToFile(
+                ...this.formatMessages(messages, chalk.cyanBright, "INFO"),
+            );
+            this.writeToStdout(
                 ...this.formatMessages(messages, chalk.cyanBright, "INFO"),
             );
         }
@@ -60,7 +81,7 @@ export class Logger {
         colorFn: chalk.Chalk,
         prefix: string,
     ): any[] {
-        const time = new Date().toLocaleTimeString();
+        const time = new Date().toDateString();
         const prefixFormatted = colorFn(`[${prefix}]`);
         const timeFormatted = chalk.gray(`[${time}]`);
         const contentFormatted = messages.map((message) =>
@@ -73,8 +94,29 @@ export class Logger {
     private formatMessage(message: any): any {
         if (typeof message === "string" || typeof message === "number") {
             return chalk.yellow(message.toString());
+        } else if (message instanceof Error) {
+            return chalk.red(message.stack || message.message);
+        } else if (typeof message === "object") {
+            return chalk.magenta(JSON.stringify(message, null, 2));
         } else {
             return message;
+        }
+    }
+
+    private writeToFile(...messages: any[]): void {
+        const logMessage = messages.join(" ") + "\n";
+        fs.appendFileSync(this.logFilePath, logMessage);
+    }
+
+    private writeToStdout(...messages: any[]): void {
+        if (this.useStdout) {
+            process.stdout.write(messages.join(" ") + "\n");
+        }
+    }
+
+    private writeToStderr(...messages: any[]): void {
+        if (this.useStdout) {
+            process.stderr.write(messages.join(" ") + "\n");
         }
     }
 }

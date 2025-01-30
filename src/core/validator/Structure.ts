@@ -309,6 +309,10 @@ export class Structure extends Validator {
                 continue;
             }
 
+            if (type === Database.VAR_RELATIONSHIP) {
+                continue;
+            }
+
             const validators: Validator[] = [];
 
             switch (type) {

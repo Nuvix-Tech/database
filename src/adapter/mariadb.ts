@@ -601,7 +601,7 @@ export class MariaDB extends Sql implements Adapter {
                 return `INT(${size})` + signed;
             case Database.VAR_FLOAT:
                 signed = signed ? "" : (" UNSIGNED" as any);
-                return `DOUBLE(${size})` + signed;
+                return `DOUBLE` + signed;
             case Database.VAR_BOOLEAN:
                 return `BOOLEAN`;
             case Database.VAR_DATETIME:

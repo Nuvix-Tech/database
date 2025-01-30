@@ -2137,7 +2137,7 @@ export class Database extends Constant {
             async () => await this.getCollection(collection),
         );
 
-        if (!col) {
+        if (col.isEmpty()) {
             throw new NotFoundException("Collection not found");
         }
 
@@ -2145,7 +2145,7 @@ export class Database extends Constant {
             async () => await this.getCollection(relatedCollection!),
         );
 
-        if (!relatedCol) {
+        if (relatedCol.isEmpty()) {
             throw new NotFoundException("Related collection not found");
         }
 
@@ -4481,7 +4481,7 @@ export class Database extends Constant {
                 const updatedAt = document.getUpdatedAt();
                 document.setAttribute(
                     "$updatedAt",
-                    !updatedAt || !this.preserveDates ? time : updatedAt,
+                    !this.preserveDates ? time : updatedAt, // !updatedAt ||
                 );
             }
 
