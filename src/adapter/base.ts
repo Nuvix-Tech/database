@@ -477,7 +477,9 @@ export abstract class DatabaseAdapter implements IDatabaseAdapter {
         event: string,
         query: T,
     ): Promise<T> {
-        this.logger.debug(`${event}: ${query}`);
+        this.logger.debug(`Triggering event: ${event}`);
+        this.logger.logSql(query as string);
+
         for (const callback of Object.values(
             this.transformations[Database.EVENT_ALL] || {},
         )) {

@@ -1,4 +1,5 @@
 import chalk from "chalk";
+import highlight from "cli-highlight";
 import fs from "fs";
 import path from "path";
 
@@ -76,12 +77,16 @@ export class Logger {
         }
     }
 
+    public logSql(sql: string): void {
+        console.log(highlight(sql, { language: "sql", ignoreIllegals: true }));
+    }
+
     private formatMessages(
         messages: any[],
         colorFn: chalk.Chalk,
         prefix: string,
-    ): any[] {
-        const time = new Date().toDateString();
+    ): string[] {
+        const time = new Date().toISOString();
         const prefixFormatted = colorFn(`[${prefix}]`);
         const timeFormatted = chalk.gray(`[${time}]`);
         const contentFormatted = messages.map((message) =>
@@ -91,7 +96,7 @@ export class Logger {
         return [`${prefixFormatted} ${timeFormatted}`, ...contentFormatted];
     }
 
-    private formatMessage(message: any): any {
+    private formatMessage(message: any): string {
         if (typeof message === "string" || typeof message === "number") {
             return chalk.yellow(message.toString());
         } else if (message instanceof Error) {
@@ -99,22 +104,22 @@ export class Logger {
         } else if (typeof message === "object") {
             return chalk.magenta(JSON.stringify(message, null, 2));
         } else {
-            return message;
+            return chalk.white(String(message));
         }
     }
 
-    private writeToFile(...messages: any[]): void {
+    private writeToFile(...messages: string[]): void {
         const logMessage = messages.join(" ") + "\n";
         fs.appendFileSync(this.logFilePath, logMessage);
     }
 
-    private writeToStdout(...messages: any[]): void {
+    private writeToStdout(...messages: string[]): void {
         if (this.useStdout) {
             process.stdout.write(messages.join(" ") + "\n");
         }
     }
 
-    private writeToStderr(...messages: any[]): void {
+    private writeToStderr(...messages: string[]): void {
         if (this.useStdout) {
             process.stderr.write(messages.join(" ") + "\n");
         }
