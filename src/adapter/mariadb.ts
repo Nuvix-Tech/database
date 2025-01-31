@@ -16,7 +16,7 @@ import {
 // import * as mysql2 from 'mysql2/promise';
 
 interface MariaDBOptions {
-    connection: any; // mysql2.PoolOptions;
+    connection: any; //mysql2.PoolOptions;
     maxVarCharLimit?: number;
 }
 
@@ -77,9 +77,9 @@ export class MariaDB extends Sql implements Adapter {
             });
 
             // TODO:
-            const connection = await pool.getConnection();
-            await connection.ping();
-            connection.release();
+            // const connection = await pool.getConnection();
+            // await connection.ping();
+            // connection.release();
 
             this.pool = pool;
             this.instance = this;
@@ -118,7 +118,17 @@ export class MariaDB extends Sql implements Adapter {
     async startTransaction(): Promise<boolean> {
         try {
             if (this.inTransaction === 0) {
+                if (await this.pool.inTransaction()) {
+                    await this.pool.query("ROLLBACK");
+                } else {
+                    await this.pool.query("ROLLBACK");
+                }
+
                 await this.pool.query("START TRANSACTION");
+            } else {
+                await this.pool.query(
+                    `SAVEPOINT transaction${this.inTransaction}`,
+                );
             }
 
             this.inTransaction++;
@@ -135,12 +145,22 @@ export class MariaDB extends Sql implements Adapter {
     /**
      * Commit MariaDB transaction
      */
-    async commitTransaction() {
-        try {
-            if (this.inTransaction === 1) {
-                await this.pool.query("COMMIT");
-            }
+    async commitTransaction(): Promise<boolean> {
+        if (this.inTransaction === 0) {
+            return false;
+        } else if (this.inTransaction > 1) {
             this.inTransaction--;
+            return true;
+        }
+
+        if (!this.pool.inTransaction()) {
+            this.inTransaction = 0;
+            return false;
+        }
+
+        try {
+            await this.pool.query("COMMIT");
+            this.inTransaction = 0;
             return true;
         } catch (e) {
             this.logger.error(e);
@@ -287,9 +307,16 @@ export class MariaDB extends Sql implements Adapter {
      */
     async create(name: string): Promise<boolean> {
         try {
-            await this.pool.query<any>(
-                `CREATE SCHEMA IF NOT EXISTS \`${name}\``,
-            );
+            name = this.filter(name);
+
+            if (await this.exists(name)) {
+                return true;
+            }
+
+            let sql = `CREATE DATABASE \`{ name }\` /*!40100 DEFAULT CHARACTER SET utf8mb4 */;`;
+            sql = await this.trigger(Database.EVENT_DATABASE_CREATE, sql);
+
+            await this.pool.query<any>(sql);
             return true;
         } catch (e) {
             this.logger.error(e);
@@ -306,7 +333,11 @@ export class MariaDB extends Sql implements Adapter {
      */
     async drop(name: string): Promise<boolean> {
         try {
-            await this.pool.query<any>(`DROP SCHEMA IF EXISTS \`${name}\``);
+            let sql = `DROP DATABASE \`${name}\``;
+
+            sql = await this.trigger(Database.EVENT_DATABASE_DELETE, sql);
+
+            await this.pool.query<any>(sql);
             return true;
         } catch (e) {
             this.logger.error(e);
@@ -569,16 +600,16 @@ export class MariaDB extends Sql implements Adapter {
 
         switch (type) {
             case Database.VAR_STRING:
-                if (size === 0) {
-                    return `TEXT`;
-                }
-
                 if (size > 16777215) {
                     return `LONGTEXT`;
                 }
 
                 if (size > 65535) {
                     return "MEDIUMTEXT";
+                }
+
+                if (size > this.getMaxVarcharLength()) {
+                    return `TEXT`;
                 }
 
                 if (
@@ -589,8 +620,6 @@ export class MariaDB extends Sql implements Adapter {
                 }
 
                 return `VARCHAR(${size})`;
-            case "text":
-                return `TEXT`;
             case Database.VAR_INTEGER:
                 signed = signed ? "" : (" UNSIGNED" as any);
 
@@ -598,18 +627,33 @@ export class MariaDB extends Sql implements Adapter {
                     return `BIGINT` + signed;
                 }
 
-                return `INT(${size})` + signed;
+                return `INT` + signed;
             case Database.VAR_FLOAT:
                 signed = signed ? "" : (" UNSIGNED" as any);
                 return `DOUBLE` + signed;
             case Database.VAR_BOOLEAN:
-                return `BOOLEAN`;
+                return `TINYINT(1)`;
+            case Database.VAR_RELATIONSHIP:
+                return "VARCHAR(255)";
             case Database.VAR_DATETIME:
                 return `DATETIME(3)`;
-            case "json":
-                return `JSON`;
             default:
-                return `VARCHAR(${size})`;
+                throw new DatabaseError(
+                    "Unknown type: " +
+                        type +
+                        ". Must be one of " +
+                        Database.VAR_STRING +
+                        ", " +
+                        Database.VAR_INTEGER +
+                        ", " +
+                        Database.VAR_FLOAT +
+                        ", " +
+                        Database.VAR_BOOLEAN +
+                        ", " +
+                        Database.VAR_DATETIME +
+                        ", " +
+                        Database.VAR_RELATIONSHIP,
+                );
         }
     }
 
@@ -2112,17 +2156,19 @@ export class MariaDB extends Sql implements Adapter {
             offset !== null && limit !== undefined ? `OFFSET ?` : "";
 
         const selections = this.getAttributeSelections(queries);
-        const sql = `
+        let sql = `
         SELECT ${this.getAttributeProjection(selections, "table_main")}
         FROM ${this.getSqlTable(name)} AS table_main
         ${sqlWhere}
         ${sqlOrder}
         ${sqlLimit}
         ${sqlOffset};
-    `;
+        `;
 
         if (limit !== undefined && limit !== null) params.push(limit);
         if (offset !== null && offset !== undefined) params.push(offset);
+
+        sql = await this.trigger(Database.EVENT_DOCUMENT_FIND, sql);
 
         try {
             const [results] = await this.pool.execute<any[]>(sql, params);
@@ -2191,7 +2237,7 @@ export class MariaDB extends Sql implements Adapter {
         const sqlWhere = where.length ? `WHERE ${where.join(" AND ")}` : "";
         const sqlLimit = max !== null ? `LIMIT ?` : "";
 
-        const sql = `
+        let sql = `
       SELECT COUNT(1) as sum FROM (
         SELECT 1
         FROM ${this.getSqlTable(name)} table_main
@@ -2201,6 +2247,7 @@ export class MariaDB extends Sql implements Adapter {
     `;
 
         if (max !== null) params.push(max);
+        sql = await this.trigger(Database.EVENT_DOCUMENT_COUNT, sql);
 
         try {
             const [results] = await this.pool.execute<any[]>(sql, params);
@@ -2263,7 +2310,7 @@ export class MariaDB extends Sql implements Adapter {
         const sqlWhere = where.length ? `WHERE ${where.join(" AND ")}` : "";
         const sqlLimit = max !== null ? `LIMIT ?` : "";
 
-        const sql = `
+        let sql = `
       SELECT SUM(${attribute}) as sum FROM (
         SELECT ${attribute}
         FROM ${this.getSqlTable(name)} table_main
@@ -2273,6 +2320,7 @@ export class MariaDB extends Sql implements Adapter {
     `;
 
         if (max !== null) params.push(max);
+        sql = await this.trigger(Database.EVENT_DOCUMENT_SUM, sql);
 
         try {
             const [results] = await this.pool.execute<any[]>(sql, params);
@@ -2297,7 +2345,10 @@ export class MariaDB extends Sql implements Adapter {
         uid: string,
     ): Promise<Document> {
         const name = this.filter(collection);
-        const sql = `SELECT * FROM ${this.getSqlTable(name)} WHERE _uid = ?`;
+
+        let sql = `SELECT * FROM ${this.getSqlTable(name)} WHERE _uid = ?`;
+        sql = await this.trigger(Database.EVENT_DOCUMENT_READ, sql);
+
         try {
             const [result] = await this.pool.query<any>(sql, [uid]);
             return this.objectToDocument(result[0]);
@@ -2316,7 +2367,10 @@ export class MariaDB extends Sql implements Adapter {
      */
     public async getDocuments(collection: string): Promise<Document[]> {
         const name = this.filter(collection);
-        const sql = `SELECT * FROM ${this.getSqlTable(name)}`;
+
+        let sql = `SELECT * FROM ${this.getSqlTable(name)}`;
+        sql = await this.trigger(Database.EVENT_DOCUMENT_READ, sql);
+
         try {
             const [result] = await this.pool.query<any>(sql);
             return result.map((doc: any) => this.objectToDocument(doc));

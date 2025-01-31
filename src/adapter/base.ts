@@ -478,6 +478,7 @@ export abstract class DatabaseAdapter implements IDatabaseAdapter {
         query: T,
     ): Promise<T> {
         this.logger.debug(`Triggering event: ${event}`);
+        if (process.env.NODE_ENV === "production") this.logger.info(query);
         this.logger.logSql(query as string);
 
         for (const callback of Object.values(
