@@ -313,8 +313,9 @@ export class MariaDB extends Sql implements Adapter {
      */
     async drop(name: string): Promise<boolean> {
         try {
-            let sql = `DROP DATABASE \`${name}\``;
+            name = this.filter(name);
 
+            let sql = `DROP SCHEMA IF EXISTS \`${name}\``;
             sql = await this.trigger(Database.EVENT_DATABASE_DELETE, sql);
 
             await this.pool.query<any>(sql);

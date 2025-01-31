@@ -2,8 +2,9 @@ import { Base } from "./Base";
 import { Query } from "../../query";
 import { Document } from "../../Document";
 import { Datetime as DatetimeValidator } from "../Datetime";
-import { Numeric } from "../Numeric";
-import { TextValidator } from "..";
+import { BooleanValidator, IntegerValidator, TextValidator } from "..";
+import { FloatValidator } from "../FloatValidator";
+import { Constant } from "../../../core/constant";
 
 export class Filter extends Base {
     protected schema: Record<string, any> = {};
@@ -58,9 +59,11 @@ export class Filter extends Base {
             return false;
         }
 
-        if (this.schema[attribute].type === "relationship") {
-            // Additional relationship validation logic can be added here
+        if (attribute.includes(".") && !this.schema[attribute]) {
+            attribute = attribute.split(".")[0];
         }
+
+        const attributeSchema = this.schema[attribute];
 
         if (values.length > this.maxValuesCount) {
             this.message =
@@ -71,29 +74,32 @@ export class Filter extends Base {
             return false;
         }
 
-        const attributeType = this.schema[attribute].type;
+        const attributeType = attributeSchema.type;
 
         for (const value of values) {
             let validator: any;
 
             switch (attributeType) {
-                case "string":
+                case Constant.VAR_STRING:
                     validator = new TextValidator(0, 0);
                     break;
-                case "integer":
-                    validator = new Numeric();
+                case Constant.VAR_INTEGER:
+                    validator = new IntegerValidator();
                     break;
-                case "float":
-                    validator = new Numeric();
+                case Constant.VAR_FLOAT:
+                    validator = new FloatValidator();
                     break;
-                case "boolean":
-                    validator = new Boolean();
+                case Constant.VAR_BOOLEAN:
+                    validator = new BooleanValidator();
                     break;
-                case "datetime":
+                case Constant.VAR_DATETIME:
                     validator = new DatetimeValidator(
                         this.minAllowedDate,
                         this.maxAllowedDate,
                     );
+                    break;
+                case Constant.VAR_RELATIONSHIP:
+                    validator = new TextValidator(255, 0);
                     break;
                 default:
                     this.message = "Unknown Data type";
@@ -105,6 +111,39 @@ export class Filter extends Base {
                     'Query value is invalid for attribute "' + attribute + '"';
                 return false;
             }
+        }
+
+        if (attributeSchema.type === Constant.VAR_RELATIONSHIP) {
+            const options = attributeSchema.options;
+
+            if (
+                (options.relationType === Constant.RELATION_ONE_TO_ONE && !options.twoWay && options.side === Constant.RELATION_SIDE_CHILD) ||
+                (options.relationType === Constant.RELATION_ONE_TO_MANY && options.side === Constant.RELATION_SIDE_PARENT) ||
+                (options.relationType === Constant.RELATION_MANY_TO_ONE && options.side === Constant.RELATION_SIDE_CHILD) ||
+                options.relationType === Constant.RELATION_MANY_TO_MANY
+            ) {
+                this.message = 'Cannot query on virtual relationship attribute';
+                return false;
+            }
+        }
+
+        const isArray = attributeSchema.array ?? false;
+
+        if (
+            !isArray &&
+            method === Query.TYPE_CONTAINS &&
+            attributeSchema.type !== Constant.VAR_STRING
+        ) {
+            this.message = 'Cannot query contains on attribute "' + attribute + '" because it is not an array or string.';
+            return false;
+        }
+
+        if (
+            isArray &&
+            ![Query.TYPE_CONTAINS, Query.TYPE_IS_NULL, Query.TYPE_IS_NOT_NULL].includes(method)
+        ) {
+            this.message = 'Cannot query ' + method + ' on attribute "' + attribute + '" because it is an array.';
+            return false;
         }
 
         return true;
