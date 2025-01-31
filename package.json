@@ -37,7 +37,6 @@
     "prettier": "^3.0.0",
     "ts-jest": "^29.0.0",
     "typescript": "^5.0.0",
-    "mysql2/promise": "*"
   },
   "dependencies": {
     "chalk": "^4.1.2",
