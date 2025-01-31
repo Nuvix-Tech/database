@@ -621,19 +621,19 @@ export class MariaDB extends Sql implements Adapter {
             default:
                 throw new DatabaseError(
                     "Unknown type: " +
-                    type +
-                    ". Must be one of " +
-                    Database.VAR_STRING +
-                    ", " +
-                    Database.VAR_INTEGER +
-                    ", " +
-                    Database.VAR_FLOAT +
-                    ", " +
-                    Database.VAR_BOOLEAN +
-                    ", " +
-                    Database.VAR_DATETIME +
-                    ", " +
-                    Database.VAR_RELATIONSHIP,
+                        type +
+                        ". Must be one of " +
+                        Database.VAR_STRING +
+                        ", " +
+                        Database.VAR_INTEGER +
+                        ", " +
+                        Database.VAR_FLOAT +
+                        ", " +
+                        Database.VAR_BOOLEAN +
+                        ", " +
+                        Database.VAR_DATETIME +
+                        ", " +
+                        Database.VAR_RELATIONSHIP,
                 );
         }
     }
@@ -809,12 +809,13 @@ export class MariaDB extends Sql implements Adapter {
         const sqlType = this.getSqlType(Database.VAR_RELATIONSHIP, 0, false);
 
         let sql = "";
+        let sql2 = null;
 
         switch (type) {
             case Database.RELATION_ONE_TO_ONE:
                 sql = `ALTER TABLE ${table} ADD COLUMN \`${id}\` ${sqlType} DEFAULT NULL;`;
                 if (twoWay) {
-                    sql += `ALTER TABLE ${relatedTable} ADD COLUMN \`${twoWayKey}\` ${sqlType} DEFAULT NULL;`;
+                    sql2 = `ALTER TABLE ${relatedTable} ADD COLUMN \`${twoWayKey}\` ${sqlType} DEFAULT NULL;`;
                 }
                 break;
             case Database.RELATION_ONE_TO_MANY:
@@ -833,6 +834,7 @@ export class MariaDB extends Sql implements Adapter {
 
         try {
             const [result] = await this.pool.query<any>(sql);
+            if (sql2) await this.pool.query(sql2);
             this.logger.debug(result);
             return true;
         } catch (e) {
@@ -882,6 +884,7 @@ export class MariaDB extends Sql implements Adapter {
         }
 
         let sql = "";
+        let sql2 = null;
 
         switch (type) {
             case Database.RELATION_ONE_TO_ONE:
@@ -889,7 +892,7 @@ export class MariaDB extends Sql implements Adapter {
                     sql = `ALTER TABLE ${table} RENAME COLUMN \`${key}\` TO \`${newKey}\`;`;
                 }
                 if (twoWay && twoWayKey !== newTwoWayKey) {
-                    sql += `ALTER TABLE ${relatedTable} RENAME COLUMN \`${twoWayKey}\` TO \`${newTwoWayKey}\`;`;
+                    sql2 = `ALTER TABLE ${relatedTable} RENAME COLUMN \`${twoWayKey}\` TO \`${newTwoWayKey}\`;`;
                 }
                 break;
             case Database.RELATION_ONE_TO_MANY:
@@ -932,14 +935,14 @@ export class MariaDB extends Sql implements Adapter {
                     sql = `ALTER TABLE ${junction} RENAME COLUMN \`${key}\` TO \`${newKey}\`;`;
                 }
                 if (twoWay && newTwoWayKey) {
-                    sql += `ALTER TABLE ${junction} RENAME COLUMN \`${twoWayKey}\` TO \`${newTwoWayKey}\`;`;
+                    sql2 = `ALTER TABLE ${junction} RENAME COLUMN \`${twoWayKey}\` TO \`${newTwoWayKey}\`;`;
                 }
                 break;
             default:
                 throw new DatabaseError("Invalid relationship type");
         }
 
-        if (!sql) {
+        if (!sql && !sql2) {
             return true;
         }
 
@@ -947,6 +950,7 @@ export class MariaDB extends Sql implements Adapter {
 
         try {
             const [result] = await this.pool.query<any>(sql);
+            if (sql2) await this.pool.query(sql2);
             this.logger.debug(result);
             return true;
         } catch (e) {
@@ -985,18 +989,19 @@ export class MariaDB extends Sql implements Adapter {
         twoWayKey = this.filter(twoWayKey);
 
         let sql = "";
+        let sql2 = null;
 
         switch (type) {
             case Database.RELATION_ONE_TO_ONE:
                 if (side === Database.RELATION_SIDE_PARENT) {
                     sql = `ALTER TABLE ${table} DROP COLUMN \`${key}\`;`;
                     if (twoWay) {
-                        sql += `ALTER TABLE ${relatedTable} DROP COLUMN \`${twoWayKey}\`;`;
+                        sql2 = `ALTER TABLE ${relatedTable} DROP COLUMN \`${twoWayKey}\`;`;
                     }
                 } else if (side === Database.RELATION_SIDE_CHILD) {
                     sql = `ALTER TABLE ${relatedTable} DROP COLUMN \`${twoWayKey}\`;`;
                     if (twoWay) {
-                        sql += `ALTER TABLE ${table} DROP COLUMN \`${key}\`;`;
+                        sql2 = `ALTER TABLE ${table} DROP COLUMN \`${key}\`;`;
                     }
                 }
                 break;
@@ -1027,28 +1032,28 @@ export class MariaDB extends Sql implements Adapter {
                 const junction =
                     side === Database.RELATION_SIDE_PARENT
                         ? this.getSqlTable(
-                            `_${collectionDoc.getInternalId()}_${relatedCollectionDoc.getInternalId()}`,
-                        )
+                              `_${collectionDoc.getInternalId()}_${relatedCollectionDoc.getInternalId()}`,
+                          )
                         : this.getSqlTable(
-                            `_${relatedCollectionDoc.getInternalId()}_${collectionDoc.getInternalId()}`,
-                        );
+                              `_${relatedCollectionDoc.getInternalId()}_${collectionDoc.getInternalId()}`,
+                          );
 
                 const perms =
                     side === Database.RELATION_SIDE_PARENT
                         ? this.getSqlTable(
-                            `_${collectionDoc.getInternalId()}_${relatedCollectionDoc.getInternalId()}_perms`,
-                        )
+                              `_${collectionDoc.getInternalId()}_${relatedCollectionDoc.getInternalId()}_perms`,
+                          )
                         : this.getSqlTable(
-                            `_${relatedCollectionDoc.getInternalId()}_${collectionDoc.getInternalId()}_perms`,
-                        );
+                              `_${relatedCollectionDoc.getInternalId()}_${collectionDoc.getInternalId()}_perms`,
+                          );
 
-                sql = `DROP TABLE ${junction}; DROP TABLE ${perms}`;
+                sql = `DROP TABLE ${junction}, ${perms}`;
                 break;
             default:
                 throw new DatabaseError("Invalid relationship type");
         }
 
-        if (!sql) {
+        if (!sql && !sql2) {
             return true;
         }
 
@@ -1056,6 +1061,7 @@ export class MariaDB extends Sql implements Adapter {
 
         try {
             const [result] = await this.pool.query<any>(sql);
+            if (sql2) await this.pool.query(sql2);
             this.logger.debug(result);
             return true;
         } catch (e) {
@@ -1263,8 +1269,8 @@ export class MariaDB extends Sql implements Adapter {
                         ?.forEach((permission: string) => {
                             permPlaceholders.push(
                                 "(?, ?, ?" +
-                                (this.sharedTables ? ", ?" : "") +
-                                ")",
+                                    (this.sharedTables ? ", ?" : "") +
+                                    ")",
                             );
                             permValues.push(
                                 type,

@@ -117,12 +117,16 @@ export class Filter extends Base {
             const options = attributeSchema.options;
 
             if (
-                (options.relationType === Constant.RELATION_ONE_TO_ONE && !options.twoWay && options.side === Constant.RELATION_SIDE_CHILD) ||
-                (options.relationType === Constant.RELATION_ONE_TO_MANY && options.side === Constant.RELATION_SIDE_PARENT) ||
-                (options.relationType === Constant.RELATION_MANY_TO_ONE && options.side === Constant.RELATION_SIDE_CHILD) ||
+                (options.relationType === Constant.RELATION_ONE_TO_ONE &&
+                    !options.twoWay &&
+                    options.side === Constant.RELATION_SIDE_CHILD) ||
+                (options.relationType === Constant.RELATION_ONE_TO_MANY &&
+                    options.side === Constant.RELATION_SIDE_PARENT) ||
+                (options.relationType === Constant.RELATION_MANY_TO_ONE &&
+                    options.side === Constant.RELATION_SIDE_CHILD) ||
                 options.relationType === Constant.RELATION_MANY_TO_MANY
             ) {
-                this.message = 'Cannot query on virtual relationship attribute';
+                this.message = "Cannot query on virtual relationship attribute";
                 return false;
             }
         }
@@ -134,15 +138,27 @@ export class Filter extends Base {
             method === Query.TYPE_CONTAINS &&
             attributeSchema.type !== Constant.VAR_STRING
         ) {
-            this.message = 'Cannot query contains on attribute "' + attribute + '" because it is not an array or string.';
+            this.message =
+                'Cannot query contains on attribute "' +
+                attribute +
+                '" because it is not an array or string.';
             return false;
         }
 
         if (
             isArray &&
-            ![Query.TYPE_CONTAINS, Query.TYPE_IS_NULL, Query.TYPE_IS_NOT_NULL].includes(method)
+            ![
+                Query.TYPE_CONTAINS,
+                Query.TYPE_IS_NULL,
+                Query.TYPE_IS_NOT_NULL,
+            ].includes(method)
         ) {
-            this.message = 'Cannot query ' + method + ' on attribute "' + attribute + '" because it is an array.';
+            this.message =
+                "Cannot query " +
+                method +
+                ' on attribute "' +
+                attribute +
+                '" because it is an array.';
             return false;
         }
 

@@ -189,7 +189,7 @@ export class Database extends Constant {
                     value = new Date(value);
                     (value as Date).setMinutes(
                         value.getMinutes() -
-                        (value as Date).getTimezoneOffset(),
+                            (value as Date).getTimezoneOffset(),
                     );
                     return DateTime.format(value);
                 } catch (error) {
@@ -870,7 +870,7 @@ export class Database extends Constant {
         if (
             indexes &&
             this.adapter.getCountOfIndexes(collection) >
-            this.adapter.getLimitForIndexes()
+                this.adapter.getLimitForIndexes()
         ) {
             throw new LimitException(
                 `Index limit of ${this.adapter.getLimitForIndexes()} exceeded. Cannot create collection.`,
@@ -881,7 +881,7 @@ export class Database extends Constant {
             if (
                 this.adapter.getLimitForAttributes() > 0 &&
                 this.adapter.getCountOfAttributes(collection) >
-                this.adapter.getLimitForAttributes()
+                    this.adapter.getLimitForAttributes()
             ) {
                 throw new LimitException(
                     `Attribute limit of ${this.adapter.getLimitForAttributes()} exceeded. Cannot create collection.`,
@@ -890,7 +890,7 @@ export class Database extends Constant {
             if (
                 this.adapter.getDocumentSizeLimit() > 0 &&
                 this.adapter.getAttributeWidth(collection) >
-                this.adapter.getDocumentSizeLimit()
+                    this.adapter.getDocumentSizeLimit()
             ) {
                 throw new LimitException(
                     `Document size limit of ${this.adapter.getDocumentSizeLimit()} exceeded. Cannot create collection.`,
@@ -1245,7 +1245,7 @@ export class Database extends Constant {
         if (
             this.adapter.getLimitForAttributes() > 0 &&
             this.adapter.getCountOfAttributes(col) >=
-            this.adapter.getLimitForAttributes()
+                this.adapter.getLimitForAttributes()
         ) {
             throw new LimitException(
                 "Column limit reached. Cannot create new attribute.",
@@ -1277,7 +1277,7 @@ export class Database extends Constant {
         if (
             this.adapter.getDocumentSizeLimit() > 0 &&
             this.adapter.getAttributeWidth(col) >=
-            this.adapter.getDocumentSizeLimit()
+                this.adapter.getDocumentSizeLimit()
         ) {
             throw new LimitException(
                 "Row width limit reached. Cannot create new attribute.",
@@ -1742,7 +1742,7 @@ export class Database extends Constant {
                         if (size > this.adapter.getLimitForString()) {
                             throw new DatabaseException(
                                 "Max size allowed for string is: " +
-                                this.adapter.getLimitForString(),
+                                    this.adapter.getLimitForString(),
                             );
                         }
                         break;
@@ -1767,8 +1767,8 @@ export class Database extends Constant {
                     default:
                         throw new DatabaseException(
                             "Unknown attribute type: " +
-                            type +
-                            ". Must be one of string, integer, float, boolean, datetime, relationship",
+                                type +
+                                ". Must be one of string, integer, float, boolean, datetime, relationship",
                         );
                 }
 
@@ -1819,7 +1819,7 @@ export class Database extends Constant {
                 if (
                     this.adapter.getDocumentSizeLimit() > 0 &&
                     this.adapter.getAttributeWidth(collectionDoc) >=
-                    this.adapter.getDocumentSizeLimit()
+                        this.adapter.getDocumentSizeLimit()
                 ) {
                     throw new LimitException(
                         "Row width limit reached. Cannot update attribute.",
@@ -1903,7 +1903,7 @@ export class Database extends Constant {
         if (
             this.adapter.getLimitForAttributes() > 0 &&
             this.adapter.getCountOfAttributes(clonedCollection) >
-            this.adapter.getLimitForAttributes()
+                this.adapter.getLimitForAttributes()
         ) {
             throw new LimitException(
                 "Column limit reached. Cannot create new attribute.",
@@ -1913,7 +1913,7 @@ export class Database extends Constant {
         if (
             this.adapter.getDocumentSizeLimit() > 0 &&
             this.adapter.getAttributeWidth(clonedCollection) >=
-            this.adapter.getDocumentSizeLimit()
+                this.adapter.getDocumentSizeLimit()
         ) {
             throw new LimitException(
                 "Row width limit reached. Cannot create new attribute.",
@@ -2161,9 +2161,9 @@ export class Database extends Constant {
             if (
                 attribute.getAttribute("type") === Database.VAR_RELATIONSHIP &&
                 attribute.getAttribute("options").twoWayKey.toLowerCase() ===
-                twoWayKey.toLowerCase() &&
+                    twoWayKey.toLowerCase() &&
                 attribute.getAttribute("options").relatedCollection ===
-                relatedCol.getId()
+                    relatedCol.getId()
             ) {
                 throw new DuplicateException(
                     "Related attribute already exists",
@@ -2407,7 +2407,7 @@ export class Database extends Constant {
                     (newKey && newKey !== id) ||
                     (newTwoWayKey &&
                         newTwoWayKey !==
-                        attribute.getAttribute("options").twoWayKey);
+                            attribute.getAttribute("options").twoWayKey);
 
                 const relatedAttributes = relatedCollection.getAttribute(
                     "attributes",
@@ -2936,7 +2936,7 @@ export class Database extends Constant {
                         if (
                             lengths[i] &&
                             lengths[i] ===
-                            collectionAttribute.getAttribute("size") &&
+                                collectionAttribute.getAttribute("size") &&
                             this.adapter.getMaxIndexLength() > 0
                         ) {
                             lengths[i] = null as any;
@@ -3158,9 +3158,9 @@ export class Database extends Constant {
                         for (const relationship of relationships) {
                             if (relationship.getAttribute("key") === key) {
                                 switch (
-                                relationship.getAttribute("options")[
-                                "relationType"
-                                ]
+                                    relationship.getAttribute("options")[
+                                        "relationType"
+                                    ]
                                 ) {
                                     case Database.RELATION_MANY_TO_MANY:
                                     case Database.RELATION_ONE_TO_MANY:
@@ -3371,12 +3371,12 @@ export class Database extends Constant {
                     (existingKey === key &&
                         existingTwoWayKey !== twoWayKey &&
                         existingRelatedCollection ===
-                        relatedCollection.getId() &&
+                            relatedCollection.getId() &&
                         existingSide !== side) ||
                     (existingKey !== key &&
                         existingTwoWayKey === twoWayKey &&
                         existingRelatedCollection ===
-                        relatedCollection.getId() &&
+                            relatedCollection.getId() &&
                         existingSide !== side);
 
                 if (reflexive || symmetric || transitive) {
@@ -3390,7 +3390,7 @@ export class Database extends Constant {
                         skipFetch ||
                         (twoWay &&
                             this.relationshipFetchDepth ===
-                            Database.RELATION_MAX_DEPTH)
+                                Database.RELATION_MAX_DEPTH)
                     ) {
                         document.removeAttribute(key);
                         break;
@@ -3419,7 +3419,7 @@ export class Database extends Constant {
                         if (
                             !twoWay ||
                             this.relationshipFetchDepth ===
-                            Database.RELATION_MAX_DEPTH ||
+                                Database.RELATION_MAX_DEPTH ||
                             skipFetch
                         ) {
                             document.removeAttribute(key);
@@ -3445,7 +3445,7 @@ export class Database extends Constant {
 
                     if (
                         this.relationshipFetchDepth ===
-                        Database.RELATION_MAX_DEPTH ||
+                            Database.RELATION_MAX_DEPTH ||
                         skipFetch
                     ) {
                         break;
@@ -3477,7 +3477,7 @@ export class Database extends Constant {
                         if (
                             skipFetch ||
                             this.relationshipFetchDepth ===
-                            Database.RELATION_MAX_DEPTH
+                                Database.RELATION_MAX_DEPTH
                         ) {
                             document.removeAttribute(key);
                             break;
@@ -3509,7 +3509,7 @@ export class Database extends Constant {
 
                     if (
                         this.relationshipFetchDepth ===
-                        Database.RELATION_MAX_DEPTH ||
+                            Database.RELATION_MAX_DEPTH ||
                         skipFetch
                     ) {
                         break;
@@ -3831,7 +3831,7 @@ export class Database extends Constant {
         const stackCount = this.relationshipWriteStack.length;
 
         for (const relationship of relationships) {
-            const key = relationship.getAttribute("key")
+            const key = relationship.getAttribute("key");
             const value = document.getAttribute(key) ?? undefined;
             const options = relationship.getAttribute("options", {});
             const relatedCollection = await this.getCollection(
@@ -3845,7 +3845,7 @@ export class Database extends Constant {
             if (
                 stackCount >= Database.RELATION_MAX_DEPTH - 1 &&
                 this.relationshipWriteStack[stackCount - 1] !==
-                relatedCollection.getId()
+                    relatedCollection.getId()
             ) {
                 document.removeAttribute(key);
                 continue;
@@ -4385,20 +4385,20 @@ export class Database extends Constant {
                                     (relationType ===
                                         Database.RELATION_MANY_TO_ONE &&
                                         side ===
-                                        Database.RELATION_SIDE_PARENT) ||
+                                            Database.RELATION_SIDE_PARENT) ||
                                     (relationType ===
                                         Database.RELATION_ONE_TO_MANY &&
                                         side === Database.RELATION_SIDE_CHILD)
                                 ) {
                                     const oldValue =
                                         old.getAttribute(key) instanceof
-                                            Document
+                                        Document
                                             ? old.getAttribute(key).getId()
                                             : old.getAttribute(key);
 
                                     if (
                                         (value === null) !==
-                                        (oldValue === null) ||
+                                            (oldValue === null) ||
                                         (typeof value === "string" &&
                                             value !== oldValue) ||
                                         (value instanceof Document &&
@@ -4415,8 +4415,8 @@ export class Database extends Constant {
                                 ) {
                                     throw new RelationshipException(
                                         "Invalid relationship value. Must be either an array of documents or document IDs, " +
-                                        typeof value +
-                                        " given.",
+                                            typeof value +
+                                            " given.",
                                     );
                                 }
 
@@ -4434,10 +4434,10 @@ export class Database extends Constant {
                                 ] of value.entries()) {
                                     const oldValue =
                                         old.getAttribute(key)[index] instanceof
-                                            Document
+                                        Document
                                             ? old
-                                                .getAttribute(key)
-                                            [index].getId()
+                                                  .getAttribute(key)
+                                                  [index].getId()
                                             : old.getAttribute(key)[index];
 
                                     if (
@@ -4690,9 +4690,9 @@ export class Database extends Constant {
                                 ...queries,
                                 ...(lastDocument
                                     ? [
-                                        Query.limit(batchSize),
-                                        Query.cursorAfter(lastDocument),
-                                    ]
+                                          Query.limit(batchSize),
+                                          Query.cursorAfter(lastDocument),
+                                      ]
                                     : [Query.limit(batchSize)]),
                             ],
                             Database.PERMISSION_UPDATE,
@@ -4830,7 +4830,7 @@ export class Database extends Constant {
             if (
                 stackCount >= Database.RELATION_MAX_DEPTH - 1 &&
                 this.relationshipWriteStack[stackCount - 1] !==
-                relatedCollection.getId()
+                    relatedCollection.getId()
             ) {
                 document.removeAttribute(key);
                 continue;
@@ -5056,8 +5056,8 @@ export class Database extends Constant {
                             ) {
                                 throw new RelationshipException(
                                     "Invalid relationship value. Must be either an array of documents or document IDs, " +
-                                    typeof value +
-                                    " given.",
+                                        typeof value +
+                                        " given.",
                                 );
                             }
 
@@ -5848,21 +5848,21 @@ export class Database extends Constant {
                         const transitive =
                             (existingKey === twoWayKey &&
                                 existingCollection ===
-                                relatedCollection.getId() &&
+                                    relatedCollection.getId() &&
                                 existingSide !== side) ||
                             (existingTwoWayKey === key &&
                                 existingRelatedCollection ===
-                                collection.getId() &&
+                                    collection.getId() &&
                                 existingSide !== side) ||
                             (existingKey === key &&
                                 existingTwoWayKey !== twoWayKey &&
                                 existingRelatedCollection ===
-                                relatedCollection.getId() &&
+                                    relatedCollection.getId() &&
                                 existingSide !== side) ||
                             (existingKey !== key &&
                                 existingTwoWayKey === twoWayKey &&
                                 existingRelatedCollection ===
-                                relatedCollection.getId() &&
+                                    relatedCollection.getId() &&
                                 existingSide !== side);
 
                         if (reflexive || symmetric || transitive) {
@@ -6277,9 +6277,9 @@ export class Database extends Constant {
                                 ...queries,
                                 ...(lastDocument
                                     ? [
-                                        Query.limit(batchSize),
-                                        Query.cursorAfter(lastDocument),
-                                    ]
+                                          Query.limit(batchSize),
+                                          Query.cursorAfter(lastDocument),
+                                      ]
                                     : [Query.limit(batchSize)]),
                             ],
                             Database.PERMISSION_DELETE,
@@ -6530,8 +6530,8 @@ export class Database extends Constant {
                             for (const relationship of relationships) {
                                 if (relationship.getAttribute("key") === key) {
                                     switch (
-                                    relationship.getAttribute("options")
-                                        .relationType
+                                        relationship.getAttribute("options")
+                                            .relationType
                                     ) {
                                         case Database.RELATION_MANY_TO_MANY:
                                         case Database.RELATION_ONE_TO_MANY:
@@ -7157,8 +7157,8 @@ export class Database extends Constant {
         // -1 ==> virtual columns count as total, so treat as buffer
         return Math.max(
             this.adapter.getLimitForAttributes() -
-            this.adapter.getCountOfDefaultAttributes() -
-            1,
+                this.adapter.getCountOfDefaultAttributes() -
+                1,
             0,
         );
     }
