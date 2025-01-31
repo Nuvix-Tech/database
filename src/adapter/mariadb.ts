@@ -118,17 +118,7 @@ export class MariaDB extends Sql implements Adapter {
     async startTransaction(): Promise<boolean> {
         try {
             if (this.inTransaction === 0) {
-                if (await this.pool.inTransaction()) {
-                    await this.pool.query("ROLLBACK");
-                } else {
-                    await this.pool.query("ROLLBACK");
-                }
-
                 await this.pool.query("START TRANSACTION");
-            } else {
-                await this.pool.query(
-                    `SAVEPOINT transaction${this.inTransaction}`,
-                );
             }
 
             this.inTransaction++;
@@ -145,22 +135,12 @@ export class MariaDB extends Sql implements Adapter {
     /**
      * Commit MariaDB transaction
      */
-    async commitTransaction(): Promise<boolean> {
-        if (this.inTransaction === 0) {
-            return false;
-        } else if (this.inTransaction > 1) {
-            this.inTransaction--;
-            return true;
-        }
-
-        if (!this.pool.inTransaction()) {
-            this.inTransaction = 0;
-            return false;
-        }
-
+    async commitTransaction() {
         try {
-            await this.pool.query("COMMIT");
-            this.inTransaction = 0;
+            if (this.inTransaction === 1) {
+                await this.pool.query("COMMIT");
+            }
+            this.inTransaction--;
             return true;
         } catch (e) {
             this.logger.error(e);
@@ -640,19 +620,19 @@ export class MariaDB extends Sql implements Adapter {
             default:
                 throw new DatabaseError(
                     "Unknown type: " +
-                        type +
-                        ". Must be one of " +
-                        Database.VAR_STRING +
-                        ", " +
-                        Database.VAR_INTEGER +
-                        ", " +
-                        Database.VAR_FLOAT +
-                        ", " +
-                        Database.VAR_BOOLEAN +
-                        ", " +
-                        Database.VAR_DATETIME +
-                        ", " +
-                        Database.VAR_RELATIONSHIP,
+                    type +
+                    ". Must be one of " +
+                    Database.VAR_STRING +
+                    ", " +
+                    Database.VAR_INTEGER +
+                    ", " +
+                    Database.VAR_FLOAT +
+                    ", " +
+                    Database.VAR_BOOLEAN +
+                    ", " +
+                    Database.VAR_DATETIME +
+                    ", " +
+                    Database.VAR_RELATIONSHIP,
                 );
         }
     }
@@ -1046,20 +1026,20 @@ export class MariaDB extends Sql implements Adapter {
                 const junction =
                     side === Database.RELATION_SIDE_PARENT
                         ? this.getSqlTable(
-                              `_${collectionDoc.getInternalId()}_${relatedCollectionDoc.getInternalId()}`,
-                          )
+                            `_${collectionDoc.getInternalId()}_${relatedCollectionDoc.getInternalId()}`,
+                        )
                         : this.getSqlTable(
-                              `_${relatedCollectionDoc.getInternalId()}_${collectionDoc.getInternalId()}`,
-                          );
+                            `_${relatedCollectionDoc.getInternalId()}_${collectionDoc.getInternalId()}`,
+                        );
 
                 const perms =
                     side === Database.RELATION_SIDE_PARENT
                         ? this.getSqlTable(
-                              `_${collectionDoc.getInternalId()}_${relatedCollectionDoc.getInternalId()}_perms`,
-                          )
+                            `_${collectionDoc.getInternalId()}_${relatedCollectionDoc.getInternalId()}_perms`,
+                        )
                         : this.getSqlTable(
-                              `_${relatedCollectionDoc.getInternalId()}_${collectionDoc.getInternalId()}_perms`,
-                          );
+                            `_${relatedCollectionDoc.getInternalId()}_${collectionDoc.getInternalId()}_perms`,
+                        );
 
                 sql = `DROP TABLE ${junction}; DROP TABLE ${perms}`;
                 break;
@@ -1282,8 +1262,8 @@ export class MariaDB extends Sql implements Adapter {
                         ?.forEach((permission: string) => {
                             permPlaceholders.push(
                                 "(?, ?, ?" +
-                                    (this.sharedTables ? ", ?" : "") +
-                                    ")",
+                                (this.sharedTables ? ", ?" : "") +
+                                ")",
                             );
                             permValues.push(
                                 type,
