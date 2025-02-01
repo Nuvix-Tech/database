@@ -67,8 +67,8 @@ export class MariaDB extends Sql implements Adapter {
     async init() {
         if (this.instance)
             throw new InitializeError("MariaDB adapter already initialized");
-        if (!this.options.connection.database)
-            throw new InitializeError("Database name is required");
+        // if (!this.options.connection.database)
+        //     throw new InitializeError("Database name is required");
 
         try {
             const pool = this.library.createPool({
@@ -1225,7 +1225,8 @@ export class MariaDB extends Sql implements Adapter {
             columns.push(`\`${column}\``);
             placeholders.push("?");
             values.push(
-                Array.isArray(value) || typeof value === "object"
+                Array.isArray(value) ||
+                    (typeof value === "object" && value !== null)
                     ? JSON.stringify(value)
                     : value,
             );
@@ -1383,7 +1384,8 @@ export class MariaDB extends Sql implements Adapter {
                 );
                 bindValues.push(
                     ...Object.values(filteredAttributes).map((value) =>
-                        Array.isArray(value) || typeof value === "object"
+                        Array.isArray(value) ||
+                        (typeof value === "object" && value !== null)
                             ? JSON.stringify(value)
                             : value,
                     ),
@@ -1480,8 +1482,6 @@ export class MariaDB extends Sql implements Adapter {
             attributes._permissions = document.getPermissions();
         }
 
-        delete attributes.$permissions;
-
         if (this.sharedTables) {
             attributes._tenant = this.tenantId;
         }
@@ -1506,7 +1506,8 @@ export class MariaDB extends Sql implements Adapter {
                 )
                 .map((attr) => {
                     const value = attributes[attr];
-                    return Array.isArray(value) || typeof value === "object"
+                    return Array.isArray(value) ||
+                        (typeof value === "object" && value !== null)
                         ? JSON.stringify(value)
                         : value;
                 }) ?? [];
@@ -1610,7 +1611,8 @@ export class MariaDB extends Sql implements Adapter {
             )
             .map((attr) => {
                 const value = attributes[attr];
-                return Array.isArray(value) || typeof value === "object"
+                return Array.isArray(value) ||
+                    (typeof value === "object" && value !== null)
                     ? JSON.stringify(value)
                     : value;
             });
@@ -2440,15 +2442,15 @@ export class MariaDB extends Sql implements Adapter {
      */
     objectToDocument(obj: any): Document {
         if (!obj) return new Document();
-        obj.$id = obj?._uid || null;
+        obj.$id = obj?._uid ?? null;
         delete obj?._uid;
-        obj.$internalId = obj?._id || null;
+        obj.$internalId = obj?._id ?? null;
         delete obj?._id;
-        obj.$tenant = obj?._tenant || null;
+        obj.$tenant = obj?._tenant ?? null;
         delete obj?._tenant;
-        obj.$createdAt = obj?._createdAt || null;
+        obj.$createdAt = obj?._createdAt ?? null;
         delete obj?._createdAt;
-        obj.$updatedAt = obj?._updatedAt || null;
+        obj.$updatedAt = obj?._updatedAt ?? null;
         delete obj?._updatedAt;
         obj.$permissions = obj?._permissions
             ? JSON.parse(obj._permissions)

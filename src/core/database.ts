@@ -4345,7 +4345,7 @@ export class Database extends Constant {
                 }
 
                 // Compare if the document has any changes
-                for (const [key, value] of Object.entries(document)) {
+                for (const [key, value] of (document as any).entries()) {
                     // Skip the nested documents as they will be checked later in recursions.
                     if (relationships.hasOwnProperty(key)) {
                         // No need to compare nested documents more than max depth.
@@ -4409,10 +4409,7 @@ export class Database extends Constant {
                                     break;
                                 }
 
-                                if (
-                                    !Array.isArray(value) ||
-                                    !Array.isArray(value)
-                                ) {
+                                if (!Array.isArray(value)) {
                                     throw new RelationshipException(
                                         "Invalid relationship value. Must be either an array of documents or document IDs, " +
                                             typeof value +
@@ -4504,7 +4501,7 @@ export class Database extends Constant {
                 const updatedAt = document.getUpdatedAt();
                 document.setAttribute(
                     "$updatedAt",
-                    !this.preserveDates ? time : updatedAt, // !updatedAt ||
+                    !updatedAt || !this.preserveDates ? time : updatedAt,
                 );
             }
 
