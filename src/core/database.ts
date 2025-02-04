@@ -20,7 +20,7 @@ import { DatabaseError } from "../errors/base";
 import Permission from "../security/Permission";
 import { Permissions } from "../security/Permissions";
 
-import { Logger } from "./logger";
+import { Logger, LoggerOptions } from "./logger";
 import { Constant } from "./constant";
 import { DateTime } from "./date-time";
 import { Repository } from "./repository";
@@ -45,17 +45,19 @@ import {
     UpdateRelationshipParams,
 } from "./types/database";
 
-interface DatabaseOPtions {
+interface DatabaseOptions {
     cache?: any;
     filters?: Record<string, Filter>;
     entities?: any[];
-    logger?: boolean;
+    logger?: boolean | LoggerOptions;
 }
 
 type IRecord = Record<string, unknown | any>;
 
 export class Database extends Constant {
     protected adapter: Adapter;
+
+    protected options: any;
 
     protected cache: any;
 
@@ -105,7 +107,7 @@ export class Database extends Constant {
 
     constructor(
         adapter: Adapter,
-        options: DatabaseOPtions = {
+        options: DatabaseOptions = {
             filters: {},
             entities: [],
         },
@@ -181,24 +183,40 @@ export class Database extends Constant {
         });
 
         Database.addFilter("datetime", {
-            encode: (value: any) => {
-                if (value === null || value === undefined) {
-                    return;
-                }
+            encode: (value: any): string | null => {
+                if (!value) return null;
+
                 try {
-                    value = new Date(value);
-                    (value as Date).setMinutes(
-                        value.getMinutes() -
-                            (value as Date).getTimezoneOffset(),
+                    const date = new Date(value);
+                    if (isNaN(date.getTime())) {
+                        throw new DatabaseError(`Invalid date input: ${value}`);
+                    }
+
+                    date.setMinutes(
+                        date.getMinutes() - date.getTimezoneOffset(),
                     );
-                    return DateTime.format(value);
+                    return DateTime.format(date);
                 } catch (error) {
-                    this.logger.error(error);
-                    return value;
+                    this.logger.error("Failed to encode datetime:", {
+                        value,
+                        error,
+                    });
+                    return null; // Consistent return type
                 }
             },
-            decode: (value: string | null) => {
-                return DateTime.formatTz(value);
+
+            decode: (value: string | null): string | null => {
+                if (!value) return null;
+
+                try {
+                    return DateTime.formatTz(value);
+                } catch (error) {
+                    this.logger.error("Failed to decode datetime:", {
+                        value,
+                        error,
+                    });
+                    return null;
+                }
             },
         });
     }

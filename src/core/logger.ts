@@ -1,116 +1,153 @@
-import chalk from "chalk";
-import highlight from "cli-highlight";
 import fs from "fs";
 import path from "path";
+import chalk from "chalk";
+import highlight from "cli-highlight";
 
+/**
+ * Logger configuration options
+ */
+export interface LoggerOptions {
+    log?: boolean;
+    debug?: boolean;
+    error?: boolean;
+    warn?: boolean;
+    info?: boolean;
+    sql?: boolean;
+    useStdout?: boolean;
+    logFilePath?: string;
+}
+
+/**
+ * Logger class for structured logging with configurable levels
+ */
 export class Logger {
-    private LOG: boolean = true;
-    private DEBUG: boolean = true;
-    private ERROR: boolean = true;
-    private WARN: boolean = true;
-    private INFO: boolean = true;
+    private logEnabled: boolean;
+    private debugEnabled: boolean;
+    private errorEnabled: boolean;
+    private warnEnabled: boolean;
+    private infoEnabled: boolean;
+    private sqlEnabled: boolean;
     private logFilePath: string;
     private useStdout: boolean;
 
-    constructor(options?: any) {
+    constructor(options?: LoggerOptions | boolean) {
+        // Default options
+        const defaultOptions: LoggerOptions = {
+            log: true,
+            debug: true,
+            error: true,
+            warn: true,
+            info: true,
+            sql: true,
+            useStdout: true,
+            logFilePath: path.join(process.cwd(), "db-logs.txt"),
+        };
+
+        // Handle boolean option (disable all logging)
         if (typeof options === "boolean" && !options) {
-            this.LOG = false;
-            this.DEBUG = false;
-            this.ERROR = false;
+            options = {
+                log: false,
+                debug: false,
+                error: false,
+                warn: false,
+                info: false,
+                sql: false,
+            };
         }
-        this.logFilePath = path.join(process.cwd(), "db-logs.txt");
-        this.useStdout = options?.useStdout ?? true;
+
+        const finalOptions = { ...defaultOptions, ...(options as object) };
+
+        this.logEnabled = finalOptions.log!;
+        this.debugEnabled = finalOptions.debug!;
+        this.errorEnabled = finalOptions.error!;
+        this.warnEnabled = finalOptions.warn!;
+        this.infoEnabled = finalOptions.info!;
+        this.sqlEnabled = finalOptions.sql!;
+        this.useStdout = finalOptions.useStdout!;
+        this.logFilePath = finalOptions.logFilePath!;
     }
 
-    public log(...messages: any[]): void {
-        if (this.LOG) {
-            this.writeToFile(
-                ...this.formatMessages(messages, chalk.blueBright, "LOG"),
-            );
-            this.writeToStdout(
-                ...this.formatMessages(messages, chalk.blueBright, "LOG"),
-            );
-        }
-    }
-
-    public error(...messages: any[]): void {
-        if (this.ERROR) {
-            this.writeToFile(
-                ...this.formatMessages(messages, chalk.redBright, "ERROR"),
-            );
-            this.writeToStderr(
-                ...this.formatMessages(messages, chalk.redBright, "ERROR"),
-            );
+    public log(...messages: unknown[]): void {
+        if (this.logEnabled) {
+            this.output("LOG", chalk.blueBright, messages);
         }
     }
 
-    public debug(...messages: any[]): void {
-        if (this.DEBUG) {
-            this.writeToFile(
-                ...this.formatMessages(messages, chalk.greenBright, "DEBUG"),
-            );
-            this.writeToStdout(
-                ...this.formatMessages(messages, chalk.greenBright, "DEBUG"),
-            );
+    public error(...messages: unknown[]): void {
+        if (this.errorEnabled) {
+            this.output("ERROR", chalk.redBright, messages, true);
         }
     }
 
-    public warn(...messages: any[]): void {
-        if (this.WARN) {
-            this.writeToFile(
-                ...this.formatMessages(messages, chalk.yellowBright, "WARN"),
-            );
-            this.writeToStdout(
-                ...this.formatMessages(messages, chalk.yellowBright, "WARN"),
-            );
+    public debug(...messages: unknown[]): void {
+        if (this.debugEnabled) {
+            this.output("DEBUG", chalk.greenBright, messages);
         }
     }
 
-    public info(...messages: any[]): void {
-        if (this.INFO) {
-            this.writeToFile(
-                ...this.formatMessages(messages, chalk.cyanBright, "INFO"),
-            );
-            this.writeToStdout(
-                ...this.formatMessages(messages, chalk.cyanBright, "INFO"),
-            );
+    public warn(...messages: unknown[]): void {
+        if (this.warnEnabled) {
+            this.output("WARN", chalk.yellowBright, messages);
+        }
+    }
+
+    public info(...messages: unknown[]): void {
+        if (this.infoEnabled) {
+            this.output("INFO", chalk.cyanBright, messages);
         }
     }
 
     public logSql(sql: string): void {
-        console.log(highlight(sql, { language: "sql", ignoreIllegals: true }));
+        if (this.sqlEnabled) {
+            const highlightedSQL = highlight(sql, {
+                language: "sql",
+                ignoreIllegals: true,
+            });
+            this.writeToStdout(chalk.gray(`[SQL]`), highlightedSQL);
+        }
+    }
+
+    private output(
+        level: string,
+        colorFn: chalk.Chalk,
+        messages: unknown[],
+        isError: boolean = false,
+    ): void {
+        const formattedMessages = this.formatMessages(level, colorFn, messages);
+        this.writeToFile(formattedMessages);
+        isError
+            ? this.writeToStderr(formattedMessages)
+            : this.writeToStdout(formattedMessages);
     }
 
     private formatMessages(
-        messages: any[],
+        level: string,
         colorFn: chalk.Chalk,
-        prefix: string,
-    ): string[] {
-        const time = new Date().toISOString();
-        const prefixFormatted = colorFn(`[${prefix}]`);
-        const timeFormatted = chalk.gray(`[${time}]`);
-        const contentFormatted = messages.map((message) =>
-            this.formatMessage(message),
-        );
-
-        return [`${prefixFormatted} ${timeFormatted}`, ...contentFormatted];
+        messages: unknown[],
+    ): string {
+        const time = chalk.gray(`[${new Date().toISOString()}]`);
+        const prefix = colorFn(`[${level}]`);
+        const formattedContent = messages.map(this.formatMessage).join(" ");
+        return `${prefix} ${time} ${formattedContent}`;
     }
 
-    private formatMessage(message: any): string {
+    private formatMessage(message: unknown): string {
         if (typeof message === "string" || typeof message === "number") {
             return chalk.yellow(message.toString());
         } else if (message instanceof Error) {
             return chalk.red(message.stack || message.message);
-        } else if (typeof message === "object") {
+        } else if (typeof message === "object" && message !== null) {
             return chalk.magenta(JSON.stringify(message, null, 2));
-        } else {
-            return chalk.white(String(message));
         }
+        return chalk.white(String(message));
     }
 
-    private writeToFile(...messages: string[]): void {
-        const logMessage = messages.join(" ") + "\n";
-        fs.appendFileSync(this.logFilePath, logMessage);
+    private writeToFile(message: string): void {
+        try {
+            fs.appendFileSync(this.logFilePath, message + "\n", "utf8");
+        } catch (err) {
+            console.error("Failed to write to log file:", err);
+        }
     }
 
     private writeToStdout(...messages: string[]): void {
