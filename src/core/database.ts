@@ -195,7 +195,7 @@ export class Database extends Constant {
                     date.setMinutes(
                         date.getMinutes() - date.getTimezoneOffset(),
                     );
-                    return DateTime.format(date);
+                    return DateTime.format(date, DateTime.FORMAT_DB);
                 } catch (error) {
                     this.logger.error("Failed to encode datetime:", {
                         value,

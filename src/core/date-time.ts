@@ -1,8 +1,8 @@
 import { DatabaseError as DatabaseException } from "../errors/base";
 
 export class DateTime {
-    private static readonly FORMAT_DB: string = "YYYY-MM-DD HH:mm:ss.SSS";
-    private static readonly FORMAT_TZ: string = "YYYY-MM-DDTHH:mm:ss.SSSZ";
+    static readonly FORMAT_DB: string = "YYYY-MM-DD HH:mm:ss.SSS";
+    static readonly FORMAT_TZ: string = "YYYY-MM-DDTHH:mm:ss.SSSZ";
 
     private constructor() {}
 

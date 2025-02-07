@@ -236,16 +236,50 @@ export class Document<
 
     public find<V extends any>(
         key: keyof (IDocument & T),
-        find: unknown | any,
+        find: unknown | null,
         subject: keyof (IDocument & T) = "" as keyof (IDocument & T),
-    ): V {
+    ): V | false {
         const subjectData = this.get(subject) || this;
+
         if (Array.isArray(subjectData)) {
-            return subjectData.find((value) => value[key] === find) || false;
+            for (const item of subjectData) {
+                if (item instanceof Document) {
+                    const result = item.find(key, find, subject);
+                    if (result) return result as any;
+                } else if (item[key] === find) {
+                    return item as V;
+                }
+            }
+            return false;
         }
-        return this.has(key) && this.get(key) === find
-            ? (subjectData as any)
-            : false;
+
+        if (this.has(key)) {
+            const value = this.get(key);
+            if (value === find) {
+                return subjectData as V;
+            }
+
+            if (value instanceof Document) {
+                return value.find(key, find, subject);
+            }
+
+            if (
+                (typeof value === "string" || typeof value === "number") &&
+                value === find
+            ) {
+                return subjectData as V;
+            }
+
+            if (value instanceof Map) {
+                for (const [mapKey, mapValue] of value) {
+                    if (mapKey === key && mapValue === find) {
+                        return value as V;
+                    }
+                }
+            }
+        }
+
+        return false;
     }
 
     public findAndReplace(
@@ -257,7 +291,12 @@ export class Document<
         const subjectData = this.get(subject) || this;
         if (Array.isArray(subjectData)) {
             for (let i = 0; i < subjectData.length; i++) {
-                if (subjectData[i][key] === find) {
+                if (subjectData[i] instanceof Document) {
+                    if (subjectData[i].find(key, find)) {
+                        subjectData[i] = replace;
+                        return true;
+                    }
+                } else if (subjectData[i][key] === find) {
                     subjectData[i] = replace;
                     return true;
                 }
@@ -279,7 +318,12 @@ export class Document<
         const subjectData = this.get(subject) || this;
         if (Array.isArray(subjectData)) {
             for (let i = 0; i < subjectData.length; i++) {
-                if (subjectData[i][key] === find) {
+                if (subjectData[i] instanceof Document) {
+                    if (subjectData[i].find(key, find)) {
+                        subjectData.splice(i, 1);
+                        return true;
+                    }
+                } else if (subjectData[i][key] === find) {
                     subjectData.splice(i, 1);
                     return true;
                 }
