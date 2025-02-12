@@ -2119,7 +2119,7 @@ export class MariaDB extends Sql implements Adapter {
         }
 
         // Add permissions and tenant-based conditions
-        if (Authorization.status) {
+        if (Authorization.getStatus()) {
             where.push(
                 this.getSQLPermissionsCondition(name, roles, forPermission),
             );
@@ -2208,7 +2208,7 @@ export class MariaDB extends Sql implements Adapter {
         }
 
         // Add permissions and tenant-based conditions
-        if (Authorization.status) {
+        if (Authorization.getStatus()) {
             where.push(this.getSQLPermissionsCondition(name, roles));
             if (this.sharedTables) {
                 params.push(this.tenantId);
@@ -2281,7 +2281,7 @@ export class MariaDB extends Sql implements Adapter {
         }
 
         // Add permissions and tenant-based conditions
-        if (Authorization.status) {
+        if (Authorization.getStatus()) {
             where.push(this.getSQLPermissionsCondition(name, roles));
             if (this.sharedTables) {
                 params.push(this.tenantId);
