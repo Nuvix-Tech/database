@@ -1,43 +1,43 @@
-export class Authorization {
-    private static roles: Record<string, boolean> = {
-        any: true,
-    };
+import { AsyncLocalStorage } from 'async_hooks';
 
+export const storage = new AsyncLocalStorage<Map<string, any>>();
+
+export class Authorization {
+    private static roles: Record<string, boolean> = { any: true };
     protected action: string;
     protected message: string = "Authorization Error";
-    public static status: boolean = true;
-    public static statusDefault: boolean = true;
 
-    /**
-     * Authorization constructor.
-     *
-     * @param action - The action to authorize
-     */
+    private static statusDefault: boolean = true;
+    private static useStorage: boolean = false; // Determines if AsyncLocalStorage is enabled
+
     constructor(action: string) {
         this.action = action;
     }
 
+    // ------ STORAGE MANAGEMENT ------
+    
     /**
-     * Get Description.
-     *
-     * Returns validator description
-     *
-     * @returns {string}
+     * Enables per-request storage (AsyncLocalStorage).
      */
+    public static enableStorage(): void {
+        this.useStorage = true;
+    }
+
+    /**
+     * Disables per-request storage, reverting to default static behavior.
+     */
+    public static disableStorage(): void {
+        this.useStorage = false;
+    }
+
+    // ------ AUTHORIZATION METHODS ------
+
     public getDescription(): string {
         return this.message;
     }
 
-    /**
-     * Is valid.
-     *
-     * Returns true if valid or false if not.
-     *
-     * @param permissions - Permissions to validate
-     * @returns {boolean}
-     */
     public isValid(permissions: any): boolean {
-        if (!Authorization.status) {
+        if (!Authorization.getStatus()) {
             return true;
         }
 
@@ -47,7 +47,7 @@ export class Authorization {
         }
 
         for (const permission of permissions) {
-            if (Authorization.roles.hasOwnProperty(permission)) {
+            if (Authorization.getRoles().includes(permission)) {
                 return true;
             }
         }
@@ -56,114 +56,102 @@ export class Authorization {
         return false;
     }
 
-    /**
-     * Set a role.
-     *
-     * @param role - The role to set
-     */
+    // ------ ROLES MANAGEMENT ------
+
     public static setRole(role: string): void {
-        Authorization.roles[role] = true;
+        if (this.useStorage) {
+            const store = storage.getStore();
+            if (store) {
+                const roles = store.get("roles") || {};
+                roles[role] = true;
+                store.set("roles", roles);
+                return;
+            }
+        }
+        this.roles[role] = true;
     }
 
-    /**
-     * Unset a role.
-     *
-     * @param role - The role to unset
-     */
     public static unsetRole(role: string): void {
-        delete Authorization.roles[role];
+        if (this.useStorage) {
+            const store = storage.getStore();
+            if (store) {
+                const roles = store.get("roles") || {};
+                delete roles[role];
+                store.set("roles", roles);
+                return;
+            }
+        }
+        delete this.roles[role];
     }
 
-    /**
-     * Get all roles.
-     *
-     * @returns {string[]}
-     */
     public static getRoles(): string[] {
-        return Object.keys(Authorization.roles);
+        if (this.useStorage) {
+            const store = storage.getStore();
+            return store ? Object.keys(store.get("roles") || {}) : [];
+        }
+        return Object.keys(this.roles);
     }
 
-    /**
-     * Clean all roles.
-     */
     public static cleanRoles(): void {
-        Authorization.roles = {};
+        if (this.useStorage) {
+            const store = storage.getStore();
+            if (store) {
+                store.set("roles", {});
+                return;
+            }
+        }
+        this.roles = {};
     }
 
-    /**
-     * Check if a role exists.
-     *
-     * @param role - The role to check
-     * @returns {boolean}
-     */
     public static isRole(role: string): boolean {
-        return Authorization.roles.hasOwnProperty(role);
+        return this.getRoles().includes(role);
     }
 
-    /**
-     * Change default status.
-     *
-     * @param status - The new default status
-     */
+    // ------ STATUS MANAGEMENT ------
+
     public static setDefaultStatus(status: boolean): void {
-        Authorization.statusDefault = status;
-        Authorization.status = status;
+        this.statusDefault = status;
+        this.setStatus(status);
     }
 
-    /**
-     * Skip Authorization
-     *
-     * @template T
-     * @param callback - The callback to execute
-     * @returns {T}
-     */
-    public static async skip<T>(callback: () => Promise<T>): Promise<T> {
-        const initialStatus = Authorization.status;
-        Authorization.disable();
+    public static setStatus(status: boolean): void {
+        if (this.useStorage) {
+            const store = storage.getStore();
+            if (store) {
+                store.set("status", status);
+                return;
+            }
+        }
+        this.statusDefault = status;
+    }
 
+    public static getStatus(): boolean {
+        if (this.useStorage) {
+            const store = storage.getStore();
+            return store ? store.get("status") ?? this.statusDefault : this.statusDefault;
+        }
+        return this.statusDefault;
+    }
+
+    public static async skip<T>(callback: () => Promise<T>): Promise<T> {
+        const initialStatus = this.getStatus();
+        this.disable();
         try {
             return await callback();
         } finally {
-            Authorization.status = initialStatus;
+            this.setStatus(initialStatus);
         }
     }
 
-    /**
-     * Enable Authorization checks
-     */
     public static enable(): void {
-        Authorization.status = true;
+        this.setStatus(true);
     }
 
-    /**
-     * Disable Authorization checks
-     */
     public static disable(): void {
-        Authorization.status = false;
+        this.setStatus(false);
     }
 
-    /**
-     * Reset Authorization status
-     */
     public static reset(): void {
-        Authorization.status = Authorization.statusDefault;
-    }
-
-    /**
-     * Is array
-     *
-     * @returns {boolean}
-     */
-    public isArray(): boolean {
-        return false;
-    }
-
-    /**
-     * Get Type
-     *
-     * @returns {string}
-     */
-    public getType(): string {
-        return "array"; // Assuming you want to return a string representation of the type
+        this.setStatus(this.statusDefault);
     }
 }
