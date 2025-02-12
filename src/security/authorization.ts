@@ -1,4 +1,4 @@
-import { AsyncLocalStorage } from 'async_hooks';
+import { AsyncLocalStorage } from "async_hooks";
 
 export const storage = new AsyncLocalStorage<Map<string, any>>();
 
@@ -15,7 +15,7 @@ export class Authorization {
     }
 
     // ------ STORAGE MANAGEMENT ------
-    
+
     /**
      * Enables per-request storage (AsyncLocalStorage).
      */
@@ -128,7 +128,9 @@ export class Authorization {
     public static getStatus(): boolean {
         if (this.useStorage) {
             const store = storage.getStore();
-            return store ? store.get("status") ?? this.statusDefault : this.statusDefault;
+            return store
+                ? (store.get("status") ?? this.statusDefault)
+                : this.statusDefault;
         }
         return this.statusDefault;
     }
