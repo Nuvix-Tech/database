@@ -192,9 +192,6 @@ export class Database extends Constant {
                         throw new DatabaseError(`Invalid date input: ${value}`);
                     }
 
-                    date.setMinutes(
-                        date.getMinutes() - date.getTimezoneOffset(),
-                    );
                     return DateTime.format(date, DateTime.FORMAT_DB);
                 } catch (error) {
                     this.logger.error("Failed to encode datetime:", {
