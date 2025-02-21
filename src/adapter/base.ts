@@ -354,15 +354,6 @@ export abstract class DatabaseAdapter implements IDatabaseAdapter {
     }
 
     /**
-     * Set the database name
-     */
-    public setDatabase(database: string): void {
-        this.database = database;
-        this.options.database = database;
-        this.options.connection.database = database;
-    }
-
-    /**
      * Get the schema name
      */
     public getSchema(): string {
@@ -426,6 +417,76 @@ export abstract class DatabaseAdapter implements IDatabaseAdapter {
     }
 
     /**
+     * Set metadata for query comments
+     *
+     * @param key
+     * @param value
+     * @return this
+     */
+    public setMetadata(key: string, value: any): this {
+        this.metadata[key] = value;
+
+        let output = "";
+        for (const [key, value] of Object.entries(this.metadata)) {
+            output += `/* ${key}: ${value} */\n`;
+        }
+
+        this.before(Database.EVENT_ALL, "metadata", (query: any) => {
+            return output + query;
+        });
+
+        return this;
+    }
+
+    /**
+     * Get metadata
+     *
+     * @return Record<string, any>
+     */
+    public getMetadata(): Record<string, any> {
+        return this.metadata;
+    }
+
+    /**
+     * Clear existing metadata
+     *
+     * @return this
+     */
+    public resetMetadata(): this {
+        this.metadata = {};
+
+        return this;
+    }
+
+    /**
+     * Set a global timeout for database queries in milliseconds.
+     *
+     * This function allows you to set a maximum execution time for all database
+     * queries executed using the library, or a specific event specified by the
+     * event parameter. Once this timeout is set, any database query that takes
+     * longer than the specified time will be automatically terminated by the library,
+     * and an appropriate error or exception will be raised to handle the timeout condition.
+     *
+     * @param milliseconds The timeout value in milliseconds for database queries.
+     * @param event The event the timeout should fire for
+     * @return void
+     *
+     * @throws Error The provided timeout value must be greater than or equal to 0.
+     */
+    public abstract setTimeout(milliseconds: number, event: string): void;
+
+    /**
+     * Clears a global timeout for database queries.
+     *
+     * @param event
+     * @return void
+     */
+    public clearTimeout(event: string): void {
+        // Clear existing callback
+        this.before(event, "timeout", null);
+    }
+
+    /**
      * Get the transaction counter
      */
     public getInTransaction(): number {
@@ -477,19 +538,15 @@ export abstract class DatabaseAdapter implements IDatabaseAdapter {
         event: string,
         query: T,
     ): Promise<T> {
-        this.logger.debug(`Triggering event: ${event}`);
-        if (process.env.NODE_ENV === "production") this.logger.info(query);
-        this.logger.logSql(query as string);
-
         for (const callback of Object.values(
             this.transformations[Database.EVENT_ALL] || {},
         )) {
-            query = await callback(query);
+            query = (await callback(query)) ?? query;
         }
         for (const callback of Object.values(
             this.transformations[event] || {},
         )) {
-            query = await callback(query);
+            query = (await callback(query)) ?? query;
         }
         return query;
     }

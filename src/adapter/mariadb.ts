@@ -13,10 +13,76 @@ import {
     TruncateException,
 } from "../errors";
 
-// import * as mysql2 from 'mysql2/promise';
+// import * as mysql2 from "mysql2/promise";
 
 interface MariaDBOptions {
-    connection: any; //mysql2.PoolOptions;
+    connection: {
+        /**
+         * The user to authenticate as.
+         * @default undefined
+         */
+        user?: string;
+
+        /**
+         * The password of the user.
+         * @default undefined
+         */
+        password?: string;
+
+        /**
+         * Name of the database to use for this connection.
+         * @default undefined
+         */
+        database?: string;
+
+        /**
+         * The charset for the connection. This is called 'collation' in the SQL-level of MySQL (like utf8_general_ci).
+         * If a SQL-level charset is specified (like utf8mb4) then the default collation for that charset is used.
+         * @default 'UTF8_GENERAL_CI'
+         */
+        charset?: string;
+
+        /**
+         * The hostname of the database you are connecting to.
+         * @default 'localhost'
+         */
+        host?: string;
+
+        /**
+         * The port number to connect to.
+         * @default 3306
+         */
+        port?: number;
+
+        /**
+         * The source IP address to use for TCP connection.
+         * @default undefined
+         */
+        localAddress?: string;
+
+        /**
+         * The path to a unix domain socket to connect to. When used, host and port are ignored.
+         * @default undefined
+         */
+        socketPath?: string;
+
+        /**
+         * The timezone used to store local dates.
+         * @default 'local'
+         */
+        timezone?: string | "local";
+
+        /**
+         * The milliseconds before a timeout occurs during the initial connection to the MySQL server.
+         * @default 10000
+         */
+        connectTimeout?: number;
+    };
+
+    /**
+     * The maximum length for VARCHAR columns.
+     * @default undefined
+     */
     maxVarCharLimit?: number;
 }
 
@@ -35,17 +101,12 @@ export class MariaDB extends Sql implements Adapter {
     /**
      * MariaDB adapter library
      */
-    library: any; // typeof mysql2;
+    library: any; //typeof mysql2;
 
     /**
      * MariaDB adapter instance
      */
     instance: this | null = null;
-
-    /**
-     * MariaDB adapter options
-     */
-    options: MariaDBOptions;
 
     constructor(options: MariaDBOptions) {
         super();
@@ -69,19 +130,8 @@ export class MariaDB extends Sql implements Adapter {
             throw new InitializeError("MariaDB adapter already initialized");
         // if (!this.options.connection.database)
         //     throw new InitializeError("Database name is required");
-
         try {
-            const pool = this.library.createPool({
-                ...this.options.connection,
-                namedPlaceholders: true,
-            });
-
-            // TODO:
-            // const connection = await pool.getConnection();
-            // await connection.ping();
-            // connection.release();
-
-            this.pool = pool;
+            this.pool = this.createPool(this.options.connection);
             this.instance = this;
         } catch (e) {
             this.logger.error(e);
@@ -89,8 +139,28 @@ export class MariaDB extends Sql implements Adapter {
         }
     }
 
+    private createPool(options: MariaDBOptions["connection"]) {
+        const pool = this.library.createPool({
+            ...options,
+            namedPlaceholders: true,
+            multipleStatements: false,
+        });
+
+        return pool;
+    }
+
     public isInitialized() {
         return this.instance ? true : false;
+    }
+
+    /**
+     * Set the database name
+     */
+    public setDatabase(database: string): void {
+        this.database = database;
+        this.options.database = database;
+        this.options.connection.database = database;
+        this.pool = this.createPool(this.options.connection);
     }
 
     /**
@@ -101,7 +171,7 @@ export class MariaDB extends Sql implements Adapter {
             const connection = await this.pool.getConnection();
             await connection.ping();
             connection.release();
-            this.logger.debug("PING SUCCESS");
+            this.logger.debug("PONG");
         } catch (e) {
             this.logger.error(e);
             throw this.processException(e, "MariaDB adapter ping failed");
@@ -520,10 +590,8 @@ export class MariaDB extends Sql implements Adapter {
         permissionsSql += `)`;
 
         try {
-            const [result] = await this.pool.query<any>(collectionSql);
+            await this.pool.query<any>(collectionSql);
             await this.pool.query<any>(permissionsSql);
-
-            this.logger.log(`COLLECTION (${name}) =>`, result);
             return true;
         } catch (e) {
             this.logger.error(e);
@@ -548,9 +616,7 @@ export class MariaDB extends Sql implements Adapter {
         let sql = `DROP TABLE ${ifExists} ${this.getSqlTable(name)}, ${this.getSqlTable(name + "_perms")}`;
 
         try {
-            const [result] = await this.pool.query<any>(sql);
-
-            this.logger.debug(result);
+            await this.pool.query<any>(sql);
             return true;
         } catch (e) {
             this.logger.error(e);
@@ -593,6 +659,7 @@ export class MariaDB extends Sql implements Adapter {
                     return `TEXT`;
                 }
 
+                // TODO
                 if (
                     this.options.maxVarCharLimit !== undefined &&
                     size > this.options.maxVarCharLimit
@@ -666,8 +733,7 @@ export class MariaDB extends Sql implements Adapter {
         sql = await this.trigger(Database.EVENT_ATTRIBUTE_CREATE, sql);
 
         try {
-            const [result] = await this.pool.query<any>(sql);
-            this.logger.debug(result);
+            await this.pool.query<any>(sql);
             return true;
         } catch (e) {
             this.logger.error(e);
@@ -712,8 +778,7 @@ export class MariaDB extends Sql implements Adapter {
         sql = await this.trigger(Database.EVENT_ATTRIBUTE_UPDATE, sql);
 
         try {
-            const [result] = await this.pool.query<any>(sql);
-            this.logger.debug(result);
+            await this.pool.query<any>(sql);
             return true;
         } catch (e) {
             this.logger.error(e);
@@ -740,8 +805,7 @@ export class MariaDB extends Sql implements Adapter {
         sql = await this.trigger(Database.EVENT_ATTRIBUTE_DELETE, sql);
 
         try {
-            const [result] = await this.pool.query<any>(sql);
-            this.logger.debug(result);
+            await this.pool.query<any>(sql);
             return true;
         } catch (e) {
             this.logger.error(e);
@@ -771,8 +835,7 @@ export class MariaDB extends Sql implements Adapter {
         sql = await this.trigger(Database.EVENT_ATTRIBUTE_UPDATE, sql);
 
         try {
-            const [result] = await this.pool.query<any>(sql);
-            this.logger.debug(result);
+            await this.pool.query<any>(sql);
             return true;
         } catch (e) {
             this.logger.error(e);
@@ -833,9 +896,8 @@ export class MariaDB extends Sql implements Adapter {
         sql = await this.trigger(Database.EVENT_ATTRIBUTE_CREATE, sql);
 
         try {
-            const [result] = await this.pool.query<any>(sql);
+            await this.pool.query<any>(sql);
             if (sql2) await this.pool.query(sql2);
-            this.logger.debug(result);
             return true;
         } catch (e) {
             this.logger.error(e);
@@ -949,9 +1011,8 @@ export class MariaDB extends Sql implements Adapter {
         sql = await this.trigger(Database.EVENT_ATTRIBUTE_UPDATE, sql);
 
         try {
-            const [result] = await this.pool.query<any>(sql);
+            await this.pool.query<any>(sql);
             if (sql2) await this.pool.query(sql2);
-            this.logger.debug(result);
             return true;
         } catch (e) {
             this.logger.error(e);
@@ -1060,9 +1121,8 @@ export class MariaDB extends Sql implements Adapter {
         sql = await this.trigger(Database.EVENT_ATTRIBUTE_DELETE, sql);
 
         try {
-            const [result] = await this.pool.query<any>(sql);
+            await this.pool.query<any>(sql);
             if (sql2) await this.pool.query(sql2);
-            this.logger.debug(result);
             return true;
         } catch (e) {
             this.logger.error(e);
@@ -1092,8 +1152,7 @@ export class MariaDB extends Sql implements Adapter {
         sql = await this.trigger(Database.EVENT_INDEX_RENAME, sql);
 
         try {
-            const [result] = await this.pool.query<any>(sql);
-            this.logger.debug(result);
+            await this.pool.query<any>(sql);
             return true;
         } catch (e) {
             this.logger.error(e);
@@ -1121,24 +1180,67 @@ export class MariaDB extends Sql implements Adapter {
         lengths: number[],
         orders: string[],
     ): Promise<boolean> {
-        const name = this.filter(collection);
+        const _collection = await this.getDocument(
+            Database.METADATA,
+            collection,
+        );
+        if (_collection.isEmpty()) {
+            throw new NotFoundException("Collection not found");
+        }
+
+        const collectionAttributes =
+            typeof _collection.getAttribute("attributes", "[]") === "string"
+                ? JSON.parse(_collection.getAttribute("attributes", "[]"))
+                : _collection.getAttribute("attributes", []);
+
         const indexId = this.filter(id);
 
         let indexAttributes = attributes
             .map((attribute, i) => {
-                let length = lengths[i] ? `(${lengths[i]})` : "";
-                let order = orders[i] ? ` ${orders[i]}` : "";
+                const collectionAttribute = collectionAttributes.find(
+                    (collectionAttribute: any) =>
+                        collectionAttribute.key === attribute,
+                );
 
-                attribute = this.filter(attribute);
-                return `\`${attribute}\`${length}${order}`;
+                const order =
+                    !orders[i] || type === Database.INDEX_FULLTEXT
+                        ? ""
+                        : orders[i];
+                const length = lengths[i] ? `(${lengths[i]})` : "";
+
+                switch (attribute) {
+                    case "$id":
+                        attribute = "_uid";
+                        break;
+                    case "$createdAt":
+                        attribute = "_createdAt";
+                        break;
+                    case "$updatedAt":
+                        attribute = "_updatedAt";
+                        break;
+                    default:
+                        attribute = this.filter(attribute);
+                }
+
+                // Handle array index casting
+                let indexAttribute = `\`${attribute}\`${length} ${order}`;
+                if (
+                    collectionAttribute?.array &&
+                    this.getSupportForCastIndexArray()
+                ) {
+                    indexAttribute = `(CAST(\`${attribute}\` AS char(${Database.ARRAY_INDEX_LENGTH}) ARRAY))`;
+                }
+                return indexAttribute;
             })
             .join(", ");
 
+        // Add tenant column if shared tables are enabled
         if (this.sharedTables && type !== Database.INDEX_FULLTEXT) {
             indexAttributes = `_tenant, ${indexAttributes}`;
         }
 
-        let sqlType;
+        // Determine SQL index type
+        let sqlType: string;
         switch (type) {
             case Database.INDEX_KEY:
                 sqlType = "INDEX";
@@ -1150,15 +1252,15 @@ export class MariaDB extends Sql implements Adapter {
                 sqlType = "FULLTEXT INDEX";
                 break;
             default:
-                throw new DatabaseError("Unknown index type");
+                throw new DatabaseError(
+                    `Unknown index type: ${type}. Must be one of ${Database.INDEX_KEY}, ${Database.INDEX_UNIQUE}, ${Database.INDEX_FULLTEXT}`,
+                );
         }
 
-        let sql = `CREATE ${sqlType} \`${indexId}\` ON ${this.getSqlTable(name)} (${indexAttributes})`;
-        sql = await this.trigger(Database.EVENT_INDEX_CREATE, sql);
+        let sql = `CREATE ${sqlType} \`${indexId}\` ON ${this.getSqlTable(_collection.getId())} (${indexAttributes})`;
 
         try {
-            const [result] = await this.pool.query<any>(sql);
-            this.logger.debug(result);
+            await this.pool.query<any>(sql);
             return true;
         } catch (e) {
             this.logger.error(e);
@@ -1182,8 +1284,7 @@ export class MariaDB extends Sql implements Adapter {
         sql = await this.trigger(Database.EVENT_INDEX_DELETE, sql);
 
         try {
-            const [result] = await this.pool.query<any>(sql);
-            this.logger.debug(result);
+            await this.pool.query<any>(sql);
             return true;
         } catch (e) {
             this.logger.error(e);
@@ -1296,7 +1397,10 @@ export class MariaDB extends Sql implements Adapter {
                 }
             }
 
-            this.logger.debug(result);
+            if ((result.insertId ?? null) === null)
+                throw new DatabaseError(
+                    'Error creating document empty "$internalId"',
+                );
 
             document.set("$internalId", result.insertId);
             return document;
@@ -1431,6 +1535,7 @@ export class MariaDB extends Sql implements Adapter {
                 const doc = await this.getDocument(
                     collection,
                     document.getId(),
+                    [Query.select(["$internalId"])],
                 );
                 document.set("$internalId", doc.getInternalId());
             }
@@ -1865,13 +1970,29 @@ export class MariaDB extends Sql implements Adapter {
         const values: any[] = [];
 
         let sql = `
-          UPDATE ${this.getSqlTable(name)}
-          SET \`${filteredAttribute}\` = \`${filteredAttribute}\` + ?,
-          _updatedAt = ?
-          WHERE _uid = ?
-      `;
+            UPDATE ${this.getSqlTable(name)}
+            SET \`${filteredAttribute}\` = 
+                CASE 
+                    WHEN ? IS NOT NULL AND \`${filteredAttribute}\` + ? > ? THEN ?
+                    WHEN ? IS NOT NULL AND \`${filteredAttribute}\` + ? < ? THEN ?
+                    ELSE \`${filteredAttribute}\` + ?
+                END,
+            _updatedAt = ?
+            WHERE _uid = ?
+        `;
 
-        // Add values in order
+        // Add values for CASE conditions
+        values.push(max); // WHEN max is defined
+        values.push(value);
+        values.push(max);
+        values.push(max); // Enforce max limit
+
+        values.push(min); // WHEN min is defined
+        values.push(value);
+        values.push(min);
+        values.push(min); // Enforce min limit
+
+        // Default increment
         values.push(value);
         values.push(updatedAt);
         values.push(id);
@@ -1879,16 +2000,6 @@ export class MariaDB extends Sql implements Adapter {
         if (this.sharedTables) {
             sql += " AND (_tenant = ? OR _tenant IS NULL)";
             values.push(this.tenantId);
-        }
-
-        // Add min/max conditions if provided
-        if (max !== undefined) {
-            sql += ` AND \`${filteredAttribute}\` <= ?`;
-            values.push(max);
-        }
-        if (min !== undefined) {
-            sql += ` AND \`${filteredAttribute}\` >= ?`;
-            values.push(min);
         }
 
         sql = await this.trigger(Database.EVENT_DOCUMENT_UPDATE, sql);
@@ -2332,14 +2443,27 @@ export class MariaDB extends Sql implements Adapter {
     public async getDocument(
         collection: string,
         uid: string,
+        queries: Query[] = [],
+        forUpdate: boolean = false,
     ): Promise<Document> {
         const name = this.filter(collection);
+        const selections = this.getAttributeSelections(queries);
 
-        let sql = `SELECT * FROM ${this.getSqlTable(name)} WHERE _uid = ?`;
-        sql = await this.trigger(Database.EVENT_DOCUMENT_READ, sql);
+        const sql = `
+            SELECT ${this.getAttributeProjection(selections)}
+            FROM ${this.getSqlTable(name)}
+            WHERE _uid = ?
+            ${this.sharedTables ? "AND (_tenant = ? OR _tenant IS NULL)" : ""}
+            ${forUpdate ? "FOR UPDATE" : ""}
+        `;
+
+        const params: any[] = [uid];
+        if (this.sharedTables) {
+            params.push(this.tenantId);
+        }
 
         try {
-            const [result] = await this.pool.query<any>(sql, [uid]);
+            const [result] = await this.pool.query<any>(sql, params);
             return this.objectToDocument(result[0]);
         } catch (e) {
             this.logger.error(e);
@@ -2349,19 +2473,33 @@ export class MariaDB extends Sql implements Adapter {
 
     /**
      * Get all documents from the specified collection.
-     *
+     * @deprecated - Use find instead.
      * @param collection - The name of the collection.
      * @returns A promise that resolves to an array of documents.
      * @throws {DatabaseError} If the document retrieval fails.
      */
-    public async getDocuments(collection: string): Promise<Document[]> {
+    public async getDocuments(
+        collection: string,
+        queries: Query[] = [],
+        forUpdate: boolean = false,
+    ): Promise<Document[]> {
         const name = this.filter(collection);
+        const selections = this.getAttributeSelections(queries);
 
-        let sql = `SELECT * FROM ${this.getSqlTable(name)}`;
-        sql = await this.trigger(Database.EVENT_DOCUMENT_READ, sql);
+        const sql = `
+            SELECT ${this.getAttributeProjection(selections)}
+            FROM ${this.getSqlTable(name)}
+            ${this.sharedTables ? "WHERE (_tenant = ? OR _tenant IS NULL)" : ""}
+            ${forUpdate ? "FOR UPDATE" : ""};
+        `;
+
+        const params: any[] = [];
+        if (this.sharedTables) {
+            params.push(this.tenantId);
+        }
 
         try {
-            const [result] = await this.pool.query<any>(sql);
+            const [result] = await this.pool.query<any>(sql, params);
             return result.map((doc: any) => this.objectToDocument(doc));
         } catch (e) {
             this.logger.error(e);
@@ -2430,32 +2568,36 @@ export class MariaDB extends Sql implements Adapter {
      * @param obj - The object to be converted.
      * @returns A new Document instance with the mapped properties.
      *
-     * The following properties are mapped:
-     * - `$id` is set to the value of `_uid` or `null` if `_uid` is not present.
-     * - `$internalId` is set to the value of `_id` or `null` if `_id` is not present.
-     * - `$tenant` is set to the value of `_tenant` or `null` if `_tenant` is not present.
-     * - `$createdAt` is set to the value of `_createdAt` or `null` if `_createdAt` is not present.
-     * - `$updatedAt` is set to the value of `_updatedAt` or `null` if `_updatedAt` is not present.
-     * - `$permissions` is set to the parsed JSON value of `_permissions` or an empty array if `_permissions` is not present.
-     *
      * The original properties (`_uid`, `_id`, `_tenant`, `_createdAt`, `_updatedAt`, `_permissions`) are deleted from the object.
      */
     objectToDocument(obj: any): Document {
         if (!obj) return new Document();
-        obj.$id = obj?._uid ?? null;
-        delete obj?._uid;
-        obj.$internalId = obj?._id ?? null;
-        delete obj?._id;
-        obj.$tenant = obj?._tenant ?? null;
-        delete obj?._tenant;
-        obj.$createdAt = obj?._createdAt ?? null;
-        delete obj?._createdAt;
-        obj.$updatedAt = obj?._updatedAt ?? null;
-        delete obj?._updatedAt;
-        obj.$permissions = obj?._permissions
-            ? JSON.parse(obj._permissions)
-            : [];
-        delete obj?._permissions;
+        if (obj.hasOwnProperty("_id")) {
+            obj.$internalId = obj._id;
+            delete obj._id;
+        }
+        if (obj.hasOwnProperty("_uid")) {
+            obj.$id = obj._uid;
+            delete obj._uid;
+        }
+        if (obj.hasOwnProperty("_tenant")) {
+            obj.$tenant = obj._tenant;
+            delete obj._tenant;
+        }
+        if (obj.hasOwnProperty("_createdAt")) {
+            obj.$createdAt = obj._createdAt;
+            delete obj._createdAt;
+        }
+        if (obj.hasOwnProperty("_updatedAt")) {
+            obj.$updatedAt = obj._updatedAt;
+            delete obj._updatedAt;
+        }
+        if (obj.hasOwnProperty("_permissions")) {
+            obj.$permissions = obj._permissions
+                ? JSON.parse(obj._permissions)
+                : [];
+            delete obj._permissions;
+        }
         return new Document(obj);
     }
 
@@ -2574,6 +2716,10 @@ export class MariaDB extends Sql implements Adapter {
         return e;
     }
 
+    public getSupportForCastIndexArray(): boolean {
+        return false;
+    }
+
     public getSupportForIndex(): boolean {
         return true;
     }
@@ -2587,6 +2733,34 @@ export class MariaDB extends Sql implements Adapter {
     }
 
     public getSupportForFulltextWildcardIndex(): boolean {
+        return true;
+    }
+
+    /**
+     * Set max execution time
+     * @param milliseconds - Timeout in milliseconds
+     * @param event - Database event type
+     * @throws DatabaseError
+     */
+    public setTimeout(
+        milliseconds: number,
+        event: string = Database.EVENT_ALL,
+    ): void {
+        if (!this.getSupportForTimeouts()) {
+            return;
+        }
+        if (milliseconds <= 0) {
+            throw new DatabaseError("Timeout must be greater than 0");
+        }
+
+        const seconds = milliseconds / 1000;
+
+        this.before(event, "timeout", (sql: string) => {
+            return `SET STATEMENT max_statement_time = ${seconds} FOR ${sql}`;
+        });
+    }
+
+    public getSupportForTimeouts(): boolean {
         return true;
     }
 

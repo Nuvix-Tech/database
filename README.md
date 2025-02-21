@@ -147,11 +147,3 @@ We welcome contributions! Please follow these steps:
 ## License
 
 This project is licensed under the BSD 3-Clause License. See the [LICENSE](LICENSE) file for details.
-
-## Acknowledgments
-
-Special thanks to all the contributors and the open-source community for making this project possible.
-
----
-
-Happy coding! 🎉

@@ -330,6 +330,6 @@ export abstract class Sql extends DatabaseAdapter {
     }
 
     public getInternalIndexesKeys(): string[] {
-        return ['primary', '_created_at', '_updated_at', '_tenant_id'];
+        return ["primary", "_created_at", "_updated_at", "_tenant_id"];
     }
 }

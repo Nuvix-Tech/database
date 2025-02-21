@@ -40,7 +40,7 @@ export class Logger {
             info: true,
             sql: true,
             useStdout: true,
-            logFilePath: path.join(process.cwd(), "db-logs.txt"),
+            logFilePath: path.join(process.cwd(), "db.log"),
         };
 
         // Handle boolean option (disable all logging)
@@ -114,7 +114,7 @@ export class Logger {
         isError: boolean = false,
     ): void {
         const formattedMessages = this.formatMessages(level, colorFn, messages);
-        this.writeToFile(formattedMessages);
+        this.writeToFile(messages);
         isError
             ? this.writeToStderr(formattedMessages)
             : this.writeToStdout(formattedMessages);
@@ -127,24 +127,31 @@ export class Logger {
     ): string {
         const time = chalk.gray(`[${new Date().toISOString()}]`);
         const prefix = colorFn(`[${level}]`);
-        const formattedContent = messages.map(this.formatMessage).join(" ");
+        const formattedContent = messages.map((m) => this.formatMessage(m)).join(" ");
         return `${prefix} ${time} ${formattedContent}`;
     }
 
-    private formatMessage(message: unknown): string {
+    private formatMessage(message: unknown, _chalk: boolean = true): string | any {
         if (typeof message === "string" || typeof message === "number") {
-            return chalk.yellow(message.toString());
+            return _chalk ? chalk.yellow(message.toString()) : message.toString();
         } else if (message instanceof Error) {
-            return chalk.red(message.stack || message.message);
+            return _chalk ? chalk.red(message.stack || message.message) : message.stack || message.message;
         } else if (typeof message === "object" && message !== null) {
-            return chalk.magenta(JSON.stringify(message, null, 2));
+            return _chalk ? chalk.magenta(JSON.stringify(message, null, 2)) : message;
         }
         return chalk.white(String(message));
     }
 
-    private writeToFile(message: string): void {
+    private writeToFile(messages: unknown[]): void {
         try {
-            fs.appendFileSync(this.logFilePath, message + "\n", "utf8");
+            const logEntries = messages.map((message) => ({
+                timestamp: new Date().toISOString(),
+                message: this.formatMessage(message, false),
+            }));
+            const logContent =
+                logEntries.map((entry) => JSON.stringify(entry)).join("\n") +
+                "\n";
+            fs.appendFileSync(this.logFilePath, logContent, "utf8");
         } catch (err) {
             console.error("Failed to write to log file:", err);
         }

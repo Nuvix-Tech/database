@@ -163,4 +163,20 @@ export default class Role {
     public static member(identifier: string): Role {
         return new Role("member", identifier);
     }
+
+    /**
+     * Create a custom role with the given role name, identifier, and dimension
+     *
+     * @param {string} roleName
+     * @param {string} identifier
+     * @param {string} dimension
+     * @returns {Role}
+     */
+    public static custom(
+        roleName: string,
+        identifier: string = "",
+        dimension: string = "",
+    ): Role {
+        return new Role(roleName, identifier, dimension);
+    }
 }

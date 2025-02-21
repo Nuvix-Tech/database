@@ -24,7 +24,6 @@ import { Logger, LoggerOptions } from "./logger";
 import { Constant } from "./constant";
 import { DateTime } from "./date-time";
 import { Repository } from "./repository";
-import { MigrationGenerator } from "./migrator";
 import { Structure } from "./validator/Structure";
 import { Authorization } from "../security/authorization";
 import { PartialStructure } from "./validator/PartialStructure";
@@ -73,8 +72,15 @@ export class Database extends Constant {
 
     protected instanceFilters: Record<string, Filter> = {};
 
-    protected listeners: Record<string, Record<string, (value: any) => any>> = {
-        "*": [] as any,
+    protected listeners: Record<
+        string,
+        Record<
+            string,
+            | ((event: string, value: any) => any)
+            | ((event: string, value: any) => Promise<any>)
+        >
+    > = {
+        "*": {},
     };
 
     protected silentListeners: Record<string, boolean> | null = {};
@@ -229,7 +235,9 @@ export class Database extends Constant {
     public on(
         event: string,
         name: string,
-        callback: (value: any) => any,
+        callback:
+            | ((event: string, value: any) => any)
+            | ((event: string, value: any) => Promise<any>),
     ): this {
         if (!this.listeners[event]) {
             this.listeners[event] = {};
@@ -250,7 +258,7 @@ export class Database extends Constant {
     public before(
         event: string,
         name: string,
-        callback: (value: any) => any,
+        callback: ((value: any) => any) | ((value: any) => Promise<any>),
     ): this {
         this.adapter.before(event, name, callback);
 
@@ -346,7 +354,7 @@ export class Database extends Constant {
             if (this.silentListeners[name]) {
                 continue;
             }
-            callback(args); // #RM : event:0
+            await callback(event, args);
         }
 
         for (const [name, callback] of Object.entries(
@@ -355,7 +363,7 @@ export class Database extends Constant {
             if (this.silentListeners[name]) {
                 continue;
             }
-            callback(args); // #RM : event:0
+            await callback(event, args);
         }
     }
 
