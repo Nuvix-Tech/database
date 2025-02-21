@@ -1,6 +1,6 @@
 {
   "name": "@nuvix/database",
-  "version": "0.0.8.alpha-2",
+  "version": "0.0.8-alpha.5",
   "description": "A powerful and modern TypeScript database library inspired by cutting-edge technologies and best practices.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
