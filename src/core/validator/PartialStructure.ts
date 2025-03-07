@@ -25,14 +25,12 @@ export class PartialStructure extends Structure {
             return false;
         }
 
-        const structure = document.getArrayCopy();
+        const structure = document.toObject();
         const attributes = [
             ...this.attributes,
             ...this.collection
                 .getAttribute("attributes", [])
-                .map((v: any) =>
-                    v instanceof Document ? v.getArrayCopy() : v,
-                ),
+                .map((v: any) => (v instanceof Document ? v.toObject() : v)),
         ];
 
         for (const attribute of attributes) {

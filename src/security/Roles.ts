@@ -131,16 +131,6 @@ export class Roles {
                 this.message = "Every role must be of type string.";
                 return false;
             }
-            if (role === "*") {
-                this.message =
-                    'Wildcard role "*" has been replaced. Use "any" instead.';
-                return false;
-            }
-            if (role.startsWith("role:")) {
-                this.message =
-                    'Roles using the "role:" prefix have been removed. Use "users", "guests", or "any" instead.';
-                return false;
-            }
 
             const isAllowed = this.allowed.some((allowed) =>
                 role.startsWith(allowed),
@@ -170,28 +160,6 @@ export class Roles {
             }
         }
         return true;
-    }
-
-    /**
-     * Is array
-     *
-     * Function will return true if object is array.
-     *
-     * @returns {boolean}
-     */
-    public isArray(): boolean {
-        return false;
-    }
-
-    /**
-     * Get Type
-     *
-     * Returns validator type.
-     *
-     * @returns {string}
-     */
-    public getType(): string {
-        return "array";
     }
 
     protected isValidRole(

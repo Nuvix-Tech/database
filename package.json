@@ -1,6 +1,6 @@
 {
   "name": "@nuvix/database",
-  "version": "0.0.8-alpha.5",
+  "version": "0.0.9",
   "description": "A powerful and modern TypeScript database library inspired by cutting-edge technologies and best practices.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -30,6 +30,7 @@
   "author": "Ravikant Saini",
   "license": "BSD-3-Clause",
   "devDependencies": {
+    "@nuvix/cache": "^1.0.0",
     "@tsconfig/node16": "^16.1.1",
     "@typescript-eslint/eslint-plugin": "^6.0.0",
     "@typescript-eslint/parser": "^6.0.0",

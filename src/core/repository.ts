@@ -88,7 +88,7 @@ export class Repository<Entity extends { [key: string]: any }> {
                 this.metadata.getId(),
                 new Document(e),
             );
-            Object.assign(e, doc.getArrayCopy());
+            Object.assign(e, doc.toObject());
         }
     }
 

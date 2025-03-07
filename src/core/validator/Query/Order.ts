@@ -10,7 +10,7 @@ export class Order extends Base {
         for (const attribute of attributes) {
             this.schema[
                 attribute.getAttribute("key", attribute.getAttribute("$id"))
-            ] = attribute.getArrayCopy();
+            ] = attribute.toObject();
         }
     }
 

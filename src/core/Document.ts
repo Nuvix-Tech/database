@@ -345,7 +345,7 @@ export class Document<
         return this.has(key);
     }
 
-    public getArrayCopy(
+    public toObject(
         allow: (keyof (IDocument & T))[] = [],
         disallow: (keyof (IDocument & T))[] = [],
     ): Record<string, unknown> {
@@ -355,11 +355,11 @@ export class Document<
             if (disallow.includes(key)) continue;
 
             if (value instanceof Document) {
-                output[key as string] = value.getArrayCopy(allow, disallow);
+                output[key as string] = value.toObject(allow, disallow);
             } else if (Array.isArray(value)) {
                 output[key as string] = value.map((item) =>
                     item instanceof Document
-                        ? item.getArrayCopy(allow, disallow)
+                        ? item.toObject(allow, disallow)
                         : item,
                 );
             } else {
@@ -369,8 +369,15 @@ export class Document<
         return output;
     }
 
+    /**
+     * @deprecated Use toObject instead
+     */
     public toObj() {
-        return this.getArrayCopy();
+        return this.toObject();
+    }
+
+    public toJSON() {
+        return this.toObject();
     }
 
     public clone(): this {

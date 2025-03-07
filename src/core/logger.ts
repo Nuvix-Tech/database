@@ -127,17 +127,28 @@ export class Logger {
     ): string {
         const time = chalk.gray(`[${new Date().toISOString()}]`);
         const prefix = colorFn(`[${level}]`);
-        const formattedContent = messages.map((m) => this.formatMessage(m)).join(" ");
+        const formattedContent = messages
+            .map((m) => this.formatMessage(m))
+            .join(" ");
         return `${prefix} ${time} ${formattedContent}`;
     }
 
-    private formatMessage(message: unknown, _chalk: boolean = true): string | any {
+    private formatMessage(
+        message: unknown,
+        _chalk: boolean = true,
+    ): string | any {
         if (typeof message === "string" || typeof message === "number") {
-            return _chalk ? chalk.yellow(message.toString()) : message.toString();
+            return _chalk
+                ? chalk.yellow(message.toString())
+                : message.toString();
         } else if (message instanceof Error) {
-            return _chalk ? chalk.red(message.stack || message.message) : message.stack || message.message;
+            return _chalk
+                ? chalk.red(message.stack || message.message)
+                : message.stack || message.message;
         } else if (typeof message === "object" && message !== null) {
-            return _chalk ? chalk.magenta(JSON.stringify(message, null, 2)) : message;
+            return _chalk
+                ? chalk.magenta(JSON.stringify(message, null, 2))
+                : message;
         }
         return chalk.white(String(message));
     }

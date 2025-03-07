@@ -19,7 +19,7 @@ import { IndexValidator } from "./validator";
 import { DatabaseError } from "../errors/base";
 import Permission from "../security/Permission";
 import { Permissions } from "../security/Permissions";
-
+import { Cache } from "@nuvix/cache";
 import { Logger, LoggerOptions } from "./logger";
 import { Constant } from "./constant";
 import { DateTime } from "./date-time";
@@ -58,7 +58,7 @@ export class Database extends Constant {
 
     protected options: any;
 
-    protected cache: any;
+    protected cache: Cache;
 
     protected cacheName: string;
 
@@ -113,6 +113,7 @@ export class Database extends Constant {
 
     constructor(
         adapter: Adapter,
+        cache: Cache,
         options: DatabaseOptions = {
             filters: {},
             entities: [],
@@ -124,7 +125,7 @@ export class Database extends Constant {
                 "Adapter Should Initialize before passing to Database.",
             );
         this.adapter = adapter;
-        this.cache = options.cache;
+        this.cache = cache;
         this.instanceFilters = options.filters ?? {};
         this.cacheName = "default";
         this.logger = new Logger(options.logger);
@@ -139,10 +140,10 @@ export class Database extends Constant {
 
                 if (Array.isArray(value)) {
                     value = value.map((item) =>
-                        item instanceof Document ? item.getArrayCopy() : item,
+                        item instanceof Document ? item.toObject() : item,
                     );
                 } else if (value instanceof Document) {
-                    value = value.getArrayCopy();
+                    value = value.toObject();
                 }
 
                 return JSON.stringify(value);
@@ -440,7 +441,7 @@ export class Database extends Constant {
      * @param cache
      * @return this
      */
-    public setCache(cache: any): this {
+    public setCache(cache: Cache): this {
         this.cache = cache;
         return this;
     }
@@ -450,7 +451,7 @@ export class Database extends Constant {
      *
      * @return Cache
      */
-    public getCache(): any {
+    public getCache(): Cache {
         return this.cache;
     }
 
@@ -809,7 +810,7 @@ export class Database extends Constant {
             deleted: deleted,
         });
 
-        // await this.cache.flush();
+        await this.cache.clear();
 
         return deleted;
     }
@@ -1174,7 +1175,7 @@ export class Database extends Constant {
             await this.trigger(Database.EVENT_COLLECTION_DELETE, collection);
         }
 
-        // this.purgeCachedCollection(id);
+        await this.purgeCachedCollection(id);
 
         return deleted;
     }
@@ -1378,8 +1379,8 @@ export class Database extends Constant {
             );
         }
 
-        // this.purgeCachedCollection(col.getId());
-        // this.purgeCachedDocument(Database.METADATA, col.getId());
+        await this.purgeCachedCollection(col.getId());
+        await this.purgeCachedDocument(Database.METADATA, col.getId());
 
         await this.trigger(Database.EVENT_ATTRIBUTE_CREATE, attribute);
 
@@ -3211,16 +3212,16 @@ export class Database extends Constant {
             false,
         );
 
-        // const collectionCacheKey = `${this.cacheName}-cache-${this.getNamespace()}:${this.adapter.getTenant()}:collection:${collection.getId()}`;
-        // let documentCacheKey = `${collectionCacheKey}:${id}`;
-        // let documentCacheHash = documentCacheKey;
+        const collectionCacheKey = `${this.cacheName}-cache-${this.getPerfix()}:${this.adapter.getTenantId()}:collection:${_collection.getId()}`;
+        let documentCacheKey = `${collectionCacheKey}:${id}`;
+        let documentCacheHash = documentCacheKey;
 
         if (selections.length > 0) {
             // documentCacheHash += `:${md5(selections.join(''))}`; // todo: md-5
         }
 
-        // const cache = await this.cache.load(documentCacheKey, Database.TTL, documentCacheHash);
-        const cache = null;
+        const cache = await this.cache.get(documentCacheKey, documentCacheHash);
+
         if (cache) {
             const document = new Document<any>(cache);
 
@@ -3287,22 +3288,32 @@ export class Database extends Constant {
                 relationship.getAttribute("options", {})["twoWay"],
         );
 
-        // for (const [key, value] of Object.entries(this.map)) {
-        //   const [k, v] = key.split('=>');
-        //   const ck = `${this.cacheName}-cache-${this.getNamespace()}:${this.adapter.getTenant()}:map:${k}`;
-        // let cache = await this.cache.load(ck, Database.TTL, ck);
-        // if (!cache) {
-        //   cache = [];
-        // }
-        // if (!cache.includes(v)) {
-        //   cache.push(v);
-        //   await this.cache.save(ck, cache, ck);
-        // }
-        // }
+        for (const [key, value] of Object.entries(this.map)) {
+            const [k, v] = key.split("=>");
+            const ck = `${this.cacheName}-cache-${this.getPerfix()}:${this.adapter.getTenantId()}:map:${k}`;
+            let cache = await this.cache.get<any[]>(ck, ck);
+            if (!cache) {
+                cache = [];
+            }
+            if (!cache.includes(v)) {
+                cache.push(v);
+                await this.cache.set(ck, cache, Database.TTL, ck);
+            }
+        }
 
         if (!hasTwoWayRelationship && relationships.length === 0) {
-            // await this.cache.save(documentCacheKey, document.getArrayCopy(), documentCacheHash);
-            // await this.cache.save(collectionCacheKey, 'empty', documentCacheKey);
+            await this.cache.set(
+                documentCacheKey,
+                document.toObject(),
+                Database.TTL,
+                documentCacheHash,
+            );
+            await this.cache.set(
+                collectionCacheKey,
+                "empty",
+                Database.TTL,
+                documentCacheKey,
+            );
         }
 
         for (const query of queries) {
@@ -4329,8 +4340,8 @@ export class Database extends Constant {
             );
 
             const _document = {
-                ...old.getArrayCopy(),
-                ...document.getArrayCopy(),
+                ...old.toObject(),
+                ...document.toObject(),
             };
             _document["$collection"] = old.getCollection(); // Make sure user doesn't switch collection ID
             _document["$createdAt"] = old.getCreatedAt(); // Make sure user doesn't switch createdAt
@@ -4726,8 +4737,8 @@ export class Database extends Constant {
                 for (const document of affectedDocuments) {
                     if (this.resolveRelationships) {
                         const newDocument = new Document({
-                            ...document.getArrayCopy(),
-                            ...updates.getArrayCopy(),
+                            ...document.toObject(),
+                            ...updates.toObject(),
                         });
                         await this.silent(
                             async () =>
@@ -6389,11 +6400,11 @@ export class Database extends Constant {
      * @return boolean
      */
     public async purgeCachedCollection(collectionId: string): Promise<boolean> {
-        // const collectionKey = `${this.cacheName}-cache-${this.getNamespace()}:${this.adapter.getTenant()}:collection:${collectionId}`;
-        // const documentKeys = this.cache.list(collectionKey);
-        // for (const documentKey of documentKeys) {
-        //   this.cache.purge(documentKey);
-        // }
+        const collectionKey = `${this.cacheName}-cache-${this.getPerfix()}:${this.adapter.getTenantId()}:collection:${collectionId}`;
+        const documentKeys = await this.cache.keys(collectionKey);
+        for (const documentKey of documentKeys) {
+            this.cache.delete(documentKey);
+        }
 
         return true;
     }
@@ -6411,11 +6422,11 @@ export class Database extends Constant {
         collectionId: string,
         id: string,
     ): Promise<boolean> {
-        // const collectionKey = `${this.cacheName}-cache-${this.getNamespace()}:${this.adapter.getTenantId()}:collection:${collectionId}`;
-        // const documentKey = `${collectionKey}:${id}`;
+        const collectionKey = `${this.cacheName}-cache-${this.getPerfix()}:${this.adapter.getTenantId()}:collection:${collectionId}`;
+        const documentKey = `${collectionKey}:${id}`;
 
-        // this.cache.purge(collectionKey, documentKey);
-        // this.cache.purge(documentKey);
+        this.cache.delete(collectionKey, documentKey);
+        this.cache.delete(documentKey);
 
         return true;
     }
@@ -6516,7 +6527,7 @@ export class Database extends Constant {
         }
 
         cursor = cursor
-            ? (await this.encode(_collection, cursor)).getArrayCopy()
+            ? (await this.encode(_collection, cursor)).toObject()
             : [];
 
         queries = [
@@ -7272,15 +7283,15 @@ export class Database extends Constant {
             return;
         }
 
-        // const key = `${this.cacheName}-cache-${this.getNamespace()}:map:${collection.getId()}:${id}`;
-        // const cache = this.cache.load(key, Database.TTL, key);
-        // if (cache.length > 0) {
-        //   for (const v of cache) {
-        //     const [collectionId, documentId] = v.split(':');
-        //     this.purgeCachedDocument(collectionId, documentId);
-        //   }
-        //   this.cache.purge(key);
-        // }
+        const key = `${this.cacheName}-cache-${this.getPerfix()}:map:${collection.getId()}:${id}`;
+        const cache = await this.cache.get<string>(key, key);
+        if ((cache?.length ?? 0) > 0) {
+            for (const v of cache!) {
+                const [collectionId, documentId] = v.split(":");
+                await this.purgeCachedDocument(collectionId, documentId);
+            }
+            await this.cache.delete(key);
+        }
         return;
     }
 

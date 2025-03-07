@@ -103,26 +103,4 @@ export class Permissions extends Roles {
         }
         return true;
     }
-
-    /**
-     * Is array
-     *
-     * Function will return true if object is array.
-     *
-     * @returns {boolean}
-     */
-    public isArray(): boolean {
-        return false;
-    }
-
-    /**
-     * Get Type
-     *
-     * Returns validator type.
-     *
-     * @returns {string}
-     */
-    public getType(): string {
-        return "array"; // Assuming you want to return a string representation of the type
-    }
 }
