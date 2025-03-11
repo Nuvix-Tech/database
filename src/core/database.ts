@@ -15,6 +15,7 @@ import { ID } from "./ID";
 import { Query } from "./query";
 import Role from "../security/Role";
 import { Filter } from "./types/filter";
+import crypto from "crypto";
 import { IndexValidator } from "./validator";
 import { DatabaseError } from "../errors/base";
 import Permission from "../security/Permission";
@@ -190,7 +191,7 @@ export class Database extends Constant {
         });
 
         Database.addFilter("datetime", {
-            encode: (value: any): string | null => {
+            encode: (value: string | Date | number): string | null => {
                 if (!value) return null;
 
                 try {
@@ -3217,7 +3218,7 @@ export class Database extends Constant {
         let documentCacheHash = documentCacheKey;
 
         if (selections.length > 0) {
-            // documentCacheHash += `:${md5(selections.join(''))}`; // todo: md-5
+            documentCacheHash += `:${crypto.createHash("md5").update(selections.join("")).digest("hex")}`;
         }
 
         const cache = await this.cache.get(documentCacheKey, documentCacheHash);
@@ -6400,10 +6401,10 @@ export class Database extends Constant {
      * @return boolean
      */
     public async purgeCachedCollection(collectionId: string): Promise<boolean> {
-        const collectionKey = `${this.cacheName}-cache-${this.getPerfix()}:${this.adapter.getTenantId()}:collection:${collectionId}`;
+        const collectionKey = `${this.cacheName}-cache-${this.getPerfix()}:${this.adapter.getTenantId()}:collection:${collectionId}*`;
         const documentKeys = await this.cache.keys(collectionKey);
         for (const documentKey of documentKeys) {
-            this.cache.delete(documentKey);
+            await this.cache.delete(documentKey);
         }
 
         return true;
@@ -6425,8 +6426,8 @@ export class Database extends Constant {
         const collectionKey = `${this.cacheName}-cache-${this.getPerfix()}:${this.adapter.getTenantId()}:collection:${collectionId}`;
         const documentKey = `${collectionKey}:${id}`;
 
-        this.cache.delete(collectionKey, documentKey);
-        this.cache.delete(documentKey);
+        await this.cache.delete(collectionKey, documentKey);
+        await this.cache.delete(documentKey);
 
         return true;
     }
