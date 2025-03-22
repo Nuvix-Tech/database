@@ -128,9 +128,7 @@ export class Authorization {
     public static getStatus(): boolean {
         if (this.useStorage) {
             const store = storage.getStore();
-            return store
-                ? (store.get("status") ?? this.statusDefault)
-                : this.statusDefault;
+            return store ? store.get("status") : false;
         }
         return this.statusDefault;
     }
