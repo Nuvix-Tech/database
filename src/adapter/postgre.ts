@@ -37,6 +37,18 @@ export class PostgreDB extends Sql implements Adapter {
                 : new Pool(this.options.connection);
     }
 
+    isInitialized(): boolean {
+        return this.instance !== null;
+    }
+
+    // TODO: Implement this method
+    async init(): Promise<void> {
+        if (this.instance) {
+            return;
+        }
+        this.instance = this;
+    }
+
     ping(): Promise<void> {
         return new Promise((resolve, reject) => {
             this.pool.query("SELECT 1", (err) => {
@@ -753,17 +765,11 @@ export class PostgreDB extends Sql implements Adapter {
     getMinDateTime(): Date {
         throw new Error("Method not implemented.");
     }
-    isInitialized(): boolean {
-        throw new Error("Method not implemented.");
-    }
 
     public getSQLCondition(query: Query): string {
         throw new Error("Method not implemented.");
     }
     public setTimeout(milliseconds: number, event: string): void {
-        throw new Error("Method not implemented.");
-    }
-    init(): Promise<void> {
         throw new Error("Method not implemented.");
     }
 

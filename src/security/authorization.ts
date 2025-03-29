@@ -67,6 +67,7 @@ export class Authorization {
                 store.set("roles", roles);
                 return;
             }
+            this.roles[role] = true;
         }
         this.roles[role] = true;
     }
@@ -80,6 +81,7 @@ export class Authorization {
                 store.set("roles", roles);
                 return;
             }
+            delete this.roles[role];
         }
         delete this.roles[role];
     }
@@ -87,7 +89,9 @@ export class Authorization {
     public static getRoles(): string[] {
         if (this.useStorage) {
             const store = storage.getStore();
-            return store ? Object.keys(store.get("roles") || {}) : [];
+            return store
+                ? Object.keys(store.get("roles") || {})
+                : Object.keys(this.roles);
         }
         return Object.keys(this.roles);
     }
@@ -99,6 +103,7 @@ export class Authorization {
                 store.set("roles", {});
                 return;
             }
+            this.roles = {};
         }
         this.roles = {};
     }
@@ -121,6 +126,7 @@ export class Authorization {
                 store.set("status", status);
                 return;
             }
+            this.statusDefault = status;
         }
         this.statusDefault = status;
     }
@@ -128,7 +134,7 @@ export class Authorization {
     public static getStatus(): boolean {
         if (this.useStorage) {
             const store = storage.getStore();
-            return store ? store.get("status") : false;
+            return store?.get("status") ?? false;
         }
         return this.statusDefault;
     }
