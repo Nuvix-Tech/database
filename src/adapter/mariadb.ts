@@ -13,71 +13,10 @@ import {
     TruncateException,
 } from "../errors";
 
-// import * as mysql2 from "mysql2/promise";
+import * as mysql2 from "mysql2/promise";
 
 interface MariaDBOptions {
-    connection: {
-        /**
-         * The user to authenticate as.
-         * @default undefined
-         */
-        user?: string;
-
-        /**
-         * The password of the user.
-         * @default undefined
-         */
-        password?: string;
-
-        /**
-         * Name of the database to use for this connection.
-         * @default undefined
-         */
-        database?: string;
-
-        /**
-         * The charset for the connection. This is called 'collation' in the SQL-level of MySQL (like utf8_general_ci).
-         * If a SQL-level charset is specified (like utf8mb4) then the default collation for that charset is used.
-         * @default 'UTF8_GENERAL_CI'
-         */
-        charset?: string;
-
-        /**
-         * The hostname of the database you are connecting to.
-         * @default 'localhost'
-         */
-        host?: string;
-
-        /**
-         * The port number to connect to.
-         * @default 3306
-         */
-        port?: number;
-
-        /**
-         * The source IP address to use for TCP connection.
-         * @default undefined
-         */
-        localAddress?: string;
-
-        /**
-         * The path to a unix domain socket to connect to. When used, host and port are ignored.
-         * @default undefined
-         */
-        socketPath?: string;
-
-        /**
-         * The timezone used to store local dates.
-         * @default 'local'
-         */
-        timezone?: string | "local";
-
-        /**
-         * The milliseconds before a timeout occurs during the initial connection to the MySQL server.
-         * @default 10000
-         */
-        connectTimeout?: number;
-    };
+    connection: mysql2.PoolOptions;
 
     /**
      * The maximum length for VARCHAR columns.
@@ -95,13 +34,12 @@ export class MariaDB extends Sql implements Adapter {
     /**
      * MariaDB pool / connection
      */
-    // @ts-ignore
-    pool: Pool;
+    pool: mysql2.Pool;
 
     /**
      * MariaDB adapter library
      */
-    library: any; //typeof mysql2;
+    library: typeof mysql2;
 
     /**
      * MariaDB adapter instance

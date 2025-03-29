@@ -6,6 +6,7 @@ export * from "./decorator/Index";
 
 export * from "./adapter/mariadb";
 export * from "./adapter/mysql";
+export * from "./adapter/postgre";
 
 export { default as Permission } from "./security/Permission";
 export { default as Role } from "./security/Role";
