@@ -5,7 +5,7 @@ import { Sql } from "./sql";
 import { Pool, PoolClient, PoolConfig } from "pg";
 import Transaction from "@/errors/Transaction";
 import { Database } from "@/core/database";
-import { DuplicateException } from "@/errors";
+import { DatabaseError, DuplicateException } from "@/errors";
 
 interface PostgreDBOptions {
     connection: PoolConfig | Pool;
@@ -168,7 +168,8 @@ export class PostgreDB extends Sql implements Adapter {
     }
 
     use(name: string): Promise<boolean> {
-        throw new Error("Method not implemented.");
+        // noop
+        return Promise.resolve(true);
     }
 
     /**
@@ -190,7 +191,7 @@ export class PostgreDB extends Sql implements Adapter {
             await this.pool.query(triggeredSql);
             return true;
         } catch (e: any) {
-            throw new Error(`Failed to drop schema: ${e.message}`);
+            throw new DatabaseError(`Failed to drop schema: ${e.message}`);
         }
     }
 
@@ -536,17 +537,60 @@ export class PostgreDB extends Sql implements Adapter {
         }
     }
 
-    createRelationship(
+    async createRelationship(
         collection: string,
         relatedCollection: string,
         type: string,
-        twoWay?: boolean,
-        id?: string,
-        twoWayKey?: string,
+        twoWay: boolean = false,
+        id: string = "",
+        twoWayKey: string = "",
     ): Promise<boolean> {
-        throw new Error("Method not implemented.");
+        const name = this.filter(collection);
+        const relatedName = this.filter(relatedCollection);
+        const table = this.getSQLTable(name);
+        const relatedTable = this.getSQLTable(relatedName);
+        const filteredId = this.filter(id);
+        const filteredTwoWayKey = this.filter(twoWayKey);
+        const sqlType = this.getSQLType(
+            Database.VAR_RELATIONSHIP,
+            0,
+            false,
+            false,
+        );
+
+        let sql = "";
+
+        switch (type) {
+            case Database.RELATION_ONE_TO_ONE:
+                sql = `ALTER TABLE ${table} ADD COLUMN "${filteredId}" ${sqlType} DEFAULT NULL;`;
+
+                if (twoWay) {
+                    sql += `ALTER TABLE ${relatedTable} ADD COLUMN "${filteredTwoWayKey}" ${sqlType} DEFAULT NULL;`;
+                }
+                break;
+            case Database.RELATION_ONE_TO_MANY:
+                sql = `ALTER TABLE ${relatedTable} ADD COLUMN "${filteredTwoWayKey}" ${sqlType} DEFAULT NULL;`;
+                break;
+            case Database.RELATION_MANY_TO_ONE:
+                sql = `ALTER TABLE ${table} ADD COLUMN "${filteredId}" ${sqlType} DEFAULT NULL;`;
+                break;
+            case Database.RELATION_MANY_TO_MANY:
+                return true;
+            default:
+                throw new DatabaseError("Invalid relationship type");
+        }
+
+        sql = await this.trigger(Database.EVENT_ATTRIBUTE_CREATE, sql);
+
+        try {
+            await this.pool.query(sql);
+            return true;
+        } catch (e: any) {
+            throw this.processException(e);
+        }
     }
-    updateRelationship(
+
+    async updateRelationship(
         collection: string,
         relatedCollection: string,
         type: string,
@@ -557,9 +601,97 @@ export class PostgreDB extends Sql implements Adapter {
         newKey?: string,
         newTwoWayKey?: string,
     ): Promise<boolean> {
-        throw new Error("Method not implemented.");
+        const name = this.filter(collection);
+        const relatedName = this.filter(relatedCollection);
+        const table = this.getSQLTable(name);
+        const relatedTable = this.getSQLTable(relatedName);
+        const filteredKey = this.filter(key);
+        const filteredTwoWayKey = this.filter(twoWayKey);
+
+        const filteredNewKey = newKey ? this.filter(newKey) : null;
+        const filteredNewTwoWayKey = newTwoWayKey
+            ? this.filter(newTwoWayKey)
+            : null;
+
+        let sql = "";
+
+        switch (type) {
+            case Database.RELATION_ONE_TO_ONE:
+                if (filteredKey !== filteredNewKey) {
+                    sql = `ALTER TABLE ${table} RENAME COLUMN "${filteredKey}" TO "${filteredNewKey}";`;
+                }
+                if (twoWay && filteredTwoWayKey !== filteredNewTwoWayKey) {
+                    sql += `ALTER TABLE ${relatedTable} RENAME COLUMN "${filteredTwoWayKey}" TO "${filteredNewTwoWayKey}";`;
+                }
+                break;
+            case Database.RELATION_ONE_TO_MANY:
+                if (side === Database.RELATION_SIDE_PARENT) {
+                    if (filteredTwoWayKey !== filteredNewTwoWayKey) {
+                        sql = `ALTER TABLE ${relatedTable} RENAME COLUMN "${filteredTwoWayKey}" TO "${filteredNewTwoWayKey}";`;
+                    }
+                } else {
+                    if (filteredKey !== filteredNewKey) {
+                        sql = `ALTER TABLE ${table} RENAME COLUMN "${filteredKey}" TO "${filteredNewKey}";`;
+                    }
+                }
+                break;
+            case Database.RELATION_MANY_TO_ONE:
+                if (side === Database.RELATION_SIDE_CHILD) {
+                    if (filteredTwoWayKey !== filteredNewTwoWayKey) {
+                        sql = `ALTER TABLE ${relatedTable} RENAME COLUMN "${filteredTwoWayKey}" TO "${filteredNewTwoWayKey}";`;
+                    }
+                } else {
+                    if (filteredKey !== filteredNewKey) {
+                        sql = `ALTER TABLE ${table} RENAME COLUMN "${filteredKey}" TO "${filteredNewKey}";`;
+                    }
+                }
+                break;
+            case Database.RELATION_MANY_TO_MANY:
+                try {
+                    const collectionDoc = await this.getDocument(
+                        Database.METADATA,
+                        collection,
+                    );
+                    const relatedCollectionDoc = await this.getDocument(
+                        Database.METADATA,
+                        relatedCollection,
+                    );
+
+                    const junction = this.getSQLTable(
+                        "_" +
+                            collectionDoc.getInternalId() +
+                            "_" +
+                            relatedCollectionDoc.getInternalId(),
+                    );
+
+                    if (filteredNewKey) {
+                        sql = `ALTER TABLE ${junction} RENAME COLUMN "${filteredKey}" TO "${filteredNewKey}";`;
+                    }
+                    if (twoWay && filteredNewTwoWayKey) {
+                        sql += `ALTER TABLE ${junction} RENAME COLUMN "${filteredTwoWayKey}" TO "${filteredNewTwoWayKey}";`;
+                    }
+                } catch (e) {
+                    throw this.processException(e);
+                }
+                break;
+            default:
+                throw new DatabaseError("Invalid relationship type");
+        }
+
+        if (!sql) {
+            return true;
+        }
+
+        try {
+            sql = await this.trigger(Database.EVENT_ATTRIBUTE_UPDATE, sql);
+            await this.pool.query(sql);
+            return true;
+        } catch (e) {
+            throw this.processException(e);
+        }
     }
-    deleteRelationship(
+
+    async deleteRelationship(
         collection: string,
         relatedCollection: string,
         type: string,
@@ -568,14 +700,102 @@ export class PostgreDB extends Sql implements Adapter {
         twoWayKey: string,
         side: string,
     ): Promise<boolean> {
-        throw new Error("Method not implemented.");
-    }
-    renameIndex(
-        collection: string,
-        oldName: string,
-        newName: string,
-    ): Promise<boolean> {
-        throw new Error("Method not implemented.");
+        const name = this.filter(collection);
+        const relatedName = this.filter(relatedCollection);
+        const table = this.getSQLTable(name);
+        const relatedTable = this.getSQLTable(relatedName);
+        const filteredKey = this.filter(key);
+        const filteredTwoWayKey = this.filter(twoWayKey);
+
+        let sql = "";
+
+        try {
+            switch (type) {
+                case Database.RELATION_ONE_TO_ONE:
+                    if (side === Database.RELATION_SIDE_PARENT) {
+                        sql = `ALTER TABLE ${table} DROP COLUMN "${filteredKey}";`;
+                        if (twoWay) {
+                            sql += `ALTER TABLE ${relatedTable} DROP COLUMN "${filteredTwoWayKey}";`;
+                        }
+                    } else if (side === Database.RELATION_SIDE_CHILD) {
+                        sql = `ALTER TABLE ${relatedTable} DROP COLUMN "${filteredTwoWayKey}";`;
+                        if (twoWay) {
+                            sql += `ALTER TABLE ${table} DROP COLUMN "${filteredKey}";`;
+                        }
+                    }
+                    break;
+                case Database.RELATION_ONE_TO_MANY:
+                    if (side === Database.RELATION_SIDE_PARENT) {
+                        sql = `ALTER TABLE ${relatedTable} DROP COLUMN "${filteredTwoWayKey}";`;
+                    } else {
+                        sql = `ALTER TABLE ${table} DROP COLUMN "${filteredKey}";`;
+                    }
+                    break;
+                case Database.RELATION_MANY_TO_ONE:
+                    if (side === Database.RELATION_SIDE_CHILD) {
+                        sql = `ALTER TABLE ${relatedTable} DROP COLUMN "${filteredTwoWayKey}";`;
+                    } else {
+                        sql = `ALTER TABLE ${table} DROP COLUMN "${filteredKey}";`;
+                    }
+                    break;
+                case Database.RELATION_MANY_TO_MANY:
+                    const collectionDoc = await this.getDocument(
+                        Database.METADATA,
+                        collection,
+                    );
+                    const relatedCollectionDoc = await this.getDocument(
+                        Database.METADATA,
+                        relatedCollection,
+                    );
+
+                    const junction =
+                        side === Database.RELATION_SIDE_PARENT
+                            ? this.getSQLTable(
+                                  "_" +
+                                      collectionDoc.getInternalId() +
+                                      "_" +
+                                      relatedCollectionDoc.getInternalId(),
+                              )
+                            : this.getSQLTable(
+                                  "_" +
+                                      relatedCollectionDoc.getInternalId() +
+                                      "_" +
+                                      collectionDoc.getInternalId(),
+                              );
+
+                    const perms =
+                        side === Database.RELATION_SIDE_PARENT
+                            ? this.getSQLTable(
+                                  "_" +
+                                      collectionDoc.getInternalId() +
+                                      "_" +
+                                      relatedCollectionDoc.getInternalId() +
+                                      "_perms",
+                              )
+                            : this.getSQLTable(
+                                  "_" +
+                                      relatedCollectionDoc.getInternalId() +
+                                      "_" +
+                                      collectionDoc.getInternalId() +
+                                      "_perms",
+                              );
+
+                    sql = `DROP TABLE ${junction}; DROP TABLE ${perms}`;
+                    break;
+                default:
+                    throw new DatabaseError("Invalid relationship type");
+            }
+
+            if (!sql) {
+                return true;
+            }
+
+            sql = await this.trigger(Database.EVENT_ATTRIBUTE_DELETE, sql);
+            await this.pool.query(sql);
+            return true;
+        } catch (e: any) {
+            throw this.processException(e);
+        }
     }
 
     async createIndex(
@@ -630,7 +850,7 @@ export class PostgreDB extends Sql implements Adapter {
                 sqlType = "UNIQUE INDEX";
                 break;
             default:
-                throw new Error(
+                throw new DatabaseError(
                     `Unknown index type: ${type}. Must be one of ${Database.INDEX_KEY}, ${Database.INDEX_UNIQUE}, ${Database.INDEX_FULLTEXT}`,
                 );
         }
@@ -655,33 +875,798 @@ export class PostgreDB extends Sql implements Adapter {
         }
     }
 
-    deleteIndex(collection: string, id: string): Promise<boolean> {
-        throw new Error("Method not implemented.");
+    async deleteIndex(collection: string, id: string): Promise<boolean> {
+        const name = this.filter(collection);
+        const indexId = this.filter(id);
+        const schemaName = this.database;
+
+        const prefix = this.getPrefix();
+        const key = `"${prefix}_${this.getTenantId()}_${name}_${indexId}"`;
+
+        let sql = `DROP INDEX IF EXISTS "${schemaName}".${key}`;
+        sql = await this.trigger(Database.EVENT_INDEX_DELETE, sql);
+
+        try {
+            await this.pool.query(sql);
+            return true;
+        } catch (e: any) {
+            throw this.processException(e);
+        }
     }
-    createDocument(collection: string, document: Document): Promise<Document> {
-        throw new Error("Method not implemented.");
+
+    async renameIndex(
+        collection: string,
+        oldName: string,
+        newName: string,
+    ): Promise<boolean> {
+        const filteredCollection = this.filter(collection);
+        const filteredOldName = this.filter(oldName);
+        const filteredNewName = this.filter(newName);
+        const prefix = this.getPrefix();
+        const schemaName = this.database;
+
+        const oldIndexName = `"${prefix}_${this.getTenantId()}_${filteredCollection}_${filteredOldName}"`;
+        const newIndexName = `"${prefix}_${this.getTenantId()}_${filteredCollection}_${filteredNewName}"`;
+
+        let sql = `ALTER INDEX "${schemaName}".${oldIndexName} RENAME TO ${newIndexName}`;
+        sql = await this.trigger(Database.EVENT_INDEX_RENAME, sql);
+
+        try {
+            await this.pool.query(sql);
+            return true;
+        } catch (e: any) {
+            throw this.processException(e);
+        }
     }
-    createDocuments(
+
+    async createDocument(
+        collection: string,
+        document: Document,
+    ): Promise<Document> {
+        const attributes = document.getAttributes();
+        attributes["_createdAt"] = document.getCreatedAt();
+        attributes["_updatedAt"] = document.getUpdatedAt();
+        attributes["_permissions"] = JSON.stringify(document.getPermissions());
+
+        if (this.sharedTables) {
+            attributes["_tenant"] = document.getAttribute(
+                "_tenant",
+                document.getAttribute("$tenant"),
+            );
+        }
+
+        const name = this.filter(collection);
+        let columns: string[] = [];
+        let placeholders: string[] = [];
+        let values: any[] = [];
+
+        // Insert internal id if set
+        if (document.getInternalId()) {
+            columns.push('"_id"');
+            placeholders.push("$" + (values.length + 1));
+            values.push(document.getInternalId());
+        }
+
+        // Add _uid
+        columns.push('"_uid"');
+        placeholders.push("$" + (values.length + 1));
+        values.push(document.getId());
+
+        // Add all attributes
+        for (const [attribute, value] of Object.entries(attributes)) {
+            const column = this.filter(attribute);
+            columns.push(`"${column}"`);
+            placeholders.push("$" + (values.length + 1));
+
+            // Handle array/object values
+            if (typeof value === "object" && value !== null) {
+                values.push(JSON.stringify(value));
+            } else if (typeof value === "boolean") {
+                values.push(value ? "true" : "false");
+            } else {
+                values.push(value);
+            }
+        }
+
+        let sql = `
+            INSERT INTO ${this.getSQLTable(name)} (${columns.join(", ")})
+            VALUES (${placeholders.join(", ")})
+            RETURNING _id
+        `;
+
+        sql = await this.trigger(Database.EVENT_DOCUMENT_CREATE, sql);
+
+        // Prepare permissions if any exist
+        const permissions: string[] = [];
+        const permissionValues: any[] = [];
+        let permissionPlaceholderIndex = 1;
+
+        for (const type of Object.values(Database.PERMISSIONS)) {
+            for (const permission of document.getPermissionsByType(type)) {
+                const cleanPermission = permission.replace(/"/g, "");
+
+                let placeholders = [
+                    `$${permissionPlaceholderIndex++}`, // type
+                    `$${permissionPlaceholderIndex++}`, // permission
+                    `$${permissionPlaceholderIndex++}`, // document id
+                ];
+
+                permissionValues.push(type, cleanPermission, document.getId());
+
+                if (this.sharedTables) {
+                    placeholders.push(`$${permissionPlaceholderIndex++}`);
+                    permissionValues.push(
+                        document.getAttribute(
+                            "_tenant",
+                            document.getAttribute("$tenant"),
+                        ),
+                    );
+                }
+
+                permissions.push(`(${placeholders.join(", ")})`);
+            }
+        }
+
+        try {
+            // Execute document insertion
+            const result = await this.pool.query(sql, values);
+            document.setAttribute("$internalId", result.rows[0]._id);
+
+            // Execute permissions insertion if needed
+            if (permissions.length > 0) {
+                const sqlTenant = this.sharedTables ? ", _tenant" : "";
+
+                const queryPermissions = `
+                    INSERT INTO ${this.getSQLTable(name + "_perms")} (_type, _permission, _document${sqlTenant})
+                    VALUES ${permissions.join(", ")}
+                `;
+
+                const triggeredPermissionsQuery = await this.trigger(
+                    Database.EVENT_PERMISSIONS_CREATE,
+                    queryPermissions,
+                );
+
+                await this.pool.query(
+                    triggeredPermissionsQuery,
+                    permissionValues,
+                );
+            }
+
+            return document;
+        } catch (e: any) {
+            throw this.processException(e);
+        }
+    }
+
+    async createDocuments(
         collection: string,
         documents: Document[],
-        batchSize?: number,
+        batchSize: number = 500,
     ): Promise<Document[]> {
-        throw new Error("Method not implemented.");
+        if (documents.length === 0) {
+            return documents;
+        }
+
+        try {
+            // Process in batches if needed
+            if (documents.length > batchSize) {
+                const results: Document[] = [];
+                for (let i = 0; i < documents.length; i += batchSize) {
+                    const batch = documents.slice(i, i + batchSize);
+                    const batchResults = await this.createDocuments(
+                        collection,
+                        batch,
+                        batchSize,
+                    );
+                    results.push(...batchResults);
+                }
+                return results;
+            }
+
+            const name = this.filter(collection);
+            const attributeKeys = new Set([
+                "_uid",
+                "_createdAt",
+                "_updatedAt",
+                "_permissions",
+            ]);
+
+            // Check internal ID consistency
+            let hasInternalId: boolean | null = null;
+            for (const document of documents) {
+                Object.keys(document.getAttributes()).forEach((key) =>
+                    attributeKeys.add(key),
+                );
+
+                if (hasInternalId === null) {
+                    hasInternalId = !!document.getInternalId();
+                } else if (hasInternalId !== !!document.getInternalId()) {
+                    throw new DatabaseError(
+                        "All documents must have an internalId if one is set",
+                    );
+                }
+            }
+
+            if (this.sharedTables) {
+                attributeKeys.add("_tenant");
+            }
+
+            if (hasInternalId) {
+                attributeKeys.add("_id");
+            }
+
+            const attributeArray = Array.from(attributeKeys);
+            const columns = attributeArray.map(
+                (attr) => `"${this.filter(attr)}"`,
+            );
+
+            const placeholders: string[] = [];
+            const values: any[] = [];
+            const permissionValues: any[] = [];
+            let permissionPlaceholderIndex = 1;
+            const permissionStatements: string[] = [];
+            const internalIds: Record<string, boolean> = {};
+
+            // Prepare document data
+            for (const document of documents) {
+                const docPlaceholders: string[] = [];
+                const attributes: Record<string, any> = {
+                    ...document.getAttributes(),
+                };
+
+                // Add standard fields
+                attributes["_uid"] = document.getId();
+                attributes["_createdAt"] = document.getCreatedAt();
+                attributes["_updatedAt"] = document.getUpdatedAt();
+                attributes["_permissions"] = JSON.stringify(
+                    document.getPermissions(),
+                );
+
+                if (document.getInternalId()) {
+                    internalIds[document.getId()] = true;
+                    attributes["_id"] = document.getInternalId();
+                }
+
+                if (this.sharedTables) {
+                    attributes["_tenant"] = document.getAttribute(
+                        "_tenant",
+                        document.getAttribute("$tenant"),
+                    );
+                }
+
+                // Prepare placeholders and values
+                for (const key of attributeArray) {
+                    let value = attributes[key] ?? null;
+
+                    if (typeof value === "object" && value !== null) {
+                        value = JSON.stringify(value);
+                    } else if (typeof value === "boolean") {
+                        value = value ? "true" : "false";
+                    }
+
+                    docPlaceholders.push(`$${values.length + 1}`);
+                    values.push(value);
+                }
+
+                placeholders.push(`(${docPlaceholders.join(", ")})`);
+
+                // Prepare permissions data
+                for (const type of Object.values(Database.PERMISSIONS)) {
+                    for (const permission of document.getPermissionsByType(
+                        type,
+                    )) {
+                        const cleanPermission = permission.replace(/"/g, "");
+
+                        let permPlaceholders = [
+                            `$${permissionPlaceholderIndex++}`, // type
+                            `$${permissionPlaceholderIndex++}`, // permission
+                            `$${permissionPlaceholderIndex++}`, // document id
+                        ];
+
+                        permissionValues.push(
+                            type,
+                            cleanPermission,
+                            document.getId(),
+                        );
+
+                        if (this.sharedTables) {
+                            permPlaceholders.push(
+                                `$${permissionPlaceholderIndex++}`,
+                            );
+                            permissionValues.push(
+                                document.getAttribute(
+                                    "_tenant",
+                                    document.getAttribute("$tenant"),
+                                ),
+                            );
+                        }
+
+                        permissionStatements.push(
+                            `(${permPlaceholders.join(", ")})`,
+                        );
+                    }
+                }
+            }
+
+            // Execute document insert
+            let sql = `
+                INSERT INTO ${this.getSQLTable(name)} (${columns.join(", ")})
+                VALUES ${placeholders.join(", ")}
+                RETURNING _id, _uid
+            `;
+
+            sql = await this.trigger(Database.EVENT_DOCUMENT_CREATE, sql);
+            const result = await this.pool.query(sql, values);
+
+            // Update documents with their internal IDs
+            const idMap = new Map<string, number>();
+            for (const row of result.rows) {
+                idMap.set(row._uid, row._id);
+            }
+
+            for (const document of documents) {
+                if (!internalIds[document.getId()]) {
+                    const internalId = idMap.get(document.getId());
+                    if (internalId) {
+                        document.setAttribute("$internalId", internalId);
+                    }
+                }
+            }
+
+            // Insert permissions if any exist
+            if (permissionStatements.length > 0) {
+                const sqlTenant = this.sharedTables ? ", _tenant" : "";
+
+                const permSql = `
+                    INSERT INTO ${this.getSQLTable(name + "_perms")} (_type, _permission, _document${sqlTenant})
+                    VALUES ${permissionStatements.join(", ")}
+                `;
+
+                const triggeredPermSql = await this.trigger(
+                    Database.EVENT_PERMISSIONS_CREATE,
+                    permSql,
+                );
+
+                await this.pool.query(triggeredPermSql, permissionValues);
+            }
+
+            return documents;
+        } catch (e: any) {
+            throw this.processException(e);
+        }
     }
-    updateDocument(
+
+    /**
+     * Retrieves the current permissions for a given document.
+     *
+     * @param name - The name of the entity for which permissions are being retrieved.
+     * @param documentId - The ID of the document for which permissions are being retrieved.
+     * @param tenantId - Optional tenant ID for shared tables.
+     * @returns A promise that resolves to an object where the keys are permission types and the values are arrays of permissions.
+     */
+    private async getCurrentPermissions(
+        name: string,
+        documentId: string,
+        tenantId?: any,
+    ): Promise<Record<string, string[]>> {
+        const permsTableName = this.getSQLTable(name + "_perms");
+        const params = [documentId];
+
+        let sql = `SELECT _type, _permission FROM ${permsTableName} WHERE _document = $1`;
+
+        if (this.sharedTables) {
+            sql += " AND _tenant = $2";
+            params.push(tenantId);
+        }
+
+        sql = await this.trigger(Database.EVENT_PERMISSIONS_READ, sql);
+
+        const result = await this.pool.query(sql, params);
+
+        // Organize permissions by type
+        const permissions: Record<string, string[]> = {};
+        for (const type of Object.values(Database.PERMISSIONS)) {
+            permissions[type] = [];
+        }
+
+        for (const row of result.rows) {
+            if (!permissions[row._type]) {
+                permissions[row._type] = [];
+            }
+            permissions[row._type].push(row._permission);
+        }
+
+        return permissions;
+    }
+
+    /**
+     * Computes the changes in permissions by comparing the current permissions with the new permissions.
+     *
+     * @param currentPermissions - An object representing the current permissions, where keys are permission types and values are arrays of resources.
+     * @param document - The document with the new permissions to compare against.
+     * @returns An object containing two properties: additions and removals.
+     */
+    private getPermissionChanges(
+        currentPermissions: Record<string, string[]>,
+        document: Document,
+    ): {
+        additions: Record<string, string[]>;
+        removals: Record<string, string[]>;
+    } {
+        const additions: Record<string, string[]> = {};
+        const removals: Record<string, string[]> = {};
+
+        // Initialize additions and removals with empty arrays for each permission type
+        for (const type of Object.values(Database.PERMISSIONS)) {
+            additions[type] = [];
+            removals[type] = [];
+        }
+
+        // Find permissions to add
+        for (const type of Object.values(Database.PERMISSIONS)) {
+            const typedPermissions = currentPermissions[type] || [];
+            const newPermissions = document.getPermissionsByType(type);
+
+            additions[type] = newPermissions.filter(
+                (perm) => !typedPermissions.includes(perm),
+            );
+        }
+
+        // Find permissions to remove
+        for (const type of Object.values(Database.PERMISSIONS)) {
+            const typedPermissions = currentPermissions[type] || [];
+            const newPermissions = document.getPermissionsByType(type);
+
+            removals[type] = typedPermissions.filter(
+                (perm) => !newPermissions.includes(perm),
+            );
+        }
+
+        return { additions, removals };
+    }
+
+    /**
+     * Removes permissions from a specified document in the database.
+     *
+     * @param name - The name of the table (without the '_perms' suffix) from which permissions will be removed.
+     * @param documentId - The ID of the document whose permissions are to be removed.
+     * @param removals - An object where keys are permission types and values are arrays of permissions to be removed.
+     * @param tenantId - Optional tenant ID for shared tables.
+     * @returns A promise that resolves when the permissions have been removed.
+     */
+    private async removePermissions(
+        name: string,
+        documentId: string,
+        removals: Record<string, string[]>,
+        tenantId?: any,
+    ): Promise<void> {
+        const permsTableName = this.getSQLTable(name + "_perms");
+
+        // Skip if nothing to remove
+        if (Object.values(removals).every((perms) => perms.length === 0)) {
+            return;
+        }
+
+        let sql = `DELETE FROM ${permsTableName} WHERE _document = $1`;
+        const params: any[] = [documentId];
+        let paramIndex = 2;
+
+        if (this.sharedTables) {
+            sql += " AND _tenant = $2";
+            params.push(tenantId);
+            paramIndex++;
+        }
+
+        const conditions: string[] = [];
+
+        for (const [type, perms] of Object.entries(removals)) {
+            if (perms.length === 0) continue;
+
+            const permPlaceholders = perms.map(() => `$${paramIndex++}`);
+            conditions.push(
+                `(_type = '${type}' AND _permission IN (${permPlaceholders.join(", ")}))`,
+            );
+            params.push(...perms);
+        }
+
+        if (conditions.length > 0) {
+            sql += ` AND (${conditions.join(" OR ")})`;
+        } else {
+            return; // Nothing to delete
+        }
+
+        sql = await this.trigger(Database.EVENT_PERMISSIONS_DELETE, sql);
+        await this.pool.query(sql, params);
+    }
+
+    /**
+     * Adds permissions to a specified document in the database.
+     *
+     * @param name - The name of the collection or table to which permissions are being added.
+     * @param documentId - The ID of the document to which permissions are being added.
+     * @param additions - An object containing the types of permissions and their corresponding values to be added.
+     * @param tenantId - Optional tenant ID for shared tables.
+     * @returns A promise that resolves when the permissions have been successfully added to the database.
+     */
+    private async addPermissions(
+        name: string,
+        documentId: string,
+        additions: Record<string, string[]>,
+        tenantId?: any,
+    ): Promise<void> {
+        const permsTableName = this.getSQLTable(name + "_perms");
+
+        // Skip if nothing to add
+        if (Object.values(additions).every((perms) => perms.length === 0)) {
+            return;
+        }
+
+        const valueGroups: string[] = [];
+        const params: any[] = [];
+        let paramIndex = 1;
+
+        for (const [type, perms] of Object.entries(additions)) {
+            for (const perm of perms) {
+                const valueItems = [
+                    `$${paramIndex++}`,
+                    `$${paramIndex++}`,
+                    `$${paramIndex++}`,
+                ];
+                params.push(documentId, type, perm);
+
+                if (this.sharedTables) {
+                    valueItems.push(`$${paramIndex++}`);
+                    params.push(tenantId);
+                }
+
+                valueGroups.push(`(${valueItems.join(", ")})`);
+            }
+        }
+
+        if (valueGroups.length === 0) {
+            return; // Nothing to insert
+        }
+
+        const tenantCol = this.sharedTables ? ", _tenant" : "";
+        let sql = `
+            INSERT INTO ${permsTableName} (_document, _type, _permission${tenantCol})
+            VALUES ${valueGroups.join(", ")}
+        `;
+
+        sql = await this.trigger(Database.EVENT_PERMISSIONS_CREATE, sql);
+        await this.pool.query(sql, params);
+    }
+
+    async updateDocument(
         collection: string,
         id: string,
         document: Document,
     ): Promise<Document> {
-        throw new Error("Method not implemented.");
+        const name = this.filter(collection);
+        const tableName = this.getSQLTable(name);
+        const tenantId = document.getAttribute(
+            "_tenant",
+            document.getAttribute("$tenant"),
+        );
+
+        try {
+            // Get current permissions
+            const currentPermissions = await this.getCurrentPermissions(
+                name,
+                id,
+                tenantId,
+            );
+
+            // Calculate permission changes
+            const { additions, removals } = this.getPermissionChanges(
+                currentPermissions,
+                document,
+            );
+
+            // Remove permissions that should be removed
+            await this.removePermissions(name, id, removals, tenantId);
+
+            // Add new permissions
+            await this.addPermissions(
+                name,
+                document.getId(),
+                additions,
+                tenantId,
+            );
+
+            // Update document attributes
+            const attributes = document.getAttributes();
+            attributes["_createdAt"] = document.getCreatedAt();
+            attributes["_updatedAt"] = document.getUpdatedAt();
+            attributes["_permissions"] = JSON.stringify(
+                document.getPermissions(),
+            );
+
+            if (this.sharedTables) {
+                attributes["_tenant"] = tenantId;
+            }
+
+            const setClauses: string[] = [];
+            const updateParams: any[] = [document.getId(), id]; // [new uid, existing uid]
+            let paramIndex = 3;
+
+            if (this.sharedTables) {
+                updateParams.push(tenantId);
+                paramIndex++;
+            }
+
+            for (const [attr, value] of Object.entries(attributes)) {
+                const column = this.filter(attr);
+                setClauses.push(`"${column}" = $${paramIndex++}`);
+
+                if (typeof value === "object" && value !== null) {
+                    updateParams.push(JSON.stringify(value));
+                } else if (typeof value === "boolean") {
+                    updateParams.push(value ? "true" : "false");
+                } else {
+                    updateParams.push(value);
+                }
+            }
+
+            const tenantCondition = this.sharedTables ? "AND _tenant = $3" : "";
+            let updateSql = `
+                UPDATE ${tableName}
+                SET ${setClauses.join(", ")}, _uid = $1
+                WHERE _uid = $2 ${tenantCondition}
+            `;
+
+            updateSql = await this.trigger(
+                Database.EVENT_DOCUMENT_UPDATE,
+                updateSql,
+            );
+            await this.pool.query(updateSql, updateParams);
+
+            return document;
+        } catch (e: any) {
+            throw this.processException(e);
+        }
     }
-    updateDocuments(
+
+    async updateDocuments(
         collection: string,
         updates: Document,
         documents: Document[],
     ): Promise<number> {
-        throw new Error("Method not implemented.");
+        if (documents.length === 0) {
+            return 0;
+        }
+
+        const attributes = updates.getAttributes();
+
+        if (updates.getUpdatedAt()) {
+            attributes["_updatedAt"] = updates.getUpdatedAt();
+        }
+
+        if (updates.getPermissions()) {
+            attributes["_permissions"] = JSON.stringify(
+                updates.getPermissions(),
+            );
+        }
+
+        if (Object.keys(attributes).length === 0) {
+            return 0;
+        }
+
+        const name = this.filter(collection);
+        const ids = documents.map((doc) => doc.getId());
+
+        // Prepare update columns and values
+        const updateColumns: string[] = [];
+        const values: any[] = [];
+        let paramIndex = 1;
+
+        for (const attr of Object.keys(attributes)) {
+            if (
+                !Database.INTERNAL_ATTRIBUTES.map((v) => v.$id).includes(attr)
+            ) {
+                updateColumns.push(`"${this.filter(attr)}" = $${paramIndex}`);
+
+                const value = attributes[attr];
+                if (
+                    Array.isArray(value) ||
+                    (typeof value === "object" && value !== null)
+                ) {
+                    values.push(JSON.stringify(value));
+                } else if (typeof value === "boolean") {
+                    values.push(value ? "true" : "false");
+                } else {
+                    values.push(value);
+                }
+
+                paramIndex++;
+            }
+        }
+
+        // Prepare where clause for document IDs
+        const idPlaceholders = ids.map((_, i) => `$${paramIndex + i}`);
+        const whereClause = [`_uid IN (${idPlaceholders.join(", ")})`];
+        values.push(...ids);
+
+        // Add tenant condition if using shared tables
+        if (this.sharedTables) {
+            whereClause.push(`_tenant = $${paramIndex + ids.length}`);
+            values.push(
+                updates.getAttribute(
+                    "_tenant",
+                    updates.getAttribute("$tenant"),
+                ),
+            );
+        }
+
+        let sql = `
+            UPDATE ${this.getSQLTable(name)}
+            SET ${updateColumns.join(", ")}
+            WHERE ${whereClause.join(" AND ")}
+        `;
+
+        sql = await this.trigger(Database.EVENT_DOCUMENTS_UPDATE, sql);
+
+        try {
+            const result = await this.pool.query(sql, values);
+            const affected = result.rowCount;
+
+            // Update permissions if needed
+            if (updates.getPermissions()) {
+                for (const document of documents) {
+                    const tenantId = document.getAttribute(
+                        "_tenant",
+                        document.getAttribute("$tenant"),
+                    );
+
+                    // Get current permissions for the document
+                    const currentPermissions = await this.getCurrentPermissions(
+                        name,
+                        document.getId(),
+                        tenantId,
+                    );
+
+                    // Determine which permissions to add or remove
+                    const { additions, removals } = this.getPermissionChanges(
+                        currentPermissions,
+                        updates,
+                    );
+
+                    // Remove permissions that should be removed
+                    if (
+                        Object.values(removals).some(
+                            (perms) => perms.length > 0,
+                        )
+                    ) {
+                        await this.removePermissions(
+                            name,
+                            document.getId(),
+                            removals,
+                            tenantId,
+                        );
+                    }
+
+                    // Add new permissions
+                    if (
+                        Object.values(additions).some(
+                            (perms) => perms.length > 0,
+                        )
+                    ) {
+                        await this.addPermissions(
+                            name,
+                            document.getId(),
+                            additions,
+                            tenantId,
+                        );
+                    }
+                }
+            }
+
+            return affected!;
+        } catch (e: any) {
+            throw this.processException(e);
+        }
     }
+
     increaseDocumentAttribute(
         collection: string,
         id: string,
@@ -741,12 +1726,75 @@ export class PostgreDB extends Sql implements Adapter {
     getConnectionId(): string | number {
         throw new Error("Method not implemented.");
     }
-    getSizeOfCollection(collection: string): Promise<number> {
-        throw new Error("Method not implemented.");
+
+    async getSizeOfCollection(collection: string): Promise<number> {
+        const filteredCollection = this.filter(collection);
+        const tableName = this.getSQLTable(filteredCollection);
+        const permissionsTable = this.getSQLTable(
+            filteredCollection + "_perms",
+        );
+
+        try {
+            // Get size of main collection table
+            const collectionSizeResult = await this.pool.query(
+                `SELECT pg_relation_size($1) as size`,
+                [tableName],
+            );
+
+            // Get size of permissions table
+            const permissionsSizeResult = await this.pool.query(
+                `SELECT pg_relation_size($1) as size`,
+                [permissionsTable],
+            );
+
+            // Sum the sizes
+            const collectionSize =
+                parseInt(collectionSizeResult.rows[0].size, 10) || 0;
+            const permissionsSize =
+                parseInt(permissionsSizeResult.rows[0].size, 10) || 0;
+
+            return collectionSize + permissionsSize;
+        } catch (e: any) {
+            throw new DatabaseError(
+                `Failed to get collection size: ${e.message}`,
+            );
+        }
     }
-    getSizeOfCollectionOnDisk(collection: string): Promise<number> {
-        throw new Error("Method not implemented.");
+
+    async getSizeOfCollectionOnDisk(collection: string): Promise<number> {
+        const filteredCollection = this.filter(collection);
+        const tableName = this.getSQLTable(filteredCollection);
+        const permissionsTable = this.getSQLTable(
+            filteredCollection + "_perms",
+        );
+
+        try {
+            // Get size of main collection table
+            const collectionSizeResult = await this.pool.query(
+                `SELECT pg_total_relation_size($1) as size`,
+                [tableName],
+            );
+
+            // Get size of permissions table
+            const permissionsSizeResult = await this.pool.query(
+                `SELECT pg_total_relation_size($1) as size`,
+                [permissionsTable],
+            );
+
+            // Sum the sizes
+            const collectionSize =
+                parseInt(collectionSizeResult.rows[0].size, 10) || 0;
+            const permissionsSize =
+                parseInt(permissionsSizeResult.rows[0].size, 10) || 0;
+
+            return collectionSize + permissionsSize;
+        } catch (e: any) {
+            throw new DatabaseError(
+                `Failed to get collection size: ${e.message}`,
+            );
+        }
     }
+
     getSupportForIndex(): boolean {
         throw new Error("Method not implemented.");
     }
