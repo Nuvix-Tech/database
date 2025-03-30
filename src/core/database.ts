@@ -304,7 +304,7 @@ export class Database extends Constant {
      * @return string
      * @throws Error
      */
-    public getConnectionId(): string | number {
+    public getConnectionId(): Promise<string | number> {
         return this.adapter.getConnectionId();
     }
 
