@@ -212,7 +212,7 @@ export interface Adapter {
 
     before(event: string, name?: string, callback?: Function | null): this;
 
-    getConnectionId(): string | number;
+    getConnectionId(): Promise<string | number>;
 
     getSizeOfCollection(collection: string): Promise<number>;
 

@@ -1,20 +1,21 @@
-import { Document } from "@/core/Document";
-import { Query } from "@/core/query";
+import { Document } from "../core/Document";
+import { Query } from "../core/query";
 import { Adapter } from "./base";
 import { Sql } from "./sql";
 import { Pool, PoolClient, PoolConfig } from "pg";
-import Transaction from "@/errors/Transaction";
-import { Database } from "@/core/database";
+import Transaction from "../errors/Transaction";
+import { Database } from "../core/database";
 import {
     DatabaseError,
     DuplicateException,
     TimeoutException,
     TruncateException,
-} from "@/errors";
-import { Authorization } from "@/security/authorization";
+} from "../errors";
+import { Authorization } from "../security/authorization";
 
 interface PostgreDBOptions {
     connection: PoolConfig | Pool;
+    schema?: string;
 }
 
 export class PostgreDB extends Sql implements Adapter {
@@ -43,6 +44,7 @@ export class PostgreDB extends Sql implements Adapter {
             this.options.connection instanceof Pool
                 ? this.options.connection
                 : new Pool(this.options.connection);
+        this.database = options.schema ?? "public";
     }
 
     isInitialized(): boolean {
@@ -1779,8 +1781,61 @@ export class PostgreDB extends Sql implements Adapter {
         }
     }
 
-    deleteDocuments(collection: string, ids: string[]): Promise<number> {
-        throw new Error("Method not implemented.");
+    async deleteDocuments(collection: string, ids: string[]): Promise<number> {
+        if (ids.length === 0) {
+            return 0;
+        }
+
+        const name = this.filter(collection);
+        const table = this.getSQLTable(name);
+        const permsTable = this.getSQLTable(name + "_perms");
+
+        // Create parameterized query
+        const placeholders = ids.map((_, i) => `$${i + 1}`).join(", ");
+        const params = [...ids];
+        let paramIndex = ids.length + 1;
+
+        let sql = `DELETE FROM ${table} WHERE _uid IN (${placeholders})`;
+
+        // Add tenant condition if using shared tables
+        if (this.sharedTables) {
+            sql += ` AND _tenant = $${paramIndex}`;
+            params.push(this.getTenantId() as any);
+            paramIndex++;
+        }
+
+        // Apply trigger for document deletion
+        sql = await this.trigger(Database.EVENT_DOCUMENT_DELETE, sql);
+
+        // Create permissions deletion query
+        let permsSql = `DELETE FROM ${permsTable} WHERE _document IN (${placeholders})`;
+
+        // Add tenant condition for permissions if using shared tables
+        if (this.sharedTables) {
+            permsSql += ` AND _tenant = $${ids.length + 1}`;
+        }
+
+        // Apply trigger for permissions deletion
+        permsSql = await this.trigger(
+            Database.EVENT_PERMISSIONS_DELETE,
+            permsSql,
+        );
+
+        try {
+            // Execute document deletion
+            const result = await this.pool.query(sql, params);
+            const deleted = result.rowCount || 0;
+
+            // Execute permissions deletion regardless of whether documents existed
+            await this.pool.query(
+                permsSql,
+                this.sharedTables ? [...ids, this.getTenantId()] : ids,
+            );
+
+            return deleted;
+        } catch (e: any) {
+            throw this.processException(e);
+        }
     }
 
     async find(
@@ -2006,40 +2061,7 @@ export class PostgreDB extends Sql implements Adapter {
 
             // Transform rows to documents
             for (const row of result.rows) {
-                const doc: any = {};
-
-                // Map internal fields to document properties
-                if ("_uid" in row) {
-                    doc["$id"] = row._uid;
-                }
-                if ("_id" in row) {
-                    doc["$internalId"] = row._id;
-                }
-                if ("_tenant" in row) {
-                    doc["$tenant"] =
-                        row._tenant === null ? null : Number(row._tenant);
-                }
-                if ("_createdAt" in row) {
-                    doc["$createdAt"] = row._createdAt;
-                }
-                if ("_updatedAt" in row) {
-                    doc["$updatedAt"] = row._updatedAt;
-                }
-                if ("_permissions" in row) {
-                    doc["$permissions"] =
-                        typeof row._permissions === "string"
-                            ? JSON.parse(row._permissions)
-                            : row._permissions || [];
-                }
-
-                // Add all other attributes
-                for (const [key, value] of Object.entries(row)) {
-                    if (!key.startsWith("_")) {
-                        doc[key] = value;
-                    }
-                }
-
-                documents.push(new Document(doc));
+                documents.push(this.objectToDocument(row));
             }
 
             // Reverse results for "before" cursor direction
@@ -2206,19 +2228,75 @@ export class PostgreDB extends Sql implements Adapter {
         }
     }
 
-    getDocument(
+    async getDocument(
         collection: string,
         uid: string,
-        queries?: Query[],
-        forUpdate?: boolean,
+        queries: Query[] = [],
+        forUpdate: boolean = false,
     ): Promise<Document> {
-        throw new Error("Method not implemented.");
+        const name = this.filter(collection);
+        const selections = this.getAttributeSelections(queries);
+        const params: any[] = [uid];
+        let paramIndex = 2;
+
+        let sql = `
+            SELECT ${this.getAttributeProjection(selections, "table_main")}
+            FROM ${this.getSQLTable(name)} AS table_main
+            WHERE _uid = $1
+            ${this.sharedTables ? `AND (_tenant = $${paramIndex++} OR _tenant IS NULL)` : ""}
+            ${forUpdate ? "FOR UPDATE" : ""}
+        `;
+
+        if (this.sharedTables) {
+            params.push(this.getTenantId());
+        }
+
+        sql = await this.trigger(Database.EVENT_DOCUMENT_FIND, sql);
+
+        try {
+            const result = await this.pool.query(sql, params);
+
+            if (result.rows.length === 0) {
+                throw new DatabaseError(`Document with ID "${uid}" not found`);
+            }
+
+            return this.objectToDocument(result.rows[0]);
+        } catch (e: any) {
+            throw this.processException(e);
+        }
     }
-    getDocuments(collection: string): Promise<Document[]> {
-        throw new Error("Method not implemented.");
+
+    async getDocuments(
+        collection: string,
+        limit: number = 25,
+        offset: number = 0,
+    ): Promise<Document[]> {
+        try {
+            // Use the existing find method with empty queries to get all documents
+            return await this.find(
+                collection,
+                [], // No specific queries
+                limit, // Use provided limit or default
+                offset, // Use provided offset or default
+                ["$updatedAt"], // Order by update time
+                [Database.ORDER_DESC], // Most recent first
+            );
+        } catch (e: any) {
+            throw this.processException(e);
+        }
     }
-    getConnectionId(): string | number {
-        throw new Error("Method not implemented.");
+
+    async getConnectionId(): Promise<number> {
+        try {
+            const result = await this.pool.query(
+                "SELECT pg_backend_pid() as pid",
+            );
+            return result.rows[0].pid;
+        } catch (e: any) {
+            throw new DatabaseError(
+                `Failed to get connection ID: ${e.message}`,
+            );
+        }
     }
 
     async getSizeOfCollection(collection: string): Promise<number> {

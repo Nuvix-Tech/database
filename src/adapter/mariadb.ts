@@ -116,8 +116,16 @@ export class MariaDB extends Sql implements Adapter {
         }
     }
 
-    getConnectionId(): string | number {
-        return this.pool.threadId;
+    async getConnectionId(): Promise<string | number> {
+        try {
+            const [result] = await this.pool.query<any>(
+                "SELECT CONNECTION_ID() as id",
+            );
+            return result[0].id;
+        } catch (e) {
+            this.logger.error(e);
+            throw this.processException(e, "Failed to get connection ID");
+        }
     }
 
     /**
@@ -2498,45 +2506,6 @@ export class MariaDB extends Sql implements Adapter {
             this.logger.error(e);
             throw this.processException(e);
         }
-    }
-
-    /**
-     * Converts a given object to a Document instance by mapping and renaming specific properties.
-     *
-     * @param obj - The object to be converted.
-     * @returns A new Document instance with the mapped properties.
-     *
-     * The original properties (`_uid`, `_id`, `_tenant`, `_createdAt`, `_updatedAt`, `_permissions`) are deleted from the object.
-     */
-    objectToDocument(obj: any): Document {
-        if (!obj) return new Document();
-        if (obj.hasOwnProperty("_id")) {
-            obj.$internalId = obj._id;
-            delete obj._id;
-        }
-        if (obj.hasOwnProperty("_uid")) {
-            obj.$id = obj._uid;
-            delete obj._uid;
-        }
-        if (obj.hasOwnProperty("_tenant")) {
-            obj.$tenant = obj._tenant;
-            delete obj._tenant;
-        }
-        if (obj.hasOwnProperty("_createdAt")) {
-            obj.$createdAt = obj._createdAt;
-            delete obj._createdAt;
-        }
-        if (obj.hasOwnProperty("_updatedAt")) {
-            obj.$updatedAt = obj._updatedAt;
-            delete obj._updatedAt;
-        }
-        if (obj.hasOwnProperty("_permissions")) {
-            obj.$permissions = obj._permissions
-                ? JSON.parse(obj._permissions)
-                : [];
-            delete obj._permissions;
-        }
-        return new Document(obj);
     }
 
     /**

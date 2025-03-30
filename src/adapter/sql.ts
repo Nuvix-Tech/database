@@ -321,6 +321,45 @@ export abstract class Sql extends DatabaseAdapter {
         return total;
     }
 
+    /**
+     * Converts a given object to a Document instance by mapping and renaming specific properties.
+     *
+     * @param obj - The object to be converted.
+     * @returns A new Document instance with the mapped properties.
+     *
+     * The original properties (`_uid`, `_id`, `_tenant`, `_createdAt`, `_updatedAt`, `_permissions`) are deleted from the object.
+     */
+    protected objectToDocument(obj: any): Document {
+        if (!obj) return new Document();
+        if (obj.hasOwnProperty("_id")) {
+            obj.$internalId = obj._id;
+            delete obj._id;
+        }
+        if (obj.hasOwnProperty("_uid")) {
+            obj.$id = obj._uid;
+            delete obj._uid;
+        }
+        if (obj.hasOwnProperty("_tenant")) {
+            obj.$tenant = obj._tenant;
+            delete obj._tenant;
+        }
+        if (obj.hasOwnProperty("_createdAt")) {
+            obj.$createdAt = obj._createdAt;
+            delete obj._createdAt;
+        }
+        if (obj.hasOwnProperty("_updatedAt")) {
+            obj.$updatedAt = obj._updatedAt;
+            delete obj._updatedAt;
+        }
+        if (obj.hasOwnProperty("_permissions")) {
+            obj.$permissions = obj._permissions
+                ? JSON.parse(obj._permissions)
+                : [];
+            delete obj._permissions;
+        }
+        return new Document(obj);
+    }
+
     public getMaxVarcharLength(): number {
         return 16381;
     }
