@@ -5,7 +5,13 @@ import { Sql } from "./sql";
 import { Pool, PoolClient, PoolConfig } from "pg";
 import Transaction from "@/errors/Transaction";
 import { Database } from "@/core/database";
-import { DatabaseError, DuplicateException } from "@/errors";
+import {
+    DatabaseError,
+    DuplicateException,
+    TimeoutException,
+    TruncateException,
+} from "@/errors";
+import { Authorization } from "@/security/authorization";
 
 interface PostgreDBOptions {
     connection: PoolConfig | Pool;
@@ -21,6 +27,8 @@ export class PostgreDB extends Sql implements Adapter {
      * instance of PostgreDB
      */
     private instance: this | null = null;
+
+    private timeout: number;
 
     /**
      * @description PostgreSQL connection options
@@ -1667,7 +1675,7 @@ export class PostgreDB extends Sql implements Adapter {
         }
     }
 
-    increaseDocumentAttribute(
+    async increaseDocumentAttribute(
         collection: string,
         id: string,
         attribute: string,
@@ -1676,42 +1684,528 @@ export class PostgreDB extends Sql implements Adapter {
         min?: number,
         max?: number,
     ): Promise<boolean> {
-        throw new Error("Method not implemented.");
+        const name = this.filter(collection);
+        const attr = this.filter(attribute);
+
+        let sql = `
+            UPDATE ${this.getSQLTable(name)} 
+            SET 
+                "${attr}" = "${attr}" + $1,
+                "_updatedAt" = $2
+            WHERE _uid = $3
+        `;
+
+        // Prepare parameters
+        const params: any[] = [value, updatedAt, id];
+        let paramIndex = 4;
+
+        // Add tenant condition for shared tables
+        if (this.sharedTables) {
+            sql += " AND _tenant = $" + paramIndex;
+            params.push(this.getTenantId());
+            paramIndex++;
+        }
+
+        // Add max/min constraints if provided
+        if (max !== undefined) {
+            sql += ` AND "${attr}" <= $${paramIndex}`;
+            params.push(max);
+            paramIndex++;
+        }
+
+        if (min !== undefined) {
+            sql += ` AND "${attr}" >= $${paramIndex}`;
+            params.push(min);
+            paramIndex++;
+        }
+
+        // Apply trigger
+        sql = await this.trigger(Database.EVENT_DOCUMENT_UPDATE, sql);
+
+        try {
+            // Execute the query
+            const result = await this.pool.query(sql, params);
+            return (result.rowCount ?? 0) > 0;
+        } catch (e: any) {
+            throw this.processException(e);
+        }
     }
-    deleteDocument(collection: string, uid: string): Promise<boolean> {
-        throw new Error("Method not implemented.");
+
+    async deleteDocument(collection: string, uid: string): Promise<boolean> {
+        const name = this.filter(collection);
+        const table = this.getSQLTable(name);
+        const permsTable = this.getSQLTable(name + "_perms");
+
+        // Create parameterized queries
+        let params: any[] = [uid];
+        let sql = `DELETE FROM ${table} WHERE _uid = $1`;
+
+        // Add tenant condition if using shared tables
+        if (this.sharedTables) {
+            sql += ` AND _tenant = $2`;
+            params.push(this.getTenantId());
+        }
+
+        // Apply trigger for document deletion
+        sql = await this.trigger(Database.EVENT_DOCUMENT_DELETE, sql);
+
+        // Create permissions deletion query
+        let permsParams: any[] = [uid];
+        let permsSql = `DELETE FROM ${permsTable} WHERE _document = $1`;
+
+        // Add tenant condition for permissions if using shared tables
+        if (this.sharedTables) {
+            permsSql += ` AND _tenant = $2`;
+            permsParams.push(this.getTenantId());
+        }
+
+        // Apply trigger for permissions deletion
+        permsSql = await this.trigger(
+            Database.EVENT_PERMISSIONS_DELETE,
+            permsSql,
+        );
+
+        try {
+            // Execute document deletion
+            const result = await this.pool.query(sql, params);
+            const deleted = result.rowCount! > 0;
+
+            // Execute permissions deletion regardless of whether document existed
+            await this.pool.query(permsSql, permsParams);
+
+            return deleted;
+        } catch (e: any) {
+            throw this.processException(e);
+        }
     }
+
     deleteDocuments(collection: string, ids: string[]): Promise<number> {
         throw new Error("Method not implemented.");
     }
-    find(
+
+    async find(
         collection: string,
-        queries?: Query[],
-        limit?: number,
-        offset?: number | null,
-        orderAttributes?: string[],
-        orderTypes?: string[],
-        cursor?: any,
-        cursorDirection?: "after" | "before",
-        forPermission?: string,
+        queries: Query[] = [],
+        limit: number = 25,
+        offset: number | null = null,
+        orderAttributes: string[] = [],
+        orderTypes: string[] = [],
+        cursor: any = null,
+        cursorDirection: "after" | "before" = "after",
+        forPermission: string = Database.PERMISSION_READ,
     ): Promise<Document[]> {
-        throw new Error("Method not implemented.");
+        const name = this.filter(collection);
+        const roles = Authorization.getRoles();
+        const where: string[] = [];
+        const orders: string[] = [];
+        const params: any[] = [];
+        let paramIndex = 1;
+
+        // Clone queries to prevent side effects
+        queries = queries.map((query) =>
+            Object.assign(Object.create(Object.getPrototypeOf(query)), query),
+        );
+
+        // Map special attributes in order fields
+        const mappedOrderAttributes = orderAttributes.map((attr) => {
+            switch (attr) {
+                case "$id":
+                    return "_uid";
+                case "$internalId":
+                    return "_id";
+                case "$tenant":
+                    return "_tenant";
+                case "$createdAt":
+                    return "_createdAt";
+                case "$updatedAt":
+                    return "_updatedAt";
+                default:
+                    return attr;
+            }
+        });
+
+        // Check for ID attribute in ordering
+        let hasIdAttribute = false;
+        for (let i = 0; i < mappedOrderAttributes.length; i++) {
+            const attribute = mappedOrderAttributes[i];
+            if (["_uid", "_id"].includes(attribute)) {
+                hasIdAttribute = true;
+            }
+
+            const filterAttribute = this.filter(attribute);
+            let orderType = this.filter(orderTypes[i] || Database.ORDER_ASC);
+
+            // Handle cursor-based pagination for first order attribute
+            if (i === 0 && cursor) {
+                let orderMethodInternalId = Query.TYPE_GREATER; // To preserve natural order
+                let orderMethod =
+                    orderType === Database.ORDER_DESC
+                        ? Query.TYPE_LESSER
+                        : Query.TYPE_GREATER;
+
+                if (cursorDirection === Database.CURSOR_BEFORE) {
+                    orderType =
+                        orderType === Database.ORDER_ASC
+                            ? Database.ORDER_DESC
+                            : Database.ORDER_ASC;
+                    orderMethodInternalId =
+                        orderType === Database.ORDER_ASC
+                            ? Query.TYPE_LESSER
+                            : Query.TYPE_GREATER;
+                    orderMethod =
+                        orderType === Database.ORDER_DESC
+                            ? Query.TYPE_LESSER
+                            : Query.TYPE_GREATER;
+                }
+
+                where.push(`(
+                    table_main."${filterAttribute}" ${this.getSQLOperator(orderMethod)} $${paramIndex} 
+                    OR (
+                        table_main."${filterAttribute}" = $${paramIndex} 
+                        AND
+                        table_main._id ${this.getSQLOperator(orderMethodInternalId)} $${paramIndex + 1}
+                    )
+                )`);
+
+                // Get cursor attribute key
+                const cursorAttrKey =
+                    attribute === "_uid"
+                        ? "$id"
+                        : attribute === "_id"
+                          ? "$internalId"
+                          : attribute === "_tenant"
+                            ? "$tenant"
+                            : attribute === "_createdAt"
+                              ? "$createdAt"
+                              : attribute === "_updatedAt"
+                                ? "$updatedAt"
+                                : attribute;
+
+                params.push(cursor[cursorAttrKey]);
+                params.push(cursor["$internalId"]);
+                paramIndex += 2;
+            } else if (cursorDirection === Database.CURSOR_BEFORE) {
+                orderType =
+                    orderType === Database.ORDER_ASC
+                        ? Database.ORDER_DESC
+                        : Database.ORDER_ASC;
+            }
+
+            orders.push(`table_main."${filterAttribute}" ${orderType}`);
+        }
+
+        // Allow after pagination without any order
+        if (mappedOrderAttributes.length === 0 && cursor) {
+            const orderType = orderTypes[0] || Database.ORDER_ASC;
+            const orderMethod =
+                cursorDirection === Database.CURSOR_AFTER
+                    ? orderType === Database.ORDER_DESC
+                        ? Query.TYPE_LESSER
+                        : Query.TYPE_GREATER
+                    : orderType === Database.ORDER_DESC
+                      ? Query.TYPE_GREATER
+                      : Query.TYPE_LESSER;
+
+            where.push(
+                `(table_main._id ${this.getSQLOperator(orderMethod)} $${paramIndex})`,
+            );
+            params.push(cursor["$internalId"]);
+            paramIndex++;
+        }
+
+        // Add natural order if needed
+        if (!hasIdAttribute) {
+            if (mappedOrderAttributes.length === 0 && orderTypes.length > 0) {
+                let order = orderTypes[0] || Database.ORDER_ASC;
+                if (cursorDirection === Database.CURSOR_BEFORE) {
+                    order =
+                        order === Database.ORDER_ASC
+                            ? Database.ORDER_DESC
+                            : Database.ORDER_ASC;
+                }
+                orders.push(`table_main._id ${this.filter(order)}`);
+            } else {
+                orders.push(
+                    `table_main._id ${cursorDirection === Database.CURSOR_AFTER ? Database.ORDER_ASC : Database.ORDER_DESC}`,
+                );
+            }
+        }
+
+        // Process query conditions
+        if (queries && queries.length > 0) {
+            const conditions = this.getSQLConditions(queries);
+            if (conditions) {
+                where.push(conditions);
+                let cParams: any = [];
+                for (const query of queries) {
+                    this.bindConditionValue(cParams, query);
+                }
+                params.push(...cParams);
+                paramIndex *= cParams.length;
+            }
+        }
+
+        // Add tenant condition for shared tables
+        if (this.sharedTables) {
+            let orIsNull = "";
+            if (collection === Database.METADATA) {
+                orIsNull = " OR table_main._tenant IS NULL";
+            }
+            where.push(`(table_main._tenant = $${paramIndex}${orIsNull})`);
+            params.push(this.getTenantId());
+            paramIndex++;
+        }
+
+        // Add authorization check if enabled
+        if (Authorization.getStatus()) {
+            where.push(
+                this.getSQLPermissionsCondition(name, roles, forPermission),
+            );
+            if (this.sharedTables) {
+                params.push(this.getTenantId());
+            }
+        }
+
+        // Get attribute selections if applicable
+        const selections = this.getAttributeSelections(queries);
+        const attributeProjection = this.getAttributeProjection(
+            selections,
+            "table_main",
+        );
+
+        // Build SQL query
+        const sqlWhere = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
+        const sqlOrder =
+            orders.length > 0 ? `ORDER BY ${orders.join(", ")}` : "";
+        const sqlLimit = limit !== null ? `LIMIT $${paramIndex++}` : "";
+        const sqlOffset = offset !== null ? `OFFSET $${paramIndex++}` : "";
+
+        let sql = `
+            SELECT ${attributeProjection}
+            FROM ${this.getSQLTable(name)} as table_main
+            ${sqlWhere}
+            ${sqlOrder}
+            ${sqlLimit}
+            ${sqlOffset}
+        `;
+
+        sql = await this.trigger(Database.EVENT_DOCUMENT_FIND, sql);
+
+        try {
+            // Add limit and offset to params if needed
+            if (limit !== null) {
+                params.push(limit);
+            }
+            if (offset !== null) {
+                params.push(offset);
+            }
+
+            // Execute query
+            const result = await this.pool.query(sql, params);
+            const documents: Document[] = [];
+
+            // Transform rows to documents
+            for (const row of result.rows) {
+                const doc: any = {};
+
+                // Map internal fields to document properties
+                if ("_uid" in row) {
+                    doc["$id"] = row._uid;
+                }
+                if ("_id" in row) {
+                    doc["$internalId"] = row._id;
+                }
+                if ("_tenant" in row) {
+                    doc["$tenant"] =
+                        row._tenant === null ? null : Number(row._tenant);
+                }
+                if ("_createdAt" in row) {
+                    doc["$createdAt"] = row._createdAt;
+                }
+                if ("_updatedAt" in row) {
+                    doc["$updatedAt"] = row._updatedAt;
+                }
+                if ("_permissions" in row) {
+                    doc["$permissions"] =
+                        typeof row._permissions === "string"
+                            ? JSON.parse(row._permissions)
+                            : row._permissions || [];
+                }
+
+                // Add all other attributes
+                for (const [key, value] of Object.entries(row)) {
+                    if (!key.startsWith("_")) {
+                        doc[key] = value;
+                    }
+                }
+
+                documents.push(new Document(doc));
+            }
+
+            // Reverse results for "before" cursor direction
+            if (cursorDirection === Database.CURSOR_BEFORE) {
+                documents.reverse();
+            }
+
+            return documents;
+        } catch (e: any) {
+            throw this.processException(e);
+        }
     }
-    count(
+
+    async count(
         collection: string,
-        queries?: Query[],
-        max?: number | null,
+        queries: Query[] = [],
+        max: number | null = null,
     ): Promise<number> {
-        throw new Error("Method not implemented.");
+        const name = this.filter(collection);
+        const roles = Authorization.getRoles();
+        const where: string[] = [];
+        const params: any[] = [];
+        let paramIndex = 1;
+
+        // Clone queries to prevent side effects
+        queries = queries.map((query) =>
+            Object.assign(Object.create(Object.getPrototypeOf(query)), query),
+        );
+
+        // Process query conditions
+        if (queries && queries.length > 0) {
+            const conditions = this.getSQLConditions(queries);
+            if (conditions) {
+                where.push(conditions);
+                let cParams: any = [];
+                for (const query of queries) {
+                    this.bindConditionValue(cParams, query);
+                }
+                params.push(...cParams);
+                paramIndex *= cParams.length;
+            }
+        }
+
+        // Add tenant condition for shared tables
+        if (this.sharedTables) {
+            let orIsNull = "";
+            if (collection === Database.METADATA) {
+                orIsNull = " OR table_main._tenant IS NULL";
+            }
+            where.push(`(table_main._tenant = $${paramIndex++}${orIsNull})`);
+            params.push(this.getTenantId());
+        }
+
+        // Add authorization check if enabled
+        if (Authorization.getStatus()) {
+            where.push(this.getSQLPermissionsCondition(name, roles));
+            if (this.sharedTables) {
+                params.push(this.getTenantId());
+            }
+        }
+
+        const sqlWhere = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
+        const limit = max === null ? "" : `LIMIT $${paramIndex++}`;
+
+        let sql = `
+            SELECT COUNT(1) as sum FROM (
+                SELECT 1
+                FROM ${this.getSQLTable(name)} table_main
+                ${sqlWhere}
+                ${limit}
+            ) table_count
+        `;
+
+        sql = await this.trigger(Database.EVENT_DOCUMENT_COUNT, sql);
+
+        try {
+            // Add max parameter if needed
+            if (max !== null) {
+                params.push(max);
+            }
+
+            const result = await this.pool.query(sql, params);
+            return parseInt(result.rows[0].sum) || 0;
+        } catch (e: any) {
+            throw this.processException(e);
+        }
     }
-    sum(
+
+    async sum(
         collection: string,
         attribute: string,
-        queries: Query[],
-        max: number | null,
+        queries: Query[] = [],
+        max: number | null = null,
     ): Promise<number> {
-        throw new Error("Method not implemented.");
+        const name = this.filter(collection);
+        const filteredAttribute = this.filter(attribute);
+        const roles = Authorization.getRoles();
+        const where: string[] = [];
+        const params: any[] = [];
+        let paramIndex = 1;
+
+        // Clone queries to prevent side effects
+        queries = queries.map((query) =>
+            Object.assign(Object.create(Object.getPrototypeOf(query)), query),
+        );
+
+        // Process query conditions
+        if (queries && queries.length > 0) {
+            const conditions = this.getSQLConditions(queries);
+            if (conditions) {
+                where.push(conditions);
+                let cParams: any = [];
+                for (const query of queries) {
+                    this.bindConditionValue(cParams, query);
+                }
+                params.push(...cParams);
+                paramIndex *= cParams.length;
+            }
+        }
+
+        // Add tenant condition for shared tables
+        if (this.sharedTables) {
+            let orIsNull = "";
+            if (collection === Database.METADATA) {
+                orIsNull = " OR table_main._tenant IS NULL";
+            }
+            where.push(`(table_main._tenant = $${paramIndex}${orIsNull})`);
+            params.push(this.getTenantId());
+            paramIndex++;
+        }
+
+        // Add authorization check if enabled
+        if (Authorization.getStatus()) {
+            where.push(this.getSQLPermissionsCondition(name, roles));
+            if (this.sharedTables) {
+                params.push(this.getTenantId());
+            }
+        }
+
+        const sqlWhere = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
+        const limit = max === null ? "" : `LIMIT $${paramIndex++}`;
+
+        let sql = `
+            SELECT SUM("${filteredAttribute}") as sum FROM (
+                SELECT "${filteredAttribute}"
+                FROM ${this.getSQLTable(name)} table_main
+                ${sqlWhere}
+                ${limit}
+            ) table_count
+        `;
+
+        sql = await this.trigger(Database.EVENT_DOCUMENT_SUM, sql);
+
+        try {
+            // Add max parameter if needed
+            if (max !== null) {
+                params.push(max);
+            }
+
+            const result = await this.pool.query(sql, params);
+            return parseFloat(result.rows[0].sum) || 0;
+        } catch (e: any) {
+            throw this.processException(e);
+        }
     }
+
     getDocument(
         collection: string,
         uid: string,
@@ -1796,66 +2290,336 @@ export class PostgreDB extends Sql implements Adapter {
     }
 
     getSupportForIndex(): boolean {
-        throw new Error("Method not implemented.");
+        return true;
     }
+
     getSupportForUniqueIndex(): boolean {
-        throw new Error("Method not implemented.");
+        return true;
     }
+
     getSupportForFulltextIndex(): boolean {
-        throw new Error("Method not implemented.");
+        return true;
     }
+
     getSupportForFulltextWildcardIndex(): boolean {
-        throw new Error("Method not implemented.");
+        return false;
     }
+
     getSupportForCasting(): boolean {
-        throw new Error("Method not implemented.");
+        return true;
     }
+
     getMinDateTime(): Date {
-        throw new Error("Method not implemented.");
+        return new Date("0001-01-01 00:00:00");
     }
 
+    getSupportForTimeouts(): boolean {
+        return true;
+    }
+
+    getSupportForJSONOverlaps(): boolean {
+        return false;
+    }
+
+    getSupportForSchemaAttributes(): boolean {
+        return false;
+    }
+
+    getSupportForUpserts(): boolean {
+        return false;
+    }
+
+    getLikeOperator(): string {
+        return "ILIKE";
+    }
+
+    /**
+     * Converts a query object to an SQL condition string.
+     * @param query - The query object to convert
+     * @returns A string containing the SQL condition
+     */
     public getSQLCondition(query: Query): string {
-        throw new Error("Method not implemented.");
-    }
-    public setTimeout(milliseconds: number, event: string): void {
-        throw new Error("Method not implemented.");
+        // Map special attributes to their database column names
+        const attribute = query.getAttribute();
+        const mappedAttribute = (() => {
+            switch (attribute) {
+                case "$id":
+                    return "_uid";
+                case "$internalId":
+                    return "_id";
+                case "$tenant":
+                    return "_tenant";
+                case "$createdAt":
+                    return "_createdAt";
+                case "$updatedAt":
+                    return "_updatedAt";
+                default:
+                    return attribute;
+            }
+        })();
+
+        // Set the mapped attribute back to the query
+        query.setAttribute(mappedAttribute);
+
+        const quotedAttribute = `"${this.filter(mappedAttribute)}"`;
+        const method = query.getMethod();
+
+        switch (method) {
+            case Query.TYPE_SEARCH:
+                return `to_tsvector(regexp_replace(${quotedAttribute}, '[^\\w]+', ' ', 'g')) @@ websearch_to_tsquery(${this.getFulltextValue(query.getValue())})`;
+
+            case Query.TYPE_BETWEEN:
+                const values = query.getValues();
+                return `table_main.${quotedAttribute} BETWEEN $1 AND $2`;
+
+            case Query.TYPE_IS_NULL:
+            case Query.TYPE_IS_NOT_NULL:
+                return `table_main.${quotedAttribute} ${this.getSQLOperator(method)}`;
+            // @ts-ignore
+            case Query.TYPE_CONTAINS:
+                let operator = query.onArray()
+                    ? "@>"
+                    : this.getSQLOperator(method);
+
+            // Fall through to default case for condition building
+
+            default:
+                const conditions: string[] = [];
+                const _operator =
+                    query.getMethod() === Query.TYPE_CONTAINS && query.onArray()
+                        ? "@>"
+                        : this.getSQLOperator(query.getMethod());
+
+                const _values = query.getValues();
+                _values.forEach((_, index) => {
+                    conditions.push(
+                        `${quotedAttribute} ${_operator} $${index + 1}`,
+                    );
+                });
+
+                return conditions.length === 0
+                    ? ""
+                    : `(${conditions.join(" OR ")})`;
+        }
     }
 
-    close(): Promise<void> {
-        throw new Error("Method not implemented.");
+    /**
+     * Formats a string value for full-text search queries
+     * @param value - The search string to format
+     * @returns A formatted string suitable for full-text search
+     */
+    protected getFulltextValue(value: string): string {
+        const exact = value.startsWith('"') && value.endsWith('"');
+
+        // Remove special characters
+        value = value.replace(/[@+\-*.'\"]/g, " ");
+
+        // Remove multiple whitespaces
+        value = value.replace(/\s+/g, " ").trim();
+
+        if (!exact) {
+            value = value.replace(/ /g, " or ");
+        }
+
+        return `'${value}'`;
+    }
+
+    public setTimeout(
+        milliseconds: number,
+        event: string = Database.EVENT_ALL,
+    ): void {
+        if (!this.getSupportForTimeouts()) {
+            return;
+        }
+
+        if (milliseconds <= 0) {
+            throw new DatabaseError("Timeout must be greater than 0");
+        }
+
+        this.timeout = milliseconds;
+
+        this.before(event, "timeout", (sql: string) => {
+            return `
+                SET statement_timeout = ${milliseconds};
+                ${sql};
+                SET statement_timeout = 0;
+            `;
+        });
+    }
+
+    async close(): Promise<void> {
+        if (this.pool) {
+            await this.pool.end();
+        }
     }
 
     processException(error: any): Error {
+        // Check if the error is a PostgreSQL error
+        if (error && error.code) {
+            // Timeout
+            if (error.code === "57014") {
+                return new TimeoutException("Query timed out", error.code);
+            }
+
+            // Duplicate table
+            if (error.code === "42P07") {
+                return new DuplicateException(
+                    "Collection already exists",
+                    error.code,
+                );
+            }
+
+            // Duplicate column
+            if (error.code === "42701") {
+                return new DuplicateException(
+                    "Attribute already exists",
+                    error.code,
+                );
+            }
+
+            // Duplicate row
+            if (error.code === "23505") {
+                return new DuplicateException(
+                    "Document already exists",
+                    error.code,
+                );
+            }
+
+            // Data is too big for column resize
+            if (error.code === "22001") {
+                return new TruncateException(
+                    "Resize would result in data truncation",
+                    error.code,
+                );
+            }
+        }
+
         return error;
     }
 
     getSQLType(
         type: string,
         size: number,
-        signed: boolean,
-        array: boolean,
+        signed: boolean = true,
+        array: boolean = false,
     ): string {
-        if (array) {
-            return `${type.toUpperCase()}[]`;
+        if (array === true) {
+            return "JSONB";
         }
 
         switch (type) {
-            case "string":
+            case Database.VAR_STRING:
+                // Check if size exceeds maximum varchar length
+                if (size > this.getMaxVarcharLength()) {
+                    return "TEXT";
+                }
                 return `VARCHAR(${size})`;
-            case "integer":
-                return signed ? "INTEGER" : "BIGINT";
-            case "float":
-                return signed ? "FLOAT" : "DOUBLE PRECISION";
-            case "boolean":
+
+            case Database.VAR_INTEGER:
+                if (size >= 8) {
+                    // INT = 4 bytes, BIGINT = 8 bytes
+                    return "BIGINT";
+                }
+                return "INTEGER";
+
+            case Database.VAR_FLOAT:
+                return "DOUBLE PRECISION";
+
+            case Database.VAR_BOOLEAN:
                 return "BOOLEAN";
-            case "date":
+
+            case Database.VAR_RELATIONSHIP:
+                return "VARCHAR(255)";
+
+            case Database.VAR_DATETIME:
                 return "TIMESTAMP(3)";
+
             default:
-                return type.toUpperCase();
+                throw new DatabaseError("Unknown Type: " + type);
         }
     }
-    getSQLTable(name: string): string {
-        const prefix = this.getPrefix();
-        return `"${prefix}_${name}"`;
+
+    protected getAttributeProjection(
+        selections: string[] | null,
+        prefix: string = "",
+    ): string {
+        // If selections is empty or contains '*', return all columns
+        if (
+            !selections ||
+            selections.length === 0 ||
+            selections.includes("*")
+        ) {
+            if (prefix) {
+                return `${prefix}.*`;
+            }
+            return "*";
+        }
+
+        // Clone the array to avoid modifying the original
+        let selectionsCopy = [...selections];
+
+        // Remove $id, $permissions and $collection from selections if present
+        selectionsCopy = selectionsCopy.filter(
+            (item) => !["$id", "$permissions", "$collection"].includes(item),
+        );
+
+        // Always include _uid and _permissions
+        selectionsCopy.push("_uid");
+        selectionsCopy.push("_permissions");
+
+        // Handle special attributes
+        if (selectionsCopy.includes("$internalId")) {
+            selectionsCopy.push("_id");
+            selectionsCopy = selectionsCopy.filter(
+                (item) => item !== "$internalId",
+            );
+        }
+
+        if (selectionsCopy.includes("$createdAt")) {
+            selectionsCopy.push("_createdAt");
+            selectionsCopy = selectionsCopy.filter(
+                (item) => item !== "$createdAt",
+            );
+        }
+
+        if (selectionsCopy.includes("$updatedAt")) {
+            selectionsCopy.push("_updatedAt");
+            selectionsCopy = selectionsCopy.filter(
+                (item) => item !== "$updatedAt",
+            );
+        }
+
+        // Apply prefix and quoting to each selection
+        if (prefix) {
+            return selectionsCopy
+                .map((selection) => `"${prefix}"."${this.filter(selection)}"`)
+                .join(", ");
+        } else {
+            return selectionsCopy
+                .map((selection) => `"${this.filter(selection)}"`)
+                .join(", ");
+        }
+    }
+
+    protected override getSQLPermissionsCondition(
+        collection: string,
+        roles: string[],
+        type: string = Database.PERMISSION_READ,
+    ): string {
+        if (!Database.PERMISSIONS.includes(type)) {
+            throw new DatabaseError("Unknown permission type: " + type);
+        }
+        const quotedRoles = roles.map((r) => `'${r}'`).join(", ");
+        let tenantQuery = "";
+        if (this.sharedTables) {
+            tenantQuery = `AND (_tenant = $0001} OR _tenant IS NULL)`;
+        }
+        return `table_main._uid IN (
+          SELECT _document
+          FROM ${this.getSQLTable(collection + "_perms")}
+          WHERE _permission IN (${quotedRoles})
+            AND _type = '${type}'
+            ${tenantQuery}
+        )`;
     }
 }
