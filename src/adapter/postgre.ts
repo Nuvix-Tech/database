@@ -8,6 +8,7 @@ import { Database } from "../core/database";
 import {
     DatabaseError,
     DuplicateException,
+    InitializeError,
     TimeoutException,
     TruncateException,
 } from "../errors";
@@ -40,10 +41,7 @@ export class PostgreDB extends Sql implements Adapter {
         super();
         this.options = options;
         this.type = "postgresql";
-        this.pool =
-            this.options.connection instanceof Pool
-                ? this.options.connection
-                : new Pool(this.options.connection);
+
         this.database = options.schema ?? "public";
     }
 
@@ -51,12 +49,19 @@ export class PostgreDB extends Sql implements Adapter {
         return this.instance !== null;
     }
 
-    // TODO: Implement this method
-    async init(): Promise<void> {
-        if (this.instance) {
-            return;
+    public init() {
+        if (this.instance)
+            throw new InitializeError("PostgreSql adapter already initialized");
+        try {
+            this.pool =
+                this.options.connection instanceof Pool
+                    ? this.options.connection
+                    : new Pool(this.options.connection);
+            this.instance = this;
+        } catch (e) {
+            this.logger.error(e);
+            throw new InitializeError("MariaDB adapter initialization failed");
         }
-        this.instance = this;
     }
 
     ping(): Promise<void> {
@@ -183,6 +188,13 @@ export class PostgreDB extends Sql implements Adapter {
     }
 
     /**
+     *  Get Tenant SQL
+     */
+    private getTenantSql() {
+        return `AND (_tenant = $00000001 OR _tenant IS NULL)`;
+    }
+
+    /**
      * Drops a database schema
      * @param name - The name of the schema to drop
      * @returns Promise resolving to true if schema dropped successfully
@@ -238,10 +250,12 @@ export class PostgreDB extends Sql implements Adapter {
         const prefix = this.getPrefix();
         const id = this.filter(name);
         const attributeStrings: string[] = [];
-        const sqlStatements: string[] = [];
+        let sqlStatements: string[] = [];
 
         for (const attribute of attributes) {
-            const attrId = this.filter(attribute.getId());
+            const attrId = this.filter(
+                attribute.getAttribute("key", attribute.getAttribute("$id")),
+            );
 
             const attrType = this.getSQLType(
                 attribute.getAttribute("type"),
@@ -287,7 +301,7 @@ export class PostgreDB extends Sql implements Adapter {
         "_createdAt" TIMESTAMP(3) DEFAULT NULL,
         "_updatedAt" TIMESTAMP(3) DEFAULT NULL,
         _permissions TEXT DEFAULT NULL,
-        ${attributeStrings.join(", ")}
+        ${attributeStrings.join(", ")}${attributeStrings.length ? "," : ""}
         PRIMARY KEY (_id)
       )
     `);
@@ -343,13 +357,10 @@ export class PostgreDB extends Sql implements Adapter {
         ON ${this.getSQLTable(id + "_perms")} USING btree (_permission,_type)`);
         }
 
-        // Apply triggers to SQL statements
-        for (let i = 0; i < sqlStatements.length; i++) {
-            sqlStatements[i] = await this.trigger(
-                Database.EVENT_COLLECTION_CREATE,
-                sqlStatements[i],
-            );
-        }
+        sqlStatements = await this.trigger(
+            Database.EVENT_COLLECTION_CREATE,
+            sqlStatements,
+        );
 
         try {
             // Execute each SQL statement individually
@@ -938,13 +949,6 @@ export class PostgreDB extends Sql implements Adapter {
         attributes["_updatedAt"] = document.getUpdatedAt();
         attributes["_permissions"] = JSON.stringify(document.getPermissions());
 
-        if (this.sharedTables) {
-            attributes["_tenant"] = document.getAttribute(
-                "_tenant",
-                document.getAttribute("$tenant"),
-            );
-        }
-
         const name = this.filter(collection);
         let columns: string[] = [];
         let placeholders: string[] = [];
@@ -962,19 +966,31 @@ export class PostgreDB extends Sql implements Adapter {
         placeholders.push("$" + (values.length + 1));
         values.push(document.getId());
 
+        if (this.sharedTables) {
+            columns.push("_tenant");
+            placeholders.push("?");
+            values.push(this.tenantId);
+        }
+
         // Add all attributes
         for (const [attribute, value] of Object.entries(attributes)) {
-            const column = this.filter(attribute);
-            columns.push(`"${column}"`);
-            placeholders.push("$" + (values.length + 1));
+            if (
+                !Database.INTERNAL_ATTRIBUTES.map((v) => v.$id).includes(
+                    attribute,
+                )
+            ) {
+                const column = this.filter(attribute);
+                columns.push(`"${column}"`);
+                placeholders.push("$" + (values.length + 1));
 
-            // Handle array/object values
-            if (typeof value === "object" && value !== null) {
-                values.push(JSON.stringify(value));
-            } else if (typeof value === "boolean") {
-                values.push(value ? "true" : "false");
-            } else {
-                values.push(value);
+                // Handle array/object values
+                if (typeof value === "object" && value !== null) {
+                    values.push(JSON.stringify(value));
+                } else if (typeof value === "boolean") {
+                    values.push(value ? "true" : "false");
+                } else {
+                    values.push(value);
+                }
             }
         }
 
@@ -1084,9 +1100,14 @@ export class PostgreDB extends Sql implements Adapter {
             // Check internal ID consistency
             let hasInternalId: boolean | null = null;
             for (const document of documents) {
-                Object.keys(document.getAttributes()).forEach((key) =>
-                    attributeKeys.add(key),
-                );
+                Object.keys(document.getAttributes())
+                    .filter(
+                        (attr) =>
+                            !Database.INTERNAL_ATTRIBUTES.map(
+                                (v) => v.$id,
+                            ).includes(attr),
+                    )
+                    .forEach((key) => attributeKeys.add(key));
 
                 if (hasInternalId === null) {
                     hasInternalId = !!document.getInternalId();
@@ -1454,6 +1475,9 @@ export class PostgreDB extends Sql implements Adapter {
     ): Promise<Document> {
         const name = this.filter(collection);
         const tableName = this.getSQLTable(name);
+
+        if (!id) throw new DatabaseError("Document ID is required.");
+
         const tenantId = document.getAttribute(
             "_tenant",
             document.getAttribute("$tenant"),
@@ -1486,14 +1510,14 @@ export class PostgreDB extends Sql implements Adapter {
 
             // Update document attributes
             const attributes = document.getAttributes();
-            attributes["_createdAt"] = document.getCreatedAt();
-            attributes["_updatedAt"] = document.getUpdatedAt();
-            attributes["_permissions"] = JSON.stringify(
-                document.getPermissions(),
-            );
-
-            if (this.sharedTables) {
-                attributes["_tenant"] = tenantId;
+            if (document.getCreatedAt()) {
+                attributes._createdAt = document.getCreatedAt();
+            }
+            if (document.getUpdatedAt()) {
+                attributes._updatedAt = document.getUpdatedAt();
+            }
+            if (document.getPermissions()) {
+                attributes._permissions = document.getPermissions();
             }
 
             const setClauses: string[] = [];
@@ -1501,20 +1525,26 @@ export class PostgreDB extends Sql implements Adapter {
             let paramIndex = 3;
 
             if (this.sharedTables) {
-                updateParams.push(tenantId);
-                paramIndex++;
+                attributes._tenant = this.tenantId;
+                updateParams.push(this.tenantId);
             }
 
             for (const [attr, value] of Object.entries(attributes)) {
-                const column = this.filter(attr);
-                setClauses.push(`"${column}" = $${paramIndex++}`);
+                if (
+                    !Database.INTERNAL_ATTRIBUTES.map((v) => v.$id).includes(
+                        attr,
+                    )
+                ) {
+                    const column = this.filter(attr);
+                    setClauses.push(`"${column}" = $${paramIndex++}`);
 
-                if (typeof value === "object" && value !== null) {
-                    updateParams.push(JSON.stringify(value));
-                } else if (typeof value === "boolean") {
-                    updateParams.push(value ? "true" : "false");
-                } else {
-                    updateParams.push(value);
+                    if (typeof value === "object" && value !== null) {
+                        updateParams.push(JSON.stringify(value));
+                    } else if (typeof value === "boolean") {
+                        updateParams.push(value ? "true" : "false");
+                    } else {
+                        updateParams.push(value);
+                    }
                 }
             }
 
@@ -1842,11 +1872,11 @@ export class PostgreDB extends Sql implements Adapter {
         collection: string,
         queries: Query[] = [],
         limit: number = 25,
-        offset: number | null = null,
+        offset: number | null = 0,
         orderAttributes: string[] = [],
         orderTypes: string[] = [],
-        cursor: any = null,
-        cursorDirection: "after" | "before" = "after",
+        cursor: any = {},
+        cursorDirection: "after" | "before" = Database.CURSOR_AFTER,
         forPermission: string = Database.PERMISSION_READ,
     ): Promise<Document[]> {
         const name = this.filter(collection);
@@ -2447,7 +2477,7 @@ export class PostgreDB extends Sql implements Adapter {
                 return `to_tsvector(regexp_replace(${quotedAttribute}, '[^\\w]+', ' ', 'g')) @@ websearch_to_tsquery(${this.getFulltextValue(query.getValue())})`;
 
             case Query.TYPE_BETWEEN:
-                const values = query.getValues();
+                let values = query.getValues();
                 return `table_main.${quotedAttribute} BETWEEN $1 AND $2`;
 
             case Query.TYPE_IS_NULL:
@@ -2463,15 +2493,15 @@ export class PostgreDB extends Sql implements Adapter {
 
             default:
                 const conditions: string[] = [];
-                const _operator =
+                operator =
                     query.getMethod() === Query.TYPE_CONTAINS && query.onArray()
                         ? "@>"
                         : this.getSQLOperator(query.getMethod());
 
-                const _values = query.getValues();
-                _values.forEach((_, index) => {
+                values = query.getValues();
+                values.forEach((_, index) => {
                     conditions.push(
-                        `${quotedAttribute} ${_operator} $${index + 1}`,
+                        `${quotedAttribute} ${operator} $${index + 1}`,
                     );
                 });
 

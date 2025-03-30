@@ -36,7 +36,7 @@ export interface Adapter {
 
     getInTransaction(): number;
 
-    init(): Promise<void>;
+    init(): void;
 
     startTransaction(): Promise<boolean>;
 
@@ -500,7 +500,7 @@ export abstract class DatabaseAdapter implements IDatabaseAdapter {
         return require(moduleName);
     }
 
-    abstract init(): Promise<void>;
+    abstract init(): void;
 
     abstract startTransaction(): Promise<boolean>;
 

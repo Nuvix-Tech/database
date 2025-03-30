@@ -63,7 +63,7 @@ export class MariaDB extends Sql implements Adapter {
      * Initialize MariaDB adapter
      * @throws {InitializeError} If adapter is already initialized
      */
-    async init() {
+    public init() {
         if (this.instance)
             throw new InitializeError("MariaDB adapter already initialized");
         // if (!this.options.connection.database)
@@ -1404,14 +1404,9 @@ export class MariaDB extends Sql implements Adapter {
 
                 if (index === 0) {
                     columns.push(
-                        ...Object.keys(attributes)
-                            .filter(
-                                (attr) =>
-                                    !Database.INTERNAL_ATTRIBUTES.map(
-                                        (v) => v.$id,
-                                    ).includes(attr),
-                            )
-                            .map((attr) => `\`${this.filter(attr)}\``),
+                        ...Object.keys(attributes).map(
+                            (attr) => `\`${this.filter(attr)}\``,
+                        ),
                     );
                 }
 
