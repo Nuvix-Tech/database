@@ -282,7 +282,7 @@ export abstract class DatabaseAdapter implements IDatabaseAdapter {
     protected tenantId: number | null = null;
 
     // @ts-ignore
-    protected perfix: string;
+    protected prefix: string;
 
     protected transformations: Record<string, Record<string, Function>> = {
         "*": {},
@@ -399,14 +399,14 @@ export abstract class DatabaseAdapter implements IDatabaseAdapter {
      * Get the prefix
      */
     public getPrefix(): string {
-        return this.perfix;
+        return this.prefix;
     }
 
     /**
      * Set the prefix
      */
     public setPrefix(prefix: string): void {
-        this.perfix = this.filter(prefix);
+        this.prefix = this.filter(prefix);
     }
 
     /**

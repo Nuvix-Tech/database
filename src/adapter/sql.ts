@@ -98,7 +98,7 @@ export abstract class Sql extends DatabaseAdapter {
     }
 
     protected getSQLTable(name: string): string {
-        const prefixPart = this.perfix ? `${this.perfix}_` : "";
+        const prefixPart = this.prefix ? `${this.prefix}_` : "";
         return `\`${this.getDatabase()}\`.\`${prefixPart}${this.filter(name)}\``;
     }
 

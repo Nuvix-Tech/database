@@ -8,13 +8,11 @@ export interface IDocument {
     $id: string;
     $internalId: string;
     $collection: string;
-
-    [key: string]: unknown | null;
 }
 
 export class Document<
-    T extends Record<string, unknown> = IDocument & any,
-> extends Map<keyof (IDocument & T), (IDocument & T)[keyof (IDocument & T)]> {
+    T extends Partial<Record<string, unknown> & IDocument> = any,
+> extends Map<keyof (T & IDocument), (IDocument & T)[keyof (IDocument & T)]> {
     public static readonly SET_TYPE_ASSIGN = "assign";
     public static readonly SET_TYPE_PREPEND = "prepend";
     public static readonly SET_TYPE_APPEND = "append";
@@ -25,7 +23,7 @@ export class Document<
      * @param input - Initial data for the document
      * @throws DatabaseException
      */
-    constructor(input: Partial<IDocument & T & any> = {}) {
+    constructor(input: Partial<T & IDocument> = {}) {
         super(
             Object.entries(input) as [
                 keyof (IDocument & T),
@@ -174,18 +172,18 @@ export class Document<
         return attributes;
     }
 
-    public getAttribute<K extends keyof (IDocument & T)>(
+    public getAttribute<K extends keyof (T & IDocument)>(
         name: K,
-        defaultValue: (IDocument & T)[K] | null = null,
+        defaultValue: (IDocument & T)[K] | null | undefined = null,
     ): (IDocument & T)[K] | null {
         return this.has(name) && this.get(name) !== undefined
             ? (this.get(name) as (IDocument & T)[K])
             : defaultValue;
     }
 
-    public setAttribute<K extends keyof (IDocument & T)>(
+    public setAttribute<K extends keyof (T & IDocument)>(
         key: K,
-        value: (IDocument & T)[K] | unknown,
+        value: (T & IDocument)[K] | unknown,
         type: string = Document.SET_TYPE_ASSIGN,
     ): this {
         switch (type) {
@@ -222,7 +220,7 @@ export class Document<
     public setAttributes(attributes: Partial<IDocument & T>): this {
         for (const [key, value] of Object.entries(attributes)) {
             this.setAttribute(
-                key as keyof (IDocument & T),
+                key as keyof T,
                 (value ?? null) as (IDocument & T)[keyof (IDocument & T)],
             );
         }

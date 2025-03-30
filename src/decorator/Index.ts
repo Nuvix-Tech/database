@@ -7,7 +7,7 @@ export function Index(options?: IndexOptions): ClassDecorator {
             Reflect.getMetadata("indexes", (target as Object).constructor) ||
             [];
 
-        indexes.push(new Document(options));
+        indexes.push(new Document<any>(options));
 
         Reflect.defineMetadata("indexes", indexes, target.constructor);
     };

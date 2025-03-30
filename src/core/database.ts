@@ -410,7 +410,7 @@ export class Database extends Constant {
      *
      * @return string
      */
-    public getPerfix(): string {
+    public getPrefix(): string {
         return this.adapter.getPrefix();
     }
 
@@ -3213,7 +3213,7 @@ export class Database extends Constant {
             false,
         );
 
-        const collectionCacheKey = `${this.cacheName}-cache-${this.getPerfix()}:${this.adapter.getTenantId()}:collection:${_collection.getId()}`;
+        const collectionCacheKey = `${this.cacheName}-cache-${this.getPrefix()}:${this.adapter.getTenantId()}:collection:${_collection.getId()}`;
         let documentCacheKey = `${collectionCacheKey}:${id}`;
         let documentCacheHash = documentCacheKey;
 
@@ -3291,7 +3291,7 @@ export class Database extends Constant {
 
         for (const [key, value] of Object.entries(this.map)) {
             const [k, v] = key.split("=>");
-            const ck = `${this.cacheName}-cache-${this.getPerfix()}:${this.adapter.getTenantId()}:map:${k}`;
+            const ck = `${this.cacheName}-cache-${this.getPrefix()}:${this.adapter.getTenantId()}:map:${k}`;
             let cache = await this.cache.get<any[]>(ck, ck);
             if (!cache) {
                 cache = [];
@@ -6401,7 +6401,7 @@ export class Database extends Constant {
      * @return boolean
      */
     public async purgeCachedCollection(collectionId: string): Promise<boolean> {
-        const collectionKey = `${this.cacheName}-cache-${this.getPerfix()}:${this.adapter.getTenantId()}:collection:${collectionId}*`;
+        const collectionKey = `${this.cacheName}-cache-${this.getPrefix()}:${this.adapter.getTenantId()}:collection:${collectionId}*`;
         const documentKeys = await this.cache.keys(collectionKey);
         for (const documentKey of documentKeys) {
             await this.cache.delete(documentKey);
@@ -6423,7 +6423,7 @@ export class Database extends Constant {
         collectionId: string,
         id: string,
     ): Promise<boolean> {
-        const collectionKey = `${this.cacheName}-cache-${this.getPerfix()}:${this.adapter.getTenantId()}:collection:${collectionId}`;
+        const collectionKey = `${this.cacheName}-cache-${this.getPrefix()}:${this.adapter.getTenantId()}:collection:${collectionId}`;
         const documentKey = `${collectionKey}:${id}`;
 
         await this.cache.delete(collectionKey, documentKey);
@@ -7284,7 +7284,7 @@ export class Database extends Constant {
             return;
         }
 
-        const key = `${this.cacheName}-cache-${this.getPerfix()}:map:${collection.getId()}:${id}`;
+        const key = `${this.cacheName}-cache-${this.getPrefix()}:map:${collection.getId()}:${id}`;
         const cache = await this.cache.get<string>(key, key);
         if ((cache?.length ?? 0) > 0) {
             for (const v of cache!) {

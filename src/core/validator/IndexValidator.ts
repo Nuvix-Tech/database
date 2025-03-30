@@ -35,7 +35,7 @@ export class Index extends Validator {
         // Assuming Database.INTERNAL_ATTRIBUTES is an array of Document attributes
         for (const attribute of Database.INTERNAL_ATTRIBUTES) {
             const key = attribute["$id"].toLowerCase();
-            this.attributes[key] = new Document(attribute);
+            this.attributes[key] = new Document<typeof attribute>(attribute);
         }
     }
 

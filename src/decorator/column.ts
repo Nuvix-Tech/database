@@ -29,7 +29,7 @@ export function Column(options?: ColumnOptions): any {
         }
 
         columns.push(
-            new Document({
+            new Document<any>({
                 $id: propertyKey,
                 key: propertyKey,
                 type: options?.type ? typeMap[options?.type] : options?.type,

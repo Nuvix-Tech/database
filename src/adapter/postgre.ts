@@ -2286,10 +2286,6 @@ export class PostgreDB extends Sql implements Adapter {
         try {
             const result = await this.pool.query(sql, params);
 
-            if (result.rows.length === 0) {
-                throw new DatabaseError(`Document with ID "${uid}" not found`);
-            }
-
             return this.objectToDocument(result.rows[0]);
         } catch (e: any) {
             throw this.processException(e);
@@ -2439,6 +2435,11 @@ export class PostgreDB extends Sql implements Adapter {
 
     getLikeOperator(): string {
         return "ILIKE";
+    }
+
+    protected getSQLTable(name: string): string {
+        const prefixPart = this.prefix ? `${this.prefix}_` : "";
+        return `"${this.getDatabase()}"."${prefixPart}${this.filter(name)}"`;
     }
 
     /**

@@ -2452,7 +2452,7 @@ export class MariaDB extends Sql implements Adapter {
         collection: string,
     ): Promise<number> {
         const filteredCollection = this.filter(collection);
-        let prefixPart = this.perfix ? `${this.perfix}_` : "";
+        let prefixPart = this.prefix ? `${this.prefix}_` : "";
         const name = `${this.getDatabase()}/${prefixPart}${filteredCollection}`;
         const permissions = `${this.getDatabase()}/${prefixPart}${filteredCollection}_perms`;
 
@@ -2478,7 +2478,7 @@ export class MariaDB extends Sql implements Adapter {
 
     public async getSizeOfCollection(collection: string): Promise<number> {
         const filteredCollection = this.filter(collection);
-        let prefixPart = this.perfix ? `${this.perfix}_` : "";
+        let prefixPart = this.prefix ? `${this.prefix}_` : "";
         const tableName = `${prefixPart}${filteredCollection}`;
         const permissionsTable = `${prefixPart}${tableName}_perms`;
         const database = this.getDatabase();
