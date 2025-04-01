@@ -91,6 +91,16 @@ export class MariaDB extends Sql implements Adapter {
         return this.instance ? true : false;
     }
 
+    public async getClient(): Promise<any> {
+        try {
+            const connection = await this.pool.getConnection();
+            return connection;
+        } catch (e) {
+            this.logger.error(e);
+            throw this.processException(e, "Failed to get client");
+        }
+    }
+
     /**
      * Set the database name
      */
@@ -131,10 +141,10 @@ export class MariaDB extends Sql implements Adapter {
     /**
      * Start MariaDB transaction
      */
-    async startTransaction(): Promise<boolean> {
+    async startTransaction(client: mysql2.PoolConnection): Promise<boolean> {
         try {
             if (this.inTransaction === 0) {
-                await this.pool.query("START TRANSACTION");
+                await client.query("START TRANSACTION");
             }
 
             this.inTransaction++;
@@ -151,10 +161,10 @@ export class MariaDB extends Sql implements Adapter {
     /**
      * Commit MariaDB transaction
      */
-    async commitTransaction() {
+    async commitTransaction(client: mysql2.PoolConnection) {
         try {
             if (this.inTransaction === 1) {
-                await this.pool.query("COMMIT");
+                await client.query("COMMIT");
             }
             this.inTransaction--;
             return true;
@@ -170,10 +180,10 @@ export class MariaDB extends Sql implements Adapter {
     /**
      * Rollback MariaDB transaction
      */
-    async rollbackTransaction() {
+    async rollbackTransaction(client: mysql2.PoolConnection) {
         try {
             if (this.inTransaction === 1) {
-                await this.pool.query("ROLLBACK");
+                await client.query("ROLLBACK");
             }
             this.inTransaction--;
             return true;

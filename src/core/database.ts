@@ -694,8 +694,8 @@ export class Database extends Constant {
      * @return boolean
      * @throws DatabaseException
      */
-    public async startTransaction(): Promise<boolean> {
-        return await this.adapter.startTransaction();
+    public async startTransaction(c: any): Promise<boolean> {
+        return await this.adapter.startTransaction(c);
     }
 
     /**
@@ -708,8 +708,8 @@ export class Database extends Constant {
      * @return boolean
      * @throws DatabaseException
      */
-    public async commitTransaction(): Promise<boolean> {
-        return await this.adapter.commitTransaction();
+    public async commitTransaction(c: any): Promise<boolean> {
+        return await this.adapter.commitTransaction(c);
     }
 
     /**
@@ -721,8 +721,8 @@ export class Database extends Constant {
      * @return boolean
      * @throws DatabaseException
      */
-    public async rollbackTransaction(): Promise<boolean> {
-        return await this.adapter.rollbackTransaction();
+    public async rollbackTransaction(c: any): Promise<boolean> {
+        return await this.adapter.rollbackTransaction(c);
     }
 
     /**

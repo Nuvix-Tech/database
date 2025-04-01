@@ -38,11 +38,11 @@ export interface Adapter {
 
     init(): void;
 
-    startTransaction(): Promise<boolean>;
+    startTransaction(c: any): Promise<boolean>;
 
-    commitTransaction(): Promise<boolean>;
+    commitTransaction(c: any): Promise<boolean>;
 
-    rollbackTransaction(): Promise<boolean>;
+    rollbackTransaction(c: any): Promise<boolean>;
 
     withTransaction<T>(callback: () => Promise<T>): Promise<T>;
 
@@ -311,32 +311,46 @@ export abstract class DatabaseAdapter implements IDatabaseAdapter {
     }
 
     async withTransaction<T>(callback: () => Promise<T>): Promise<T> {
-        for (let attempts = 0; attempts < 3; attempts++) {
-            try {
-                await this.startTransaction();
-                const result = await callback();
-                await this.commitTransaction();
-                return result;
-            } catch (action) {
+        const client = await this.getClient();
+        if (client === null) {
+            throw new DatabaseError("Failed to get client");
+        }
+        try {
+            for (let attempts = 0; attempts < 3; attempts++) {
                 try {
-                    await this.rollbackTransaction();
-                } catch (rollback) {
+                    await this.startTransaction(client);
+                    const result = await callback();
+                    await this.commitTransaction(client);
+                    return result;
+                } catch (action) {
+                    try {
+                        await this.rollbackTransaction(client);
+                    } catch (rollback) {
+                        if (attempts < 2) {
+                            setTimeout(() => {}, 5);
+                            continue;
+                        }
+                        this.inTransaction = 0;
+                        throw rollback;
+                    }
                     if (attempts < 2) {
                         setTimeout(() => {}, 5);
                         continue;
                     }
                     this.inTransaction = 0;
-                    throw rollback;
+                    throw action;
                 }
-                if (attempts < 2) {
-                    setTimeout(() => {}, 5);
-                    continue;
-                }
-                this.inTransaction = 0;
-                throw action;
             }
+            throw new TransactionException(
+                "Failed to execute transaction after multiple attempts",
+            );
+        } catch (error) {
+            throw error;
+        } finally {
+            try {
+                client.release();
+            } catch {}
         }
-        throw new TransactionException("Failed to execute transaction");
     }
 
     /**
@@ -459,6 +473,11 @@ export abstract class DatabaseAdapter implements IDatabaseAdapter {
     }
 
     /**
+     * Get the client
+     */
+    public abstract getClient(): Promise<any>;
+
+    /**
      * Set a global timeout for database queries in milliseconds.
      *
      * This function allows you to set a maximum execution time for all database
@@ -502,11 +521,11 @@ export abstract class DatabaseAdapter implements IDatabaseAdapter {
 
     abstract init(): void;
 
-    abstract startTransaction(): Promise<boolean>;
+    abstract startTransaction(c: any): Promise<boolean>;
 
-    abstract commitTransaction(): Promise<boolean>;
+    abstract commitTransaction(c: any): Promise<boolean>;
 
-    abstract rollbackTransaction(): Promise<boolean>;
+    abstract rollbackTransaction(c: any): Promise<boolean>;
 
     abstract close(): Promise<void>;
 

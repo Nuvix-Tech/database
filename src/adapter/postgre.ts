@@ -2,7 +2,7 @@ import { Document } from "../core/Document";
 import { Query } from "../core/query";
 import { Adapter } from "./base";
 import { Sql } from "./sql";
-import { Pool, PoolClient, PoolConfig } from "pg";
+import { Pool, PoolConfig } from "pg";
 import Transaction from "../errors/Transaction";
 import { Database } from "../core/database";
 import {
@@ -80,14 +80,9 @@ export class PostgreDB extends Sql implements Adapter {
      * @returns Promise resolving to true if transaction started successfully
      * @throws Error if transaction could not be started
      */
-    async startTransaction(): Promise<boolean> {
+    async startTransaction(client: any): Promise<boolean> {
         try {
-            let client: PoolClient;
-
             if (this.inTransaction === 0) {
-                // Get a client from the pool
-                client = await this.pool.connect();
-
                 // If there's a lingering transaction, roll it back
                 try {
                     await client.query("ROLLBACK");
@@ -111,7 +106,7 @@ export class PostgreDB extends Sql implements Adapter {
      * @returns Promise resolving to true if commit successful
      * @throws Error if commit fails
      */
-    async commitTransaction(): Promise<boolean> {
+    async commitTransaction(client: any): Promise<boolean> {
         if (this.inTransaction === 0) {
             return false;
         }
@@ -120,7 +115,7 @@ export class PostgreDB extends Sql implements Adapter {
             this.inTransaction--;
 
             if (this.inTransaction === 0) {
-                await this.pool.query("COMMIT");
+                await client.query("COMMIT");
             }
 
             return true;
@@ -134,13 +129,13 @@ export class PostgreDB extends Sql implements Adapter {
      * @returns Promise resolving to true if rollback successful
      * @throws Error if rollback fails
      */
-    async rollbackTransaction(): Promise<boolean> {
+    async rollbackTransaction(client: any): Promise<boolean> {
         if (this.inTransaction === 0) {
             return false;
         }
 
         try {
-            await this.pool.query("ROLLBACK");
+            await client.query("ROLLBACK");
             this.inTransaction = 0;
             return true;
         } catch (e: any) {
@@ -192,6 +187,14 @@ export class PostgreDB extends Sql implements Adapter {
      */
     private getTenantSql() {
         return `AND (_tenant = $00000001 OR _tenant IS NULL)`;
+    }
+
+    public async getClient(): Promise<any> {
+        if (this.pool) {
+            const client = await this.pool.connect();
+            return client;
+        }
+        throw new Error("No PostgreSQL connection pool available");
     }
 
     /**
@@ -2478,7 +2481,7 @@ export class PostgreDB extends Sql implements Adapter {
                 return `to_tsvector(regexp_replace(${quotedAttribute}, '[^\\w]+', ' ', 'g')) @@ websearch_to_tsquery(${this.getFulltextValue(query.getValue())})`;
 
             case Query.TYPE_BETWEEN:
-                let values = query.getValues();
+                let _values = query.getValues();
                 return `table_main.${quotedAttribute} BETWEEN $1 AND $2`;
 
             case Query.TYPE_IS_NULL:
@@ -2486,7 +2489,7 @@ export class PostgreDB extends Sql implements Adapter {
                 return `table_main.${quotedAttribute} ${this.getSQLOperator(method)}`;
             // @ts-ignore
             case Query.TYPE_CONTAINS:
-                let operator = query.onArray()
+                let _operator = query.onArray()
                     ? "@>"
                     : this.getSQLOperator(method);
 
@@ -2494,12 +2497,12 @@ export class PostgreDB extends Sql implements Adapter {
 
             default:
                 const conditions: string[] = [];
-                operator =
+                let operator =
                     query.getMethod() === Query.TYPE_CONTAINS && query.onArray()
                         ? "@>"
                         : this.getSQLOperator(query.getMethod());
 
-                values = query.getValues();
+                let values = query.getValues();
                 values.forEach((_, index) => {
                     conditions.push(
                         `${quotedAttribute} ${operator} $${index + 1}`,
