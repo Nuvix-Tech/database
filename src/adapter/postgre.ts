@@ -41,7 +41,6 @@ export class PostgreDB extends Sql implements Adapter {
         super();
         this.options = options;
         this.type = "postgresql";
-
         this.database = options.schema ?? "public";
     }
 
@@ -183,10 +182,10 @@ export class PostgreDB extends Sql implements Adapter {
     }
 
     /**
-     *  Get Tenant SQL
+     *  Get Tenant SQL with proper parameter binding for PostgreSQL
      */
-    private getTenantSql() {
-        return `AND (_tenant = $00000001 OR _tenant IS NULL)`;
+    private getTenantSql(paramIndex: number = 1) {
+        return `AND (_tenant = $${paramIndex} OR _tenant IS NULL)`;
     }
 
     public async getClient(): Promise<any> {
@@ -221,17 +220,45 @@ export class PostgreDB extends Sql implements Adapter {
     }
 
     /**
-     * Checks if a database schema exists
-     * @param name - The name of the schema to check
-     * @returns Promise resolving to true if schema exists, false otherwise
+     * Checks if a database schema or table exists
+     * @param name - The name of the schema or table to check
+     * @param collection - If provided, checks if this table exists within the schema
+     * @returns Promise resolving to true if schema/table exists, false otherwise
      */
     async exists(name: string, collection?: string): Promise<boolean> {
-        const filteredName = this.filter(name);
-        const sql = `SELECT EXISTS (SELECT 1 FROM information_schema.schemata WHERE schema_name = '${filteredName}')`;
+        // Throw if name is not provided
+        if (!name) {
+            throw new DatabaseError(
+                "Name parameter is required for exists check",
+            );
+        }
+
         try {
-            const res = await this.pool.query(sql);
-            return res.rows[0].exists;
-        } catch {
+            if (collection) {
+                // Check if table exists
+                const query = `
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.tables 
+                        WHERE table_schema = $1 AND table_name = $2
+                    );
+                `;
+                const result = await this.pool.query(query, [name, collection]);
+                return result.rows[0].exists;
+            } else {
+                // Check if schema exists
+                const query = `
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.schemata 
+                        WHERE schema_name = $1
+                    );
+                `;
+                const result = await this.pool.query(query, [name]);
+                return result.rows[0].exists;
+            }
+        } catch (error) {
+            this.logger.error(
+                `Error checking if ${collection ? "table" : "schema"} exists: ${error}`,
+            );
             return false;
         }
     }
@@ -250,15 +277,27 @@ export class PostgreDB extends Sql implements Adapter {
         indexes: Document[] = [],
         ifExists = false,
     ): Promise<boolean> {
+        if (!name) {
+            throw new DatabaseError("Collection name is required");
+        }
+
         const prefix = this.getPrefix();
         const id = this.filter(name);
         const attributeStrings: string[] = [];
         let sqlStatements: string[] = [];
 
         for (const attribute of attributes) {
+            // Get attribute ID from either $id or key or both
             const attrId = this.filter(
-                attribute.getAttribute("key", attribute.getAttribute("$id")),
+                attribute.getAttribute("key") || attribute.getAttribute("$id"),
             );
+
+            if (!attrId) {
+                this.logger.warn(
+                    `Skipping attribute without ID in collection ${name}`,
+                );
+                continue;
+            }
 
             const attrType = this.getSQLType(
                 attribute.getAttribute("type"),
@@ -373,7 +412,14 @@ export class PostgreDB extends Sql implements Adapter {
 
             // Create indexes
             for (const index of indexes) {
-                const indexId = this.filter(index.getId());
+                const indexId = this.filter(index.getAttribute("$id") || "");
+                if (!indexId) {
+                    this.logger.warn(
+                        `Skipping index without ID in collection ${name}`,
+                    );
+                    continue;
+                }
+
                 const indexType = index.getAttribute("type");
                 const indexAttributes = index.getAttribute("attributes", []);
                 const indexOrders = index.getAttribute("orders", []);
@@ -416,15 +462,35 @@ export class PostgreDB extends Sql implements Adapter {
      * @returns Promise resolving to true if collection dropped successfully
      * @throws Error if collection drop fails
      */
-    async dropCollection(name: string, ifExists = false): Promise<boolean> {
+    async dropCollection(name: string, ifExists = true): Promise<boolean> {
+        if (!name) {
+            throw new DatabaseError("Collection name is required");
+        }
+
         const id = this.filter(name);
         const ifExistsClause = ifExists ? "IF EXISTS" : "";
 
-        let sql = `DROP TABLE ${ifExistsClause} ${this.getSQLTable(id)}, ${this.getSQLTable(id + "_perms")}`;
-        sql = await this.trigger(Database.EVENT_COLLECTION_DELETE, sql);
+        // In PostgreSQL, we can't drop multiple tables in a single statement
+        // So we need to drop them one by one
+        let mainTableSql = `DROP TABLE ${ifExistsClause} ${this.getSQLTable(id)}`;
+        let permsTableSql = `DROP TABLE ${ifExistsClause} ${this.getSQLTable(id + "_perms")}`;
+
+        mainTableSql = await this.trigger(
+            Database.EVENT_COLLECTION_DELETE,
+            mainTableSql,
+        );
+        permsTableSql = await this.trigger(
+            Database.EVENT_COLLECTION_DELETE,
+            permsTableSql,
+        );
 
         try {
-            await this.pool.query(sql);
+            // Drop the main table first
+            await this.pool.query(mainTableSql);
+
+            // Then drop the permissions table
+            await this.pool.query(permsTableSql);
+
             return true;
         } catch (e: any) {
             throw new Error(`Failed to drop collection: ${e.message}`);
@@ -1924,7 +1990,23 @@ export class PostgreDB extends Sql implements Adapter {
             let orderType = this.filter(orderTypes[i] || Database.ORDER_ASC);
 
             // Handle cursor-based pagination for first order attribute
-            if (i === 0 && cursor) {
+            if (
+                i === 0 &&
+                cursor &&
+                cursor[
+                    attribute === "_uid"
+                        ? "$id"
+                        : attribute === "_id"
+                          ? "$internalId"
+                          : attribute === "_tenant"
+                            ? "$tenant"
+                            : attribute === "_createdAt"
+                              ? "$createdAt"
+                              : attribute === "_updatedAt"
+                                ? "$updatedAt"
+                                : attribute
+                ]
+            ) {
                 let orderMethodInternalId = Query.TYPE_GREATER; // To preserve natural order
                 let orderMethod =
                     orderType === Database.ORDER_DESC
@@ -1983,7 +2065,11 @@ export class PostgreDB extends Sql implements Adapter {
         }
 
         // Allow after pagination without any order
-        if (mappedOrderAttributes.length === 0 && cursor) {
+        if (
+            mappedOrderAttributes.length === 0 &&
+            cursor &&
+            cursor["$internalId"]
+        ) {
             const orderType = orderTypes[0] || Database.ORDER_ASC;
             const orderMethod =
                 cursorDirection === Database.CURSOR_AFTER
@@ -2021,15 +2107,14 @@ export class PostgreDB extends Sql implements Adapter {
 
         // Process query conditions
         if (queries && queries.length > 0) {
-            const conditions = this.getSQLConditions(queries);
-            if (conditions) {
-                where.push(conditions);
-                let cParams: any = [];
-                for (const query of queries) {
-                    this.bindConditionValue(cParams, query);
-                }
-                params.push(...cParams);
-                paramIndex *= cParams.length;
+            const conditionsAndParams = this.getSQLConditionsWithParams(
+                queries,
+                paramIndex,
+            );
+            if (conditionsAndParams.conditions) {
+                where.push(conditionsAndParams.conditions);
+                params.push(...conditionsAndParams.params);
+                paramIndex += conditionsAndParams.params.length;
             }
         }
 
@@ -2047,10 +2132,16 @@ export class PostgreDB extends Sql implements Adapter {
         // Add authorization check if enabled
         if (Authorization.getStatus()) {
             where.push(
-                this.getSQLPermissionsCondition(name, roles, forPermission),
+                this.getSQLPermissionsConditionWithParam(
+                    name,
+                    roles,
+                    forPermission,
+                    paramIndex,
+                ),
             );
             if (this.sharedTables) {
                 params.push(this.getTenantId());
+                paramIndex++;
             }
         }
 
@@ -2104,6 +2195,8 @@ export class PostgreDB extends Sql implements Adapter {
 
             return documents;
         } catch (e: any) {
+            console.error(`SQL Query: ${sql}`);
+            console.error(`Params: ${JSON.stringify(params)}`);
             throw this.processException(e);
         }
     }
@@ -2129,12 +2222,12 @@ export class PostgreDB extends Sql implements Adapter {
             const conditions = this.getSQLConditions(queries);
             if (conditions) {
                 where.push(conditions);
-                let cParams: any = [];
+                let conditionParams: any[] = [];
                 for (const query of queries) {
-                    this.bindConditionValue(cParams, query);
+                    this.bindConditionValue(conditionParams, query);
                 }
-                params.push(...cParams);
-                paramIndex *= cParams.length;
+                params.push(...conditionParams);
+                paramIndex += conditionParams.length;
             }
         }
 
@@ -2153,6 +2246,7 @@ export class PostgreDB extends Sql implements Adapter {
             where.push(this.getSQLPermissionsCondition(name, roles));
             if (this.sharedTables) {
                 params.push(this.getTenantId());
+                paramIndex++;
             }
         }
 
@@ -2206,12 +2300,12 @@ export class PostgreDB extends Sql implements Adapter {
             const conditions = this.getSQLConditions(queries);
             if (conditions) {
                 where.push(conditions);
-                let cParams: any = [];
+                let conditionParams: any[] = [];
                 for (const query of queries) {
-                    this.bindConditionValue(cParams, query);
+                    this.bindConditionValue(conditionParams, query);
                 }
-                params.push(...cParams);
-                paramIndex *= cParams.length;
+                params.push(...conditionParams);
+                paramIndex += conditionParams.length;
             }
         }
 
@@ -2231,6 +2325,7 @@ export class PostgreDB extends Sql implements Adapter {
             where.push(this.getSQLPermissionsCondition(name, roles));
             if (this.sharedTables) {
                 params.push(this.getTenantId());
+                paramIndex++;
             }
         }
 
@@ -2413,7 +2508,7 @@ export class PostgreDB extends Sql implements Adapter {
     }
 
     getSupportForCasting(): boolean {
-        return true;
+        return false;
     }
 
     getMinDateTime(): Date {
@@ -2451,6 +2546,9 @@ export class PostgreDB extends Sql implements Adapter {
      * @returns A string containing the SQL condition
      */
     public getSQLCondition(query: Query): string {
+        // Use a local parameter counter for thread safety
+        let paramCount = 1;
+
         // Map special attributes to their database column names
         const attribute = query.getAttribute();
         const mappedAttribute = (() => {
@@ -2473,7 +2571,8 @@ export class PostgreDB extends Sql implements Adapter {
         // Set the mapped attribute back to the query
         query.setAttribute(mappedAttribute);
 
-        const quotedAttribute = `"${this.filter(mappedAttribute)}"`;
+        const filteredAttr = this.filter(mappedAttribute);
+        const quotedAttribute = `table_main."${filteredAttr}"`;
         const method = query.getMethod();
 
         switch (method) {
@@ -2481,19 +2580,25 @@ export class PostgreDB extends Sql implements Adapter {
                 return `to_tsvector(regexp_replace(${quotedAttribute}, '[^\\w]+', ' ', 'g')) @@ websearch_to_tsquery(${this.getFulltextValue(query.getValue())})`;
 
             case Query.TYPE_BETWEEN:
-                let _values = query.getValues();
-                return `table_main.${quotedAttribute} BETWEEN $1 AND $2`;
+                let betweenValues = query.getValues();
+                return `${quotedAttribute} BETWEEN $${paramCount++} AND $${paramCount++}`;
 
             case Query.TYPE_IS_NULL:
             case Query.TYPE_IS_NOT_NULL:
-                return `table_main.${quotedAttribute} ${this.getSQLOperator(method)}`;
+                return `${quotedAttribute} ${this.getSQLOperator(method)}`;
+
+            case Query.TYPE_EQUAL:
+                return this.getSQLConditionEqual(
+                    filteredAttr,
+                    query.getValues(),
+                );
             // @ts-ignore
             case Query.TYPE_CONTAINS:
-                let _operator = query.onArray()
-                    ? "@>"
-                    : this.getSQLOperator(method);
-
-            // Fall through to default case for condition building
+                if (query.onArray()) {
+                    return `${quotedAttribute} @> $${paramCount++}`;
+                }
+            // Fall through to default for non-array contains
+            /* falls through */
 
             default:
                 const conditions: string[] = [];
@@ -2505,13 +2610,127 @@ export class PostgreDB extends Sql implements Adapter {
                 let values = query.getValues();
                 values.forEach((_, index) => {
                     conditions.push(
-                        `${quotedAttribute} ${operator} $${index + 1}`,
+                        `${quotedAttribute} ${operator} $${paramCount++}`,
                     );
                 });
 
                 return conditions.length === 0
                     ? ""
                     : `(${conditions.join(" OR ")})`;
+        }
+    }
+
+    /**
+     * Generate condition for Query.equal operator
+     * @param field - The field to check
+     * @param values - The values to compare against
+     * @returns SQL condition string
+     * @throws Error if values format is incorrect
+     */
+    protected getSQLConditionEqual(field: string, values: any[]): string {
+        // Use a local parameter counter for thread safety
+        let paramCount = 1;
+
+        if (!Array.isArray(values)) {
+            throw new DatabaseError(
+                "Invalid values format for equal condition",
+            );
+        }
+
+        if (values.length === 0) {
+            throw new DatabaseError("No values provided for equal condition");
+        }
+
+        if (values.length === 1) {
+            // Special handling for boolean values
+            if (typeof values[0] === "boolean") {
+                return `"table_main"."${this.filter(field)}" = ${values[0] ? "TRUE" : "FALSE"}`;
+            }
+
+            // Handle null values
+            if (values[0] === null) {
+                return `"table_main"."${this.filter(field)}" IS NULL`;
+            }
+
+            return `"table_main"."${this.filter(field)}" = $${paramCount++}`;
+        }
+
+        const placeholders = [];
+        for (let i = 0; i < values.length; i++) {
+            // Special handling for boolean values
+            if (typeof values[i] === "boolean") {
+                placeholders.push(values[i] ? "TRUE" : "FALSE");
+                // Remove the value from the array so it's not included in parameter binding
+                values.splice(i, 1);
+                i--; // Adjust index after removal
+            } else if (values[i] === null) {
+                placeholders.push("NULL");
+                // Remove the value from the array so it's not included in parameter binding
+                values.splice(i, 1);
+                i--; // Adjust index after removal
+            } else {
+                placeholders.push(`$${paramCount++}`);
+            }
+        }
+
+        return `"table_main"."${this.filter(field)}" IN (${placeholders.join(", ")})`;
+    }
+
+    /**
+     * Binds the values of a query condition to the params array
+     * @param params - The array to push parameters to
+     * @param query - The query with values to bind
+     */
+    protected bindConditionValue(params: any[], query: Query): void {
+        const method = query.getMethod();
+        const values = query.getValues();
+
+        if (values.length === 0) {
+            return;
+        }
+
+        switch (method) {
+            case Query.TYPE_BETWEEN:
+                if (values.length >= 2) {
+                    params.push(values[0], values[1]);
+                }
+                break;
+            case Query.TYPE_IS_NULL:
+            case Query.TYPE_IS_NOT_NULL:
+                // No parameters needed for NULL checks
+                break;
+            case Query.TYPE_EQUAL:
+                // Handle boolean and null values separately in getSQLConditionEqual
+                for (const value of values) {
+                    if (typeof value !== "boolean" && value !== null) {
+                        params.push(value);
+                    }
+                }
+                break;
+            case Query.TYPE_CONTAINS:
+                if (query.onArray()) {
+                    // For array contains, wrap the value in an array
+                    params.push(
+                        Array.isArray(values[0])
+                            ? JSON.stringify(values[0])
+                            : JSON.stringify([values[0]]),
+                    );
+                } else {
+                    // For regular contains, handle like other operators
+                    for (const value of values) {
+                        params.push(`%${value}%`);
+                    }
+                }
+                break;
+            default:
+                for (const value of values) {
+                    if (method === Query.TYPE_SEARCH) {
+                        params.push(`%${value}%`);
+                    } else {
+                        params.push(value);
+                    }
+                }
+                break;
         }
     }
 
@@ -2713,25 +2932,342 @@ export class PostgreDB extends Sql implements Adapter {
         }
     }
 
+    /**
+     * Generate SQL permission condition with parameter index
+     *
+     * @param collection - Collection name
+     * @param roles - Authorization roles
+     * @param forPermission - Permission type
+     * @param paramIndex - Starting parameter index
+     * @returns SQL condition for permissions
+     */
     protected override getSQLPermissionsCondition(
         collection: string,
         roles: string[],
-        type: string = Database.PERMISSION_READ,
+        forPermission: string = Database.PERMISSION_READ,
+        paramIndex: number | any = 1,
     ): string {
-        if (!Database.PERMISSIONS.includes(type)) {
-            throw new DatabaseError("Unknown permission type: " + type);
+        const permsTable = this.getSQLTable(collection + "_perms");
+
+        let sql = `table_main._uid IN (
+              SELECT _document
+              FROM ${permsTable}
+              WHERE _permission IN ('any'`;
+
+        if (roles.length > 0) {
+            sql += ", '" + roles.join("', '") + "'";
         }
-        const quotedRoles = roles.map((r) => `'${r}'`).join(", ");
-        let tenantQuery = "";
+
+        sql += `)
+                AND _type = '${forPermission}'
+                `;
+
         if (this.sharedTables) {
-            tenantQuery = `AND (_tenant = $0001} OR _tenant IS NULL)`;
+            sql += `AND _tenant = $${paramIndex}`;
         }
-        return `table_main._uid IN (
-          SELECT _document
-          FROM ${this.getSQLTable(collection + "_perms")}
-          WHERE _permission IN (${quotedRoles})
-            AND _type = '${type}'
-            ${tenantQuery}
-        )`;
+
+        sql += ")";
+
+        return sql;
+    }
+
+    /**
+     * Generates SQL conditions from an array of Query objects
+     * This method handles parameter counting locally for thread safety
+     *
+     * @param queries - The array of Query objects
+     * @returns A string containing the SQL conditions
+     */
+    public getSQLConditions(queries: Query[]): string {
+        if (!queries || queries.length === 0) {
+            return "";
+        }
+
+        const conditions: string[] = [];
+
+        for (const query of queries) {
+            const condition = this.getSQLCondition(query);
+            if (condition) {
+                conditions.push(condition);
+            }
+        }
+
+        return conditions.length === 0 ? "" : `(${conditions.join(" AND ")})`;
+    }
+
+    /**
+     * Creates SQL conditions for an array of queries with proper parameter indices
+     * @param queries - The queries to create conditions for
+     * @param startParamIndex - The starting parameter index
+     * @returns Object containing conditions string and parameters array
+     */
+    protected getSQLConditionsWithParams(
+        queries: Query[],
+        startParamIndex: number = 1,
+    ): { conditions: string; params: any[] } {
+        const params: any[] = [];
+        let currentParamIndex = startParamIndex;
+
+        if (!queries || queries.length === 0) {
+            return { conditions: "", params: [] };
+        }
+
+        const conditions: string[] = [];
+
+        for (const query of queries) {
+            // Generate SQL condition with the current parameter index
+            const result = this.getSQLConditionWithParams(
+                query,
+                currentParamIndex,
+            );
+            if (result.condition) {
+                conditions.push(result.condition);
+                params.push(...result.params);
+                currentParamIndex += result.params.length;
+            }
+        }
+
+        return {
+            conditions:
+                conditions.length > 0 ? `(${conditions.join(" AND ")})` : "",
+            params,
+        };
+    }
+
+    /**
+     * Converts a query object to an SQL condition string with parameter indices
+     * @param query - The query object to convert
+     * @param startParamIndex - The starting parameter index
+     * @returns Object containing the SQL condition and parameters
+     */
+    protected getSQLConditionWithParams(
+        query: Query,
+        startParamIndex: number = 1,
+    ): { condition: string; params: any[] } {
+        const params: any[] = [];
+        let currentParamIndex = startParamIndex;
+
+        // Map special attributes to their database column names
+        const attribute = query.getAttribute();
+        const mappedAttribute = (() => {
+            switch (attribute) {
+                case "$id":
+                    return "_uid";
+                case "$internalId":
+                    return "_id";
+                case "$tenant":
+                    return "_tenant";
+                case "$createdAt":
+                    return "_createdAt";
+                case "$updatedAt":
+                    return "_updatedAt";
+                default:
+                    return attribute;
+            }
+        })();
+
+        // Set the mapped attribute back to the query
+        query.setAttribute(mappedAttribute);
+
+        const filteredAttr = this.filter(mappedAttribute);
+        const quotedAttribute = `table_main."${filteredAttr}"`;
+        const method = query.getMethod();
+        const values = query.getValues();
+
+        switch (method) {
+            case Query.TYPE_SEARCH:
+                params.push(query.getValue());
+                return {
+                    condition: `to_tsvector(regexp_replace(${quotedAttribute}, '[^\\w]+', ' ', 'g')) @@ websearch_to_tsquery(${this.getFulltextValue(query.getValue())})`,
+                    params,
+                };
+
+            case Query.TYPE_BETWEEN:
+                if (values.length >= 2) {
+                    params.push(values[0], values[1]);
+                    return {
+                        condition: `${quotedAttribute} BETWEEN $${currentParamIndex} AND $${currentParamIndex + 1}`,
+                        params,
+                    };
+                }
+                return { condition: "", params: [] };
+
+            case Query.TYPE_IS_NULL:
+                return {
+                    condition: `${quotedAttribute} IS NULL`,
+                    params,
+                };
+
+            case Query.TYPE_IS_NOT_NULL:
+                return {
+                    condition: `${quotedAttribute} IS NOT NULL`,
+                    params,
+                };
+
+            case Query.TYPE_EQUAL:
+                return this.getSQLConditionEqualWithParams(
+                    filteredAttr,
+                    values,
+                    currentParamIndex,
+                );
+
+            case Query.TYPE_CONTAINS:
+                if (query.onArray()) {
+                    params.push(
+                        Array.isArray(values[0])
+                            ? JSON.stringify(values[0])
+                            : JSON.stringify([values[0]]),
+                    );
+                    return {
+                        condition: `${quotedAttribute} @> $${currentParamIndex}`,
+                        params,
+                    };
+                }
+                // For string contains, use LIKE
+                const containsConditions: string[] = [];
+                for (let i = 0; i < values.length; i++) {
+                    params.push(`%${values[i]}%`);
+                    containsConditions.push(
+                        `${quotedAttribute} LIKE $${currentParamIndex + i}`,
+                    );
+                }
+                return {
+                    condition:
+                        containsConditions.length === 0
+                            ? ""
+                            : containsConditions.length === 1
+                              ? containsConditions[0]
+                              : `(${containsConditions.join(" OR ")})`,
+                    params,
+                };
+
+            default:
+                const conditions: string[] = [];
+                const operator = this.getSQLOperator(query.getMethod());
+
+                for (let i = 0; i < values.length; i++) {
+                    params.push(values[i]);
+                    conditions.push(
+                        `${quotedAttribute} ${operator} $${currentParamIndex + i}`,
+                    );
+                }
+
+                return {
+                    condition:
+                        conditions.length === 0
+                            ? ""
+                            : conditions.length === 1
+                              ? conditions[0]
+                              : `(${conditions.join(" OR ")})`,
+                    params,
+                };
+        }
+    }
+
+    /**
+     * Creates SQL condition for equality with parameters
+     * @param field - The field name
+     * @param values - The values to check equality against
+     * @param startParamIndex - The starting parameter index
+     * @returns SQL condition string and parameters
+     */
+    protected getSQLConditionEqualWithParams(
+        field: string,
+        values: any[],
+        startParamIndex: number = 1,
+    ): { condition: string; params: any[] } {
+        if (!Array.isArray(values)) {
+            throw new DatabaseError(
+                "Invalid values format for equal condition",
+            );
+        }
+
+        if (values.length === 0) {
+            throw new DatabaseError("No values provided for equal condition");
+        }
+
+        const params: any[] = [];
+        let currentParamIndex = startParamIndex;
+
+        if (values.length === 1) {
+            // Special handling for boolean values
+            if (typeof values[0] === "boolean") {
+                return {
+                    condition: `"table_main"."${field}" = ${values[0] ? "TRUE" : "FALSE"}`,
+                    params: [],
+                };
+            }
+
+            // Handle null values
+            if (values[0] === null) {
+                return {
+                    condition: `"table_main"."${field}" IS NULL`,
+                    params: [],
+                };
+            }
+
+            params.push(values[0]);
+            return {
+                condition: `"table_main"."${field}" = $${currentParamIndex}`,
+                params,
+            };
+        }
+
+        const placeholders: string[] = [];
+        for (let i = 0; i < values.length; i++) {
+            // Special handling for boolean values
+            if (typeof values[i] === "boolean") {
+                placeholders.push(values[i] ? "TRUE" : "FALSE");
+            } else if (values[i] === null) {
+                placeholders.push("NULL");
+            } else {
+                params.push(values[i]);
+                placeholders.push(`$${currentParamIndex++}`);
+            }
+        }
+
+        return {
+            condition: `"table_main"."${field}" IN (${placeholders.join(", ")})`,
+            params,
+        };
+    }
+
+    /**
+     * Generate SQL permission condition with parameter index
+     *
+     * @param collection - Collection name
+     * @param roles - Authorization roles
+     * @param forPermission - Permission type
+     * @param paramIndex - Starting parameter index
+     * @returns SQL condition for permissions
+     */
+    protected getSQLPermissionsConditionWithParam(
+        collection: string,
+        roles: string[],
+        forPermission: string = Database.PERMISSION_READ,
+        paramIndex: number = 1,
+    ): string {
+        const permsTable = this.getSQLTable(collection + "_perms");
+
+        let sql = `table_main._uid IN (
+              SELECT _document
+              FROM ${permsTable}
+              WHERE _permission IN ('any'`;
+
+        if (roles.length > 0) {
+            sql += ", '" + roles.join("', '") + "'";
+        }
+
+        sql += `)
+                AND _type = '${forPermission}'
+                `;
+
+        if (this.sharedTables) {
+            sql += `AND _tenant = $${paramIndex}`;
+        }
+
+        sql += ")";
+
+        return sql;
     }
 }

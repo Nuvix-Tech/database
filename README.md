@@ -1,16 +1,15 @@
-# Database Library
+# Nuvix Database Library
 
-A powerful, extensible, and dynamic database library written in TypeScript. This library allows developers to define and manipulate schemas, perform efficient queries, and manage data seamlessly across different databases. It currently includes a MariaDB adapter with plans for future expansion.
+A powerful and modern TypeScript database library inspired by cutting-edge technologies and best practices.
 
 ## Features
 
-- **Dynamic and Static Schema Definition**: Support for defining schemas using repository patterns (static) or structured objects (dynamic).
-- **Multi-Tenancy**: Built-in support for shared tables for multi-tenant applications.
-- **Query Builders**: Chainable and intuitive query builders for constructing complex queries.
-- **MariaDB Adapter**: Full support for MariaDB with efficient query execution and parameter binding.
-- **Customizable Adapters**: Easily extend or create new adapters for other databases.
-- **Real-Time Logging**: Debug queries with parameterized outputs.
-- **Extensibility**: Designed for developers to extend functionality easily.
+- TypeScript-first approach with full type safety
+- Adapter-based design supporting multiple database backends
+- Document-oriented API with flexible querying capabilities
+- Built-in caching for improved performance
+- Comprehensive permission system
+- Transaction support
 
 ## Installation
 
@@ -18,132 +17,67 @@ A powerful, extensible, and dynamic database library written in TypeScript. This
 npm install @nuvix/database
 ```
 
-## Getting Started
-
-### Basic Usage
+## Usage
 
 ```typescript
-import { Database, MariaDBAdapter, Query } from "@nuvix/database";
+import { Database } from "@nuvix/database";
+import { PostgreDB } from "@nuvix/database/src/adapter/postgre";
+import { Cache, Redis } from "@nuvix/cache";
 
-// Initialize the database
-const adapter = new MariaDB({
-    host: "localhost",
-    user: "root",
-    password: "password",
-    database: "test_db",
+// Create a database adapter
+const adapter = new PostgreDB({
+    connection: {
+        connectionString: "postgres://user:password@localhost:5432/mydb",
+        ssl: {
+            rejectUnauthorized: false,
+        },
+    },
+    schema: "public",
 });
 
-await adapter.init();
+// Initialize the adapter
+adapter.init();
 
-const db = new Database(adapter);
+// Create a cache instance
+const cache = new Cache(new Redis({}));
 
-// Perform a query
-const documents = await db.find(
-    "users",
-    [Query.contains("name", ["John"]), Query.equal("status", "active")],
-    10,
-    0,
-);
-
-console.log(documents);
-```
-
-### Schema Definition
-
-#### Static Schema (Repository Pattern)
-
-```typescript
-import { Entity, Column } from "@nuvix/database";
-
-@Entity("users")
-class User {
-    @Column()
-    id: number;
-
-    @Column({ type: "string" })
-    name: string;
-
-    @Column({ type: "string" })
-    email: string;
-}
-```
-
-#### Dynamic Schema
-
-```typescript
-const col1 = db.createCollection(
-    ID.uniqe(),
-    [], // attributes
-    [], // indexes
-    true, // documentSecurity
-    [Permission.read(Role.any())], // permissions
-);
-
-Document({
-    $id: "6758383663783833983",
-    attributes: [],
-    indexes: [],
-    documentSecurity: true,
-    $permissions: [`read(any)`],
-});
-```
-
-### Multi-Tenancy Support
-
-Enable shared tables and tenant isolation:
-
-```typescript
-db.enableSharedTables(true);
-db.setTenantId("tenant_1");
-
-const tenantDocuments = await db.find("shared_table", []);
-```
-
-## MariaDB Adapter
-
-The MariaDB adapter enables efficient interaction with MariaDB databases:
-
-### Initialization
-
-```typescript
-const mariadbAdapter = new MariaDB({
-    host: "localhost",
-    user: "root",
-    password: "password",
-    database: "my_database",
+// Create the database instance
+const db = new Database(adapter, cache, {
+    logger: true,
 });
 
-const db = new Database(mariadbAdapter);
+// Now you can use the database
 ```
 
-### Query Execution Example
+## Testing
 
-```typescript
-const documents = await db.find("products", [
-    Query.contains("category", ["Electronics"]),
-]);
+This library includes comprehensive tests for both core functionality and specific adapter implementations.
 
-console.log(documents);
+### Running Tests
+
+```bash
+# Run core tests only
+npm run test
+
+# Run PostgreSQL adapter tests
+npm run test:pg
+
+# Run all tests
+npm run test:all
+
+# Run tests with specific pattern
+npm run test -- --testPathPattern=your-pattern
 ```
 
-## Logging and Debugging
+### Test Configuration
 
-Enable debug mode to log SQL queries and parameters:
+Configure test settings by setting environment variables:
 
-```typescript
-db.enableDebug(true);
+```bash
+# Enable PostgreSQL tests
+PG_TEST_CONNECTION=true npm run test:pg
 ```
-
-## Contributing
-
-We welcome contributions! Please follow these steps:
-
-1. Fork the repository.
-2. Create a feature branch: `git checkout -b feature-name`.
-3. Commit your changes: `git commit -m 'Add some feature'`.
-4. Push to the branch: `git push origin feature-name`.
-5. Open a pull request.
 
 ## License
 
-This project is licensed under the BSD 3-Clause License. See the [LICENSE](LICENSE) file for details.
+BSD-3-Clause

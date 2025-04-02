@@ -17,6 +17,6 @@ npm-debug.log
 *.iml
 dist
 temp
-test
+test/config.ts
 
 src/**/*.js

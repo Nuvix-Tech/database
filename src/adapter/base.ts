@@ -530,11 +530,20 @@ export abstract class DatabaseAdapter implements IDatabaseAdapter {
     abstract close(): Promise<void>;
 
     filter(value: string): string {
-        value = value.replace(/[^A-Za-z0-9_\-]/g, "");
-        if (value === null) {
-            throw new DatabaseError("Failed to filter key");
+        if (value === null || value === undefined) {
+            throw new DatabaseError(
+                "Failed to filter key: value is null or undefined",
+            );
         }
-        return value;
+
+        const filtered = value.replace(/[^A-Za-z0-9_\-]/g, "");
+        if (filtered === "") {
+            throw new DatabaseError(
+                "Failed to filter key: filtered value is empty",
+            );
+        }
+
+        return filtered;
     }
 
     before(
