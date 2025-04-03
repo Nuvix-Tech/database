@@ -21,8 +21,8 @@
     "build": "tsc",
     "prepare": "npm run build",
     "format": "prettier --write .",
-    "test": "node test/run-tests.js",
-    "test:all": "node test/run-tests.js --all"
+    "test": "node tests/run-tests.js",
+    "test:all": "node tests/run-tests.js --all"
   },
   "keywords": [
     "typescript",

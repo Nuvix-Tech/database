@@ -287,19 +287,28 @@ export class Query {
         return new Query(Query.TYPE_NOT_EQUAL, attribute, [value]);
     }
 
-    public static lessThan(attribute: string, value: any): Query {
+    public static lessThan(attribute: string, value: number | string): Query {
         return new Query(Query.TYPE_LESSER, attribute, [value]);
     }
 
-    public static lessThanEqual(attribute: string, value: any): Query {
+    public static lessThanEqual(
+        attribute: string,
+        value: number | string,
+    ): Query {
         return new Query(Query.TYPE_LESSER_EQUAL, attribute, [value]);
     }
 
-    public static greaterThan(attribute: string, value: any): Query {
+    public static greaterThan(
+        attribute: string,
+        value: number | string,
+    ): Query {
         return new Query(Query.TYPE_GREATER, attribute, [value]);
     }
 
-    public static greaterThanEqual(attribute: string, value: any): Query {
+    public static greaterThanEqual(
+        attribute: string,
+        value: number | string,
+    ): Query {
         return new Query(Query.TYPE_GREATER_EQUAL, attribute, [value]);
     }
 
@@ -342,11 +351,11 @@ export class Query {
         return new Query(Query.TYPE_OFFSET, "", [value]);
     }
 
-    public static cursorAfter(value: any): Query {
+    public static cursorAfter(value: string): Query {
         return new Query(Query.TYPE_CURSOR_AFTER, "", [value]);
     }
 
-    public static cursorBefore(value: any): Query {
+    public static cursorBefore(value: string): Query {
         return new Query(Query.TYPE_CURSOR_BEFORE, "", [value]);
     }
 

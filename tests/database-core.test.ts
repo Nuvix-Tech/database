@@ -19,9 +19,9 @@ function getAdapter(): Adapter {
     const adapter = new PostgreDB({
         connection: {
             connectionString: DB,
-            ssl: {
-                rejectUnauthorized: false,
-            },
+            // ssl: {
+            //     rejectUnauthorized: false,
+            // },
         },
         schema: "public",
     });

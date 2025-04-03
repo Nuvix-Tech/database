@@ -50,6 +50,8 @@ interface DatabaseOptions {
     filters?: Record<string, Filter>;
     entities?: any[];
     logger?: boolean | LoggerOptions;
+    cacheTTL?: number;
+    cacheEnabled?: boolean;
 }
 
 type IRecord = Record<string, unknown | any>;
@@ -112,6 +114,9 @@ export class Database extends Constant {
 
     protected logger: Logger;
 
+    protected cacheTTL: number = 300; // Default TTL: 5 minutes
+    protected cacheEnabled: boolean = true;
+
     constructor(
         adapter: Adapter,
         cache: Cache,
@@ -130,6 +135,8 @@ export class Database extends Constant {
         this.instanceFilters = options.filters ?? {};
         this.cacheName = "default";
         this.logger = new Logger(options.logger);
+        this.cacheTTL = options.cacheTTL ?? 300;
+        this.cacheEnabled = options.cacheEnabled ?? true;
 
         this.entities = options.entities as any[];
 
@@ -811,7 +818,7 @@ export class Database extends Constant {
             deleted: deleted,
         });
 
-        await this.cache.clear();
+        await this.clearCache();
 
         return deleted;
     }
@@ -3213,15 +3220,14 @@ export class Database extends Constant {
             false,
         );
 
-        const collectionCacheKey = `${this.cacheName}-cache-${this.getPrefix()}:${this.adapter.getTenantId()}:collection:${_collection.getId()}`;
+        const collectionCacheKey = `collection:${_collection.getId()}`;
         let documentCacheKey = `${collectionCacheKey}:${id}`;
-        let documentCacheHash = documentCacheKey;
 
         if (selections.length > 0) {
-            documentCacheHash += `:${crypto.createHash("md5").update(selections.join("")).digest("hex")}`;
+            documentCacheKey += `:${crypto.createHash("md5").update(selections.join("")).digest("hex")}`;
         }
 
-        const cache = await this.cache.get(documentCacheKey, documentCacheHash);
+        const cache = await this.getCacheValue(documentCacheKey);
 
         if (cache) {
             const document = new Document<any>(cache);
@@ -3291,30 +3297,20 @@ export class Database extends Constant {
 
         for (const [key, value] of Object.entries(this.map)) {
             const [k, v] = key.split("=>");
-            const ck = `${this.cacheName}-cache-${this.getPrefix()}:${this.adapter.getTenantId()}:map:${k}`;
-            let cache = await this.cache.get<any[]>(ck, ck);
+            const ck = `map:${k}`;
+            let cache = await this.getCacheValue(ck);
             if (!cache) {
                 cache = [];
             }
             if (!cache.includes(v)) {
                 cache.push(v);
-                await this.cache.set(ck, cache, Database.TTL, ck);
+                await this.setCacheValue(ck, cache);
             }
         }
 
         if (!hasTwoWayRelationship && relationships.length === 0) {
-            await this.cache.set(
-                documentCacheKey,
-                document.toObject(),
-                Database.TTL,
-                documentCacheHash,
-            );
-            await this.cache.set(
-                collectionCacheKey,
-                "empty",
-                Database.TTL,
-                documentCacheKey,
-            );
+            await this.setCacheValue(collectionCacheKey, "empty");
+            await this.setCacheValue(documentCacheKey, document.toObject());
         }
 
         for (const query of queries) {
@@ -6401,13 +6397,8 @@ export class Database extends Constant {
      * @return boolean
      */
     public async purgeCachedCollection(collectionId: string): Promise<boolean> {
-        const collectionKey = `${this.cacheName}-cache-${this.getPrefix()}:${this.adapter.getTenantId()}:collection:${collectionId}*`;
-        const documentKeys = await this.cache.keys(collectionKey);
-        for (const documentKey of documentKeys) {
-            await this.cache.delete(documentKey);
-        }
-
-        return true;
+        const collectionKey = `collection:${collectionId}*`;
+        return await this.clearCache(collectionKey);
     }
 
     /**
@@ -6423,13 +6414,10 @@ export class Database extends Constant {
         collectionId: string,
         id: string,
     ): Promise<boolean> {
-        const collectionKey = `${this.cacheName}-cache-${this.getPrefix()}:${this.adapter.getTenantId()}:collection:${collectionId}`;
-        const documentKey = `${collectionKey}:${id}`;
+        const collectionKey = `collection:${collectionId}`;
+        const documentKey = `${collectionKey}:${id}*`;
 
-        await this.cache.delete(collectionKey, documentKey);
-        await this.cache.delete(documentKey);
-
-        return true;
+        return await this.clearCache(documentKey);
     }
 
     /**
@@ -7284,14 +7272,14 @@ export class Database extends Constant {
             return;
         }
 
-        const key = `${this.cacheName}-cache-${this.getPrefix()}:map:${collection.getId()}:${id}`;
-        const cache = await this.cache.get<string>(key, key);
+        const key = `map:${collection.getId()}:${id}`;
+        const cache = await this.getCacheValue(key);
         if ((cache?.length ?? 0) > 0) {
             for (const v of cache!) {
                 const [collectionId, documentId] = v.split(":");
                 await this.purgeCachedDocument(collectionId, documentId);
             }
-            await this.cache.delete(key);
+            await this.setCacheValue(key, []);
         }
         return;
     }
@@ -7381,5 +7369,166 @@ export class Database extends Constant {
         }
 
         this.logger.info("Migration applied successfully");
+    }
+
+    /**
+     * Set the cache TTL (Time To Live) in seconds
+     *
+     * @param ttl
+     * @return this
+     */
+    public setCacheTTL(ttl: number): this {
+        this.cacheTTL = ttl;
+        return this;
+    }
+
+    /**
+     * Get the cache TTL (Time To Live) in seconds
+     *
+     * @return number
+     */
+    public getCacheTTL(): number {
+        return this.cacheTTL;
+    }
+
+    /**
+     * Enable cache
+     *
+     * @return this
+     */
+    public enableCache(): this {
+        this.cacheEnabled = true;
+        return this;
+    }
+
+    /**
+     * Disable cache
+     *
+     * @return this
+     */
+    public disableCache(): this {
+        this.cacheEnabled = false;
+        return this;
+    }
+
+    /**
+     * Check if cache is enabled
+     *
+     * @return boolean
+     */
+    public isCacheEnabled(): boolean {
+        return this.cacheEnabled;
+    }
+
+    /**
+     * Set whether caching is enabled
+     *
+     * @param enabled
+     * @return this
+     */
+    public setCacheEnabled(enabled: boolean): this {
+        this.cacheEnabled = enabled;
+        return this;
+    }
+
+    /**
+     * Skip cache usage
+     *
+     * Execute a callback without using cache
+     *
+     * @template T
+     * @param callback
+     * @return T
+     */
+    public async skipCache<T>(callback: () => Promise<T>): Promise<T> {
+        const initial = this.cacheEnabled;
+        this.disableCache();
+
+        try {
+            return await callback();
+        } finally {
+            this.cacheEnabled = initial;
+        }
+    }
+
+    /**
+     * Clear entire cache for this database
+     *
+     * @param pattern - Optional pattern to selectively clear cache (defaults to all)
+     * @return Promise<boolean>
+     */
+    public async clearCache(pattern?: string): Promise<boolean> {
+        const tenantId = this.adapter.getTenantId() ?? "default";
+        const cacheKey = pattern
+            ? `${this.cacheName}-cache-${this.getPrefix()}:${tenantId}:${pattern}`
+            : `${this.cacheName}-cache-${this.getPrefix()}:${tenantId}:*`;
+
+        const keys = await this.cache.keys(cacheKey);
+
+        for (const key of keys) {
+            await this.cache.delete(key);
+        }
+
+        return true;
+    }
+
+    /**
+     * Generate standard cache key format
+     *
+     * @param key - The unique identifier part of the cache key
+     * @return string - Formatted cache key
+     */
+    protected generateCacheKey(key: string): string {
+        return `${this.cacheName}-cache-${this.getPrefix()}:${this.adapter.getTenantId() ?? "default"}:${key}`;
+    }
+
+    /**
+     * Set value in cache with TTL
+     *
+     * @param key - Key identifier
+     * @param value - Value to store
+     * @param ttl - Optional time-to-live in seconds (defaults to configured cacheTTL)
+     * @return Promise<boolean>
+     */
+    protected async setCacheValue(
+        key: string,
+        value: any,
+        ttl?: number,
+    ): Promise<boolean> {
+        if (!this.cacheEnabled) {
+            return false;
+        }
+
+        try {
+            const cacheKey = key.includes(this.cacheName)
+                ? key
+                : this.generateCacheKey(key);
+            return await this.cache.set(cacheKey, value, ttl ?? this.cacheTTL);
+        } catch (error) {
+            this.logger.error("Cache set error:", error);
+            return false;
+        }
+    }
+
+    /**
+     * Get value from cache
+     *
+     * @param key - Key identifier
+     * @return Promise<any>
+     */
+    protected async getCacheValue(key: string): Promise<any> {
+        if (!this.cacheEnabled) {
+            return null;
+        }
+
+        try {
+            const cacheKey = key.includes(this.cacheName)
+                ? key
+                : this.generateCacheKey(key);
+            return await this.cache.get(cacheKey);
+        } catch (error) {
+            this.logger.error("Cache get error:", error);
+            return null;
+        }
     }
 }
