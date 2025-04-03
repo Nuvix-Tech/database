@@ -4,7 +4,7 @@ import { Query } from "../src/core/query";
 import { Adapter } from "../src/adapter/base";
 import { PostgreDB } from "../src/adapter/postgre";
 import { DB } from "./config";
-import { Cache, Redis } from "@nuvix/cache";
+import { Cache, RedisAdapter } from "@nuvix/cache";
 import Permission from "../src/security/Permission";
 import Role from "../src/security/Role";
 import { Authorization } from "../src/security/authorization";
@@ -57,7 +57,13 @@ describe("Database Core", () => {
             await (adapter as PostgreDB).ping();
             const prefix = `test_${Date.now()}`;
             // Initialize cache and database
-            cache = new Cache(new Redis({}));
+            cache = new Cache(
+                new RedisAdapter({
+                    host: "localhost",
+                    port: 6379,
+                    namespace: "test-core",
+                }),
+            );
             db = new Database(adapter, cache, {
                 logger: true,
             });

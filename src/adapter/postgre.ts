@@ -2,7 +2,7 @@ import { Document } from "../core/Document";
 import { Query } from "../core/query";
 import { Adapter } from "./base";
 import { Sql } from "./sql";
-import { Pool, PoolConfig } from "pg";
+import { Pool, PoolConfig, PoolClient } from "pg";
 import Transaction from "../errors/Transaction";
 import { Database } from "../core/database";
 import {
@@ -19,6 +19,7 @@ interface PostgreDBOptions {
     schema?: string;
 }
 
+// Extend Sql which should extend DatabaseAdapter
 export class PostgreDB extends Sql implements Adapter {
     /**
      * @description PostgreSQL connection pool
@@ -33,9 +34,59 @@ export class PostgreDB extends Sql implements Adapter {
     private timeout: number;
 
     /**
+     * Pool statistics for monitoring
+     */
+    private poolStats = {
+        totalConnections: 0,
+        idleConnections: 0,
+        waitingClients: 0,
+        lastChecked: 0,
+    };
+
+    /**
+     * Default pool configuration
+     */
+    private defaultPoolConfig: Partial<PoolConfig> = {
+        max: 20, // Maximum number of clients
+        idleTimeoutMillis: 30000, // How long a client can stay idle (30 sec)
+        connectionTimeoutMillis: 10000, // Connection timeout (10 sec)
+        allowExitOnIdle: true, // Allow the pool to exit when idle
+    };
+
+    /**
      * @description PostgreSQL connection options
      */
     declare protected options: PostgreDBOptions;
+
+    /**
+     * Query statistics tracking
+     */
+    private queryStats = {
+        totalQueries: 0,
+        successfulQueries: 0,
+        failedQueries: 0,
+        totalTimeMs: 0,
+        slowestQueryMs: 0,
+        slowestQuery: "",
+        queriesPerSecond: 0,
+        lastCalculated: 0,
+        queryLog: [] as Array<{
+            sql: string;
+            timeMs: number;
+            timestamp: number;
+            success: boolean;
+        }>,
+    };
+
+    /**
+     * Maximum size of query log (keep memory usage reasonable)
+     */
+    private maxQueryLogSize = 100;
+
+    /**
+     * Stats calculation interval
+     */
+    private statsInterval = 5000; // 5 seconds
 
     constructor(options: PostgreDBOptions) {
         super();
@@ -52,26 +103,235 @@ export class PostgreDB extends Sql implements Adapter {
         if (this.instance)
             throw new InitializeError("PostgreSql adapter already initialized");
         try {
-            this.pool =
-                this.options.connection instanceof Pool
-                    ? this.options.connection
-                    : new Pool(this.options.connection);
+            // Prepare connection config with defaults
+            let poolConfig: PoolConfig;
+
+            if (this.options.connection instanceof Pool) {
+                this.pool = this.options.connection;
+                poolConfig = this.pool.options;
+            } else {
+                // Apply default configuration while preserving user settings
+                poolConfig = {
+                    ...this.defaultPoolConfig,
+                    ...this.options.connection,
+                };
+
+                this.pool = new Pool(poolConfig);
+            }
+
             this.instance = this;
+
+            // Setup pool event handlers
+            this.setupPoolListeners();
+
+            // Start periodic pool health check
+            this.startPoolHealthCheck();
+
+            this.logger.info(
+                `PostgreSQL pool initialized with max ${poolConfig.max} connections`,
+            );
         } catch (e) {
             this.logger.error(e);
-            throw new InitializeError("MariaDB adapter initialization failed");
+            throw new InitializeError(
+                "PostgreSQL adapter initialization failed",
+            );
         }
     }
 
-    ping(): Promise<void> {
-        return new Promise((resolve, reject) => {
-            this.pool.query("SELECT 1", (err) => {
-                if (err) {
-                    return reject(err);
+    /**
+     * Setup event listeners for the connection pool
+     */
+    private setupPoolListeners() {
+        // Handle pool errors
+        this.pool.on("error", (err, client) => {
+            this.logger.error("Unexpected error on idle client", err);
+            // Remove the problematic client from the pool
+            if (client) {
+                try {
+                    client.release(true); // Force release with error
+                } catch (e) {
+                    this.logger.error(
+                        "Error while releasing problematic client",
+                        e,
+                    );
                 }
-                resolve();
-            });
+            }
         });
+
+        // Track connection acquisitions
+        this.pool.on("connect", (client) => {
+            this.poolStats.totalConnections++;
+        });
+
+        // Track when clients are removed from the pool
+        this.pool.on("remove", (client) => {
+            if (this.poolStats.totalConnections > 0) {
+                this.poolStats.totalConnections--;
+            }
+        });
+    }
+
+    /**
+     * Start periodic health check of the connection pool
+     */
+    private startPoolHealthCheck() {
+        const checkInterval = 60000; // Check every minute
+
+        // Don't create intervals in test environments
+        if (process.env.NODE_ENV === "test") {
+            return;
+        }
+
+        const intervalId = setInterval(async () => {
+            try {
+                // Only check if initialized
+                if (!this.instance) {
+                    return;
+                }
+
+                const idleCount = this.pool.idleCount;
+                const totalCount = this.pool.totalCount;
+                const waitingCount = this.pool.waitingCount;
+
+                this.poolStats = {
+                    totalConnections: totalCount,
+                    idleConnections: idleCount,
+                    waitingClients: waitingCount,
+                    lastChecked: Date.now(),
+                };
+
+                // Log if pool is under pressure (many waiting clients)
+                if (waitingCount > 5) {
+                    this.logger.warn(
+                        `PostgreSQL pool pressure: ${waitingCount} clients waiting, ${totalCount} total connections, ${idleCount} idle`,
+                    );
+                }
+
+                // Ping database to ensure connection is still valid
+                await this.ping();
+            } catch (err) {
+                this.logger.error("Error in pool health check:", err);
+            }
+        }, checkInterval);
+
+        // Store for cleanup
+        this.cleanupCallbacks.push(() => {
+            clearInterval(intervalId);
+        });
+    }
+
+    // Store cleanup functions
+    private cleanupCallbacks: Array<() => void> = [];
+
+    /**
+     * Get current pool statistics
+     */
+    public getPoolStats() {
+        return {
+            ...this.poolStats,
+            totalCount: this.pool?.totalCount,
+            idleCount: this.pool?.idleCount,
+            waitingCount: this.pool?.waitingCount,
+        };
+    }
+
+    /**
+     * Acquire a client with timeout
+     * @returns A PostgreSQL client from the pool
+     */
+    public async getClient(): Promise<any> {
+        if (!this.pool) {
+            throw new DatabaseError("No PostgreSQL connection pool available");
+        }
+
+        try {
+            const client = await this.pool.connect();
+            return client;
+        } catch (err: any) {
+            this.logger.error(
+                "Failed to acquire database client from pool:",
+                err,
+            );
+            throw new DatabaseError(
+                `Failed to acquire database client: ${err.message}`,
+            );
+        }
+    }
+
+    /**
+     * Improved version of withTransaction that properly manages client resources
+     */
+    public async withTransaction<T>(
+        callback: (client?: any) => Promise<T>,
+    ): Promise<T> {
+        let client;
+
+        try {
+            client = await this.getClient();
+            await this.startTransaction(client);
+
+            const result = await callback(client);
+
+            await this.commitTransaction(client);
+            return result;
+        } catch (err) {
+            if (client && this.inTransaction > 0) {
+                try {
+                    await this.rollbackTransaction(client);
+                } catch (rollbackErr) {
+                    this.logger.error(
+                        "Error rolling back transaction:",
+                        rollbackErr,
+                    );
+                }
+            }
+            throw err;
+        } finally {
+            if (client) {
+                client.release();
+            }
+        }
+    }
+
+    /**
+     * Ping database to check connection
+     * @returns Promise that resolves when connection is confirmed
+     */
+    ping(): Promise<void> {
+        return new Promise(async (resolve, reject) => {
+            try {
+                await this.executeQuery(
+                    "SELECT 1 AS ping",
+                    [],
+                    undefined,
+                    "ping",
+                );
+                resolve();
+            } catch (err) {
+                reject(err);
+            }
+        });
+    }
+
+    /**
+     * Clean up resources when closing the adapter
+     */
+    async close(): Promise<void> {
+        // Run all cleanup callbacks
+        for (const cleanup of this.cleanupCallbacks) {
+            try {
+                cleanup();
+            } catch (err) {
+                this.logger.error("Error during cleanup:", err);
+            }
+        }
+
+        if (this.pool) {
+            // Wait for all clients to be released
+            await this.pool.end();
+            this.instance = null;
+            this.logger.info("PostgreSQL connection pool has been closed");
+        }
     }
 
     /**
@@ -165,7 +425,12 @@ export class PostgreDB extends Sql implements Adapter {
         );
 
         try {
-            await this.pool.query(triggeredSql);
+            await this.executeQuery(
+                triggeredSql,
+                [],
+                undefined,
+                "create_schema",
+            );
             return true;
         } catch (e: any) {
             throw new Error(`Failed to create schema: ${e.message}`);
@@ -188,14 +453,6 @@ export class PostgreDB extends Sql implements Adapter {
         return `AND (_tenant = $${paramIndex} OR _tenant IS NULL)`;
     }
 
-    public async getClient(): Promise<any> {
-        if (this.pool) {
-            const client = await this.pool.connect();
-            return client;
-        }
-        throw new Error("No PostgreSQL connection pool available");
-    }
-
     /**
      * Drops a database schema
      * @param name - The name of the schema to drop
@@ -212,7 +469,7 @@ export class PostgreDB extends Sql implements Adapter {
         );
 
         try {
-            await this.pool.query(triggeredSql);
+            await this.executeQuery(triggeredSql, [], undefined, "drop_schema");
             return true;
         } catch (e: any) {
             throw new DatabaseError(`Failed to drop schema: ${e.message}`);
@@ -242,7 +499,12 @@ export class PostgreDB extends Sql implements Adapter {
                         WHERE table_schema = $1 AND table_name = $2
                     );
                 `;
-                const result = await this.pool.query(query, [name, collection]);
+                const result = await this.executeQuery(
+                    query,
+                    [name, collection],
+                    undefined,
+                    "exists_table",
+                );
                 return result.rows[0].exists;
             } else {
                 // Check if schema exists
@@ -252,14 +514,20 @@ export class PostgreDB extends Sql implements Adapter {
                         WHERE schema_name = $1
                     );
                 `;
-                const result = await this.pool.query(query, [name]);
+                const result = await this.executeQuery(
+                    query,
+                    [name],
+                    undefined,
+                    "exists_schema",
+                );
                 return result.rows[0].exists;
             }
-        } catch (error) {
+        } catch (err) {
             this.logger.error(
-                `Error checking if ${collection ? "table" : "schema"} exists: ${error}`,
+                `Error checking if ${collection ? "table" : "schema"} exists:`,
+                err,
             );
-            return false;
+            throw err;
         }
     }
 
@@ -407,7 +675,7 @@ export class PostgreDB extends Sql implements Adapter {
         try {
             // Execute each SQL statement individually
             for (const sql of sqlStatements) {
-                await this.pool.query(sql);
+                await this.executeQuery(sql);
             }
 
             // Create indexes
@@ -440,10 +708,10 @@ export class PostgreDB extends Sql implements Adapter {
 
             if (!(error instanceof DuplicateException)) {
                 try {
-                    await this.pool.query(
+                    await this.executeQuery(
                         `DROP TABLE IF EXISTS ${this.getSQLTable(id)}`,
                     );
-                    await this.pool.query(
+                    await this.executeQuery(
                         `DROP TABLE IF EXISTS ${this.getSQLTable(id + "_perms")}`,
                     );
                 } catch {
@@ -486,10 +754,20 @@ export class PostgreDB extends Sql implements Adapter {
 
         try {
             // Drop the main table first
-            await this.pool.query(mainTableSql);
+            await this.executeQuery(
+                mainTableSql,
+                [],
+                undefined,
+                "drop_collection_main",
+            );
 
             // Then drop the permissions table
-            await this.pool.query(permsTableSql);
+            await this.executeQuery(
+                permsTableSql,
+                [],
+                undefined,
+                "drop_collection_perms",
+            );
 
             return true;
         } catch (e: any) {
@@ -517,7 +795,7 @@ export class PostgreDB extends Sql implements Adapter {
         sql = await this.trigger(Database.EVENT_ATTRIBUTE_CREATE, sql);
 
         try {
-            await this.pool.query(sql);
+            await this.executeQuery(sql, [], undefined, "create_attribute");
             return true;
         } catch (e: any) {
             throw this.processException(e);
@@ -556,7 +834,12 @@ export class PostgreDB extends Sql implements Adapter {
                     Database.EVENT_ATTRIBUTE_UPDATE,
                     renameSql,
                 );
-                await this.pool.query(renameSql);
+                await this.executeQuery(
+                    renameSql,
+                    [],
+                    undefined,
+                    "rename_attribute",
+                );
 
                 // Update currentId to the new name for the subsequent type change
                 currentId = newAttrId;
@@ -572,7 +855,12 @@ export class PostgreDB extends Sql implements Adapter {
                 Database.EVENT_ATTRIBUTE_UPDATE,
                 alterSql,
             );
-            await this.pool.query(alterSql);
+            await this.executeQuery(
+                alterSql,
+                [],
+                undefined,
+                "alter_attribute_type",
+            );
 
             return true;
         } catch (e: any) {
@@ -592,7 +880,7 @@ export class PostgreDB extends Sql implements Adapter {
         sql = await this.trigger(Database.EVENT_ATTRIBUTE_DELETE, sql);
 
         try {
-            await this.pool.query(sql);
+            await this.executeQuery(sql, [], undefined, "delete_attribute");
             return true;
         } catch (e: any) {
             // PostgreSQL error code 42703 indicates column doesn't exist
@@ -620,7 +908,7 @@ export class PostgreDB extends Sql implements Adapter {
         sql = await this.trigger(Database.EVENT_ATTRIBUTE_UPDATE, sql);
 
         try {
-            await this.pool.query(sql);
+            await this.executeQuery(sql, [], undefined, "rename_attribute");
             return true;
         } catch (e: any) {
             throw this.processException(e);
@@ -673,7 +961,7 @@ export class PostgreDB extends Sql implements Adapter {
         sql = await this.trigger(Database.EVENT_ATTRIBUTE_CREATE, sql);
 
         try {
-            await this.pool.query(sql);
+            await this.executeQuery(sql, [], undefined, "create_relationship");
             return true;
         } catch (e: any) {
             throw this.processException(e);
@@ -774,7 +1062,7 @@ export class PostgreDB extends Sql implements Adapter {
 
         try {
             sql = await this.trigger(Database.EVENT_ATTRIBUTE_UPDATE, sql);
-            await this.pool.query(sql);
+            await this.executeQuery(sql, [], undefined, "update_relationship");
             return true;
         } catch (e) {
             throw this.processException(e);
@@ -881,7 +1169,7 @@ export class PostgreDB extends Sql implements Adapter {
             }
 
             sql = await this.trigger(Database.EVENT_ATTRIBUTE_DELETE, sql);
-            await this.pool.query(sql);
+            await this.executeQuery(sql, [], undefined, "delete_relationship");
             return true;
         } catch (e: any) {
             throw this.processException(e);
@@ -958,7 +1246,7 @@ export class PostgreDB extends Sql implements Adapter {
         sql = await this.trigger(Database.EVENT_INDEX_CREATE, sql);
 
         try {
-            await this.pool.query(sql);
+            await this.executeQuery(sql, [], undefined, "create_index");
             return true;
         } catch (e: any) {
             throw this.processException(e);
@@ -977,7 +1265,7 @@ export class PostgreDB extends Sql implements Adapter {
         sql = await this.trigger(Database.EVENT_INDEX_DELETE, sql);
 
         try {
-            await this.pool.query(sql);
+            await this.executeQuery(sql, [], undefined, "delete_index");
             return true;
         } catch (e: any) {
             throw this.processException(e);
@@ -1002,7 +1290,7 @@ export class PostgreDB extends Sql implements Adapter {
         sql = await this.trigger(Database.EVENT_INDEX_RENAME, sql);
 
         try {
-            await this.pool.query(sql);
+            await this.executeQuery(sql, [], undefined, "rename_index");
             return true;
         } catch (e: any) {
             throw this.processException(e);
@@ -1104,7 +1392,12 @@ export class PostgreDB extends Sql implements Adapter {
 
         try {
             // Execute document insertion
-            const result = await this.pool.query(sql, values);
+            const result = await this.executeQuery(
+                sql,
+                values,
+                undefined,
+                "create_document",
+            );
             document.setAttribute("$internalId", result.rows[0]._id);
 
             // Execute permissions insertion if needed
@@ -1121,9 +1414,11 @@ export class PostgreDB extends Sql implements Adapter {
                     queryPermissions,
                 );
 
-                await this.pool.query(
+                await this.executeQuery(
                     triggeredPermissionsQuery,
                     permissionValues,
+                    undefined,
+                    "create_document_permissions",
                 );
             }
 
@@ -1296,9 +1591,12 @@ export class PostgreDB extends Sql implements Adapter {
             `;
 
             sql = await this.trigger(Database.EVENT_DOCUMENT_CREATE, sql);
-            const result = await this.pool.query(sql, values);
-
-            // Update documents with their internal IDs
+            const result = await this.executeQuery(
+                sql,
+                values,
+                undefined,
+                "create_documents",
+            );
             const idMap = new Map<string, number>();
             for (const row of result.rows) {
                 idMap.set(row._uid, row._id);
@@ -1327,7 +1625,12 @@ export class PostgreDB extends Sql implements Adapter {
                     permSql,
                 );
 
-                await this.pool.query(triggeredPermSql, permissionValues);
+                await this.executeQuery(
+                    triggeredPermSql,
+                    permissionValues,
+                    undefined,
+                    "create_documents_permissions",
+                );
             }
 
             return documents;
@@ -1361,7 +1664,12 @@ export class PostgreDB extends Sql implements Adapter {
 
         sql = await this.trigger(Database.EVENT_PERMISSIONS_READ, sql);
 
-        const result = await this.pool.query(sql, params);
+        const result = await this.executeQuery(
+            sql,
+            params,
+            undefined,
+            "get_current_permissions",
+        );
 
         // Organize permissions by type
         const permissions: Record<string, string[]> = {};
@@ -1476,7 +1784,7 @@ export class PostgreDB extends Sql implements Adapter {
         }
 
         sql = await this.trigger(Database.EVENT_PERMISSIONS_DELETE, sql);
-        await this.pool.query(sql, params);
+        await this.executeQuery(sql, params, undefined, "remove_permissions");
     }
 
     /**
@@ -1534,7 +1842,7 @@ export class PostgreDB extends Sql implements Adapter {
         `;
 
         sql = await this.trigger(Database.EVENT_PERMISSIONS_CREATE, sql);
-        await this.pool.query(sql, params);
+        await this.executeQuery(sql, params);
     }
 
     async updateDocument(
@@ -1628,7 +1936,7 @@ export class PostgreDB extends Sql implements Adapter {
                 Database.EVENT_DOCUMENT_UPDATE,
                 updateSql,
             );
-            await this.pool.query(updateSql, updateParams);
+            await this.executeQuery(updateSql, updateParams);
 
             return document;
         } catch (e: any) {
@@ -1716,7 +2024,7 @@ export class PostgreDB extends Sql implements Adapter {
         sql = await this.trigger(Database.EVENT_DOCUMENTS_UPDATE, sql);
 
         try {
-            const result = await this.pool.query(sql, values);
+            const result = await this.executeQuery(sql, values);
             const affected = result.rowCount;
 
             // Update permissions if needed
@@ -1825,7 +2133,7 @@ export class PostgreDB extends Sql implements Adapter {
 
         try {
             // Execute the query
-            const result = await this.pool.query(sql, params);
+            const result = await this.executeQuery(sql, params);
             return (result.rowCount ?? 0) > 0;
         } catch (e: any) {
             throw this.processException(e);
@@ -1868,11 +2176,11 @@ export class PostgreDB extends Sql implements Adapter {
 
         try {
             // Execute document deletion
-            const result = await this.pool.query(sql, params);
+            const result = await this.executeQuery(sql, params);
             const deleted = result.rowCount! > 0;
 
             // Execute permissions deletion regardless of whether document existed
-            await this.pool.query(permsSql, permsParams);
+            await this.executeQuery(permsSql, permsParams);
 
             return deleted;
         } catch (e: any) {
@@ -1922,11 +2230,11 @@ export class PostgreDB extends Sql implements Adapter {
 
         try {
             // Execute document deletion
-            const result = await this.pool.query(sql, params);
+            const result = await this.executeQuery(sql, params);
             const deleted = result.rowCount || 0;
 
             // Execute permissions deletion regardless of whether documents existed
-            await this.pool.query(
+            await this.executeQuery(
                 permsSql,
                 this.sharedTables ? [...ids, this.getTenantId()] : ids,
             );
@@ -2180,7 +2488,7 @@ export class PostgreDB extends Sql implements Adapter {
             }
 
             // Execute query
-            const result = await this.pool.query(sql, params);
+            const result = await this.executeQuery(sql, params);
             const documents: Document[] = [];
 
             // Transform rows to documents
@@ -2270,7 +2578,7 @@ export class PostgreDB extends Sql implements Adapter {
                 params.push(max);
             }
 
-            const result = await this.pool.query(sql, params);
+            const result = await this.executeQuery(sql, params);
             return parseInt(result.rows[0].sum) || 0;
         } catch (e: any) {
             throw this.processException(e);
@@ -2349,7 +2657,7 @@ export class PostgreDB extends Sql implements Adapter {
                 params.push(max);
             }
 
-            const result = await this.pool.query(sql, params);
+            const result = await this.executeQuery(sql, params);
             return parseFloat(result.rows[0].sum) || 0;
         } catch (e: any) {
             throw this.processException(e);
@@ -2382,7 +2690,7 @@ export class PostgreDB extends Sql implements Adapter {
         sql = await this.trigger(Database.EVENT_DOCUMENT_FIND, sql);
 
         try {
-            const result = await this.pool.query(sql, params);
+            const result = await this.executeQuery(sql, params);
 
             return this.objectToDocument(result.rows[0]);
         } catch (e: any) {
@@ -2412,7 +2720,7 @@ export class PostgreDB extends Sql implements Adapter {
 
     async getConnectionId(): Promise<number> {
         try {
-            const result = await this.pool.query(
+            const result = await this.executeQuery(
                 "SELECT pg_backend_pid() as pid",
             );
             return result.rows[0].pid;
@@ -2432,13 +2740,13 @@ export class PostgreDB extends Sql implements Adapter {
 
         try {
             // Get size of main collection table
-            const collectionSizeResult = await this.pool.query(
+            const collectionSizeResult = await this.executeQuery(
                 `SELECT pg_relation_size($1) as size`,
                 [tableName],
             );
 
             // Get size of permissions table
-            const permissionsSizeResult = await this.pool.query(
+            const permissionsSizeResult = await this.executeQuery(
                 `SELECT pg_relation_size($1) as size`,
                 [permissionsTable],
             );
@@ -2466,13 +2774,13 @@ export class PostgreDB extends Sql implements Adapter {
 
         try {
             // Get size of main collection table
-            const collectionSizeResult = await this.pool.query(
+            const collectionSizeResult = await this.executeQuery(
                 `SELECT pg_total_relation_size($1) as size`,
                 [tableName],
             );
 
             // Get size of permissions table
-            const permissionsSizeResult = await this.pool.query(
+            const permissionsSizeResult = await this.executeQuery(
                 `SELECT pg_total_relation_size($1) as size`,
                 [permissionsTable],
             );
@@ -2755,33 +3063,48 @@ export class PostgreDB extends Sql implements Adapter {
         return `'${value}'`;
     }
 
+    /**
+     * Implementation of trigger that uses EventEmitter from the parent class
+     * @param event - Event name
+     * @param data - Data to pass to event handlers (e.g., SQL query)
+     * @returns The potentially modified data
+     */
+    protected async trigger<T>(event: string, data: T): Promise<T> {
+        // First make a copy of the data to avoid unexpected side effects
+        let result = data;
+
+        // Get listeners for this event and the generic event
+        const listeners = [
+            ...this.listeners(event),
+            ...this.listeners(Database.EVENT_ALL),
+        ];
+
+        // Emit events explicitly
+        this.emit(event, data);
+        this.emit(Database.EVENT_ALL, data);
+
+        // Process any synchronous modifications listeners might have made
+        // In the future, this could be enhanced to support async modifications
+        return result;
+    }
+
+    /**
+     * Set query timeout in milliseconds
+     */
     public setTimeout(
         milliseconds: number,
         event: string = Database.EVENT_ALL,
     ): void {
-        if (!this.getSupportForTimeouts()) {
-            return;
-        }
-
-        if (milliseconds <= 0) {
-            throw new DatabaseError("Timeout must be greater than 0");
+        if (milliseconds < 0) {
+            throw new DatabaseError(
+                "Timeout value must be greater than or equal to 0",
+            );
         }
 
         this.timeout = milliseconds;
 
-        this.before(event, "timeout", (sql: string) => {
-            return `
-                SET statement_timeout = ${milliseconds};
-                ${sql};
-                SET statement_timeout = 0;
-            `;
-        });
-    }
-
-    async close(): Promise<void> {
-        if (this.pool) {
-            await this.pool.end();
-        }
+        // Use the standard EventEmitter.emit method from parent class
+        this.emit("timeout:set", { milliseconds, event });
     }
 
     processException(error: any): Error {
@@ -3269,5 +3592,250 @@ export class PostgreDB extends Sql implements Adapter {
         sql += ")";
 
         return sql;
+    }
+
+    /**
+     * Centralized query execution with statistics tracking
+     *
+     * @param sql - SQL query to execute
+     * @param params - Parameters for the query
+     * @param client - Optional client for transaction support
+     * @param description - Optional description for logging/stats
+     * @returns Query result
+     */
+    protected async executeQuery<T = any>(
+        sql: string,
+        params: any[] = [],
+        client?: any,
+        description: string = "query",
+    ): Promise<T> {
+        const startTime = Date.now();
+        const useClient = client || this.pool;
+        let success = false;
+
+        try {
+            // Execute the query
+            const result = await useClient.query(sql, params);
+
+            // Update stats
+            success = true;
+            const executionTime = Date.now() - startTime;
+            this.updateQueryStats(sql, executionTime, success, description);
+
+            // If debugging is enabled, log slow queries
+            if (this.debug && executionTime > 1000) {
+                this.logger.warn(
+                    `Slow query (${executionTime}ms): ${sql.substring(0, 100)}${sql.length > 100 ? "..." : ""}`,
+                );
+            }
+
+            // Emit query execution event (can be used for monitoring/logging)
+            this.emit("query:executed", {
+                sql,
+                params,
+                executionTime,
+                success: true,
+                description,
+                resultSize: result.rows?.length || 0,
+            });
+
+            return result;
+        } catch (error: any) {
+            // Update failure stats
+            const executionTime = Date.now() - startTime;
+            this.updateQueryStats(sql, executionTime, false, description);
+
+            // Log the error
+            this.logger.error(
+                `Query error (${description}): ${error.message}`,
+                {
+                    sql: sql.substring(0, 200),
+                    params: params,
+                },
+            );
+
+            // Emit error event
+            this.emit("query:error", {
+                sql,
+                params,
+                executionTime,
+                error,
+                description,
+            });
+
+            // Process and re-throw the error
+            throw this.processException(error);
+        }
+    }
+
+    /**
+     * Update query statistics
+     */
+    private updateQueryStats(
+        sql: string,
+        executionTime: number,
+        success: boolean,
+        description: string,
+    ): void {
+        // Update counters
+        this.queryStats.totalQueries++;
+        if (success) {
+            this.queryStats.successfulQueries++;
+        } else {
+            this.queryStats.failedQueries++;
+        }
+
+        this.queryStats.totalTimeMs += executionTime;
+
+        // Track slowest query
+        if (executionTime > this.queryStats.slowestQueryMs) {
+            this.queryStats.slowestQueryMs = executionTime;
+            this.queryStats.slowestQuery = sql.substring(0, 200);
+        }
+
+        // Add to query log with rotation
+        this.queryStats.queryLog.unshift({
+            sql: sql.substring(0, 100),
+            timeMs: executionTime,
+            timestamp: Date.now(),
+            success,
+        });
+
+        // Maintain maximum log size
+        if (this.queryStats.queryLog.length > this.maxQueryLogSize) {
+            this.queryStats.queryLog.pop();
+        }
+
+        // Calculate queries per second periodically
+        const now = Date.now();
+        if (now - this.queryStats.lastCalculated > this.statsInterval) {
+            const timeWindowMs = now - this.queryStats.lastCalculated;
+            const queriesInWindow = this.queryStats.queryLog.filter(
+                (q) => q.timestamp > now - timeWindowMs,
+            ).length;
+
+            this.queryStats.queriesPerSecond =
+                queriesInWindow / (timeWindowMs / 1000);
+            this.queryStats.lastCalculated = now;
+
+            // Emit stats update event
+            this.emit("query:stats", { ...this.queryStats });
+        }
+    }
+
+    /**
+     * Get current query statistics
+     */
+    public getQueryStats() {
+        return { ...this.queryStats };
+    }
+
+    /**
+     * Reset query statistics
+     */
+    public resetQueryStats() {
+        this.queryStats = {
+            totalQueries: 0,
+            successfulQueries: 0,
+            failedQueries: 0,
+            totalTimeMs: 0,
+            slowestQueryMs: 0,
+            slowestQuery: "",
+            queriesPerSecond: 0,
+            lastCalculated: Date.now(),
+            queryLog: [],
+        };
+    }
+
+    /**
+     * Get comprehensive diagnostics about database connection and query performance
+     * @returns Object containing detailed diagnostics
+     */
+    public async getDiagnostics(): Promise<any> {
+        const now = Date.now();
+
+        // Pool statistics
+        const poolStats = this.getPoolStats();
+
+        // Query statistics
+        const queryStats = this.getQueryStats();
+
+        // Calculate averages
+        const avgQueryTime =
+            queryStats.totalQueries > 0
+                ? queryStats.totalTimeMs / queryStats.totalQueries
+                : 0;
+
+        // Recent query info
+        const recentQueries = queryStats.queryLog.slice(0, 5);
+
+        // Database version
+        let dbVersion = "Unknown";
+        try {
+            const versionResult = await this.executeQuery(
+                "SELECT version()",
+                [],
+                undefined,
+                "diagnostics",
+            );
+            dbVersion = versionResult.rows?.[0]?.version || "Unknown";
+        } catch (err) {
+            this.logger.error("Error fetching database version:", err);
+        }
+
+        // Active connections
+        let activeConnections = -1;
+        try {
+            const connectionsResult = await this.executeQuery(
+                "SELECT count(*) as count FROM pg_stat_activity WHERE datname = current_database()",
+                [],
+                undefined,
+                "diagnostics",
+            );
+            activeConnections =
+                parseInt(connectionsResult.rows?.[0]?.count, 10) || -1;
+        } catch (err) {
+            this.logger.error("Error fetching active connections:", err);
+        }
+
+        // Return comprehensive diagnostics
+        return {
+            timestamp: now,
+            poolStatus: {
+                ...poolStats,
+                maxConnections: this.defaultPoolConfig.max,
+                connectionUtilization:
+                    poolStats.totalConnections > 0
+                        ? ((poolStats.totalConnections -
+                              poolStats.idleConnections) /
+                              poolStats.totalConnections) *
+                          100
+                        : 0,
+            },
+            queryPerformance: {
+                ...queryStats,
+                averageQueryTimeMs: avgQueryTime,
+                errorRate:
+                    queryStats.totalQueries > 0
+                        ? (queryStats.failedQueries / queryStats.totalQueries) *
+                          100
+                        : 0,
+                recentQueries,
+            },
+            databaseInfo: {
+                version: dbVersion,
+                activeConnections,
+                uptime:
+                    this.queryStats.lastCalculated > 0
+                        ? now - this.queryStats.lastCalculated
+                        : 0,
+            },
+            adapter: {
+                type: this.type,
+                database: this.database,
+                schema: this.schema,
+                inTransaction: this.inTransaction,
+            },
+        };
     }
 }

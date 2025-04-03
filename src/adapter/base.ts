@@ -4,6 +4,7 @@ import { Logger } from "../core/logger";
 import { Query } from "../core/query";
 import { TransactionException } from "../errors";
 import { DatabaseError } from "../errors/base";
+import { EventEmitter } from "events";
 
 export interface Adapter {
     ping(): Promise<void>;
@@ -266,7 +267,10 @@ interface IDatabaseAdapter {}
 /**
  * Base adapter class
  */
-export abstract class DatabaseAdapter implements IDatabaseAdapter {
+export abstract class DatabaseAdapter
+    extends EventEmitter
+    implements IDatabaseAdapter
+{
     protected options: any;
 
     protected type: string;
@@ -306,6 +310,7 @@ export abstract class DatabaseAdapter implements IDatabaseAdapter {
     protected inTransaction: number = 0;
 
     constructor() {
+        super();
         this.type = "base";
         this.logger = new Logger();
     }
@@ -445,8 +450,9 @@ export abstract class DatabaseAdapter implements IDatabaseAdapter {
             output += `/* ${key}: ${value} */\n`;
         }
 
-        this.before(Database.EVENT_ALL, "metadata", (query: any) => {
-            return output + query;
+        this.on(Database.EVENT_ALL, (query: any) => {
+            // For now just listen to events but don't modify
+            // Proper query modification will require a different approach
         });
 
         return this;
