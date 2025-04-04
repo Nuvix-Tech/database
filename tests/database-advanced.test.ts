@@ -15,6 +15,7 @@ describe("Database Advanced Tests", () => {
 
     // Skip tests if adapter connection isn't possible
     const runTests = process.env.SKIP_DB_TESTS !== "true";
+    const ssl = process.env.SSL === "true";
 
     // Set higher timeout for tests
     jest.setTimeout(60000);
@@ -35,6 +36,9 @@ describe("Database Advanced Tests", () => {
             adapter = new PostgreDB({
                 connection: {
                     connectionString: DB,
+                    ssl: ssl ? {
+                        rejectUnauthorized: false,
+                    } : undefined,
                 },
                 schema: "public",
             });

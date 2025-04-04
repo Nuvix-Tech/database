@@ -14,14 +14,15 @@ import { Authorization } from "../src/security/authorization";
  * This factory allows the tests to work with any adapter implementation
  */
 function getAdapter(): Adapter {
+    const ssl = process.env.SSL === "true";
     // Create a PostgreSQL adapter by default
     // In a production environment, you would inject the adapter based on configuration
     const adapter = new PostgreDB({
         connection: {
             connectionString: DB,
-            // ssl: {
-            //     rejectUnauthorized: false,
-            // },
+            ssl: ssl ? {
+                rejectUnauthorized: false,
+            } : undefined,
         },
         schema: "public",
     });
@@ -339,7 +340,10 @@ describe("Database Core", () => {
                 $id: cacheDocId,
                 name: "Cache Test",
                 email: "cache@example.com",
-                $permissions: [Permission.read(Role.any())],
+                $permissions: [
+                    Permission.read(Role.any()),
+                    Permission.update(Role.any()),
+                ],
             });
 
             await db.createDocument(testCollectionName, cacheDoc);
@@ -375,11 +379,24 @@ describe("Database Core", () => {
             // it could vary based on system performance
             expect(cachedRead.getAttribute("name")).toBe("Cache Test");
 
+            const updateDoc = firstRead
+                .setAttribute("name", "Cache Test Updated")
+            await db.updateDocument(testCollectionName, cacheDocId, updateDoc);
+
+            await cache.clear();
+            await new Promise((resolve) => setTimeout(resolve, 3000));
+
+            const updatedDoc = await db.getDocument(
+                testCollectionName,
+                cacheDocId,
+            );
+            expect(updatedDoc.getAttribute("name")).toBe("Cache Test Updated");
             // Clean up
             await Authorization.skip(
                 async () =>
                     await db.deleteDocument(testCollectionName, cacheDocId),
             );
+            console.log(cache.getStats());
         });
     });
 });
