@@ -36,9 +36,11 @@ describe("Database Advanced Tests", () => {
             adapter = new PostgreDB({
                 connection: {
                     connectionString: DB,
-                    ssl: ssl ? {
-                        rejectUnauthorized: false,
-                    } : undefined,
+                    ssl: ssl
+                        ? {
+                              rejectUnauthorized: false,
+                          }
+                        : undefined,
                 },
                 schema: "public",
             });
@@ -323,7 +325,6 @@ describe("Database Advanced Tests", () => {
                 Query.greaterThan("int_field", 30),
                 Query.limit(2),
             ]);
-            console.log(results); // TODO: Remove
 
             // Should find 2 documents
             expect(results.length).toBe(2);
@@ -395,8 +396,6 @@ describe("Database Advanced Tests", () => {
                 "int_field",
                 50,
             );
-
-            await cache.clear(); // TODO: Temporary fix for cache issue
 
             // Retrieve document
             const retrievedDoc = await db.getDocument(

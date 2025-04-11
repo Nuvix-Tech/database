@@ -175,7 +175,7 @@ export class PostgreDB extends Sql implements Adapter {
      * Start periodic health check of the connection pool
      */
     private startPoolHealthCheck() {
-        const checkInterval = 60000; // Check every minute
+        const checkInterval = 60000 * 10; // Check every minute
 
         // Don't create intervals in test environments
         if (process.env.NODE_ENV === "test") {
@@ -208,7 +208,7 @@ export class PostgreDB extends Sql implements Adapter {
                 }
 
                 // Ping database to ensure connection is still valid
-                await this.ping();
+                // await this.ping();
             } catch (err) {
                 this.logger.error("Error in pool health check:", err);
             }
@@ -2094,46 +2094,49 @@ export class PostgreDB extends Sql implements Adapter {
         max?: number,
     ): Promise<boolean> {
         const name = this.filter(collection);
-        const attr = this.filter(attribute);
+        const filteredAttribute = this.filter(attribute);
+        const values: any[] = [];
+        let paramIndex = 1;
 
         let sql = `
-            UPDATE ${this.getSQLTable(name)} 
-            SET 
-                "${attr}" = "${attr}" + $1,
-                "_updatedAt" = $2
-            WHERE _uid = $3
+            UPDATE ${this.getSQLTable(name)}
+            SET "${filteredAttribute}" = 
+                CASE 
+                    WHEN $${paramIndex}::numeric IS NOT NULL AND "${filteredAttribute}" + $${paramIndex + 1}::numeric > $${paramIndex + 2}::numeric THEN $${paramIndex + 3}::numeric
+                    WHEN $${paramIndex + 4}::numeric IS NOT NULL AND "${filteredAttribute}" + $${paramIndex + 5}::numeric < $${paramIndex + 6}::numeric THEN $${paramIndex + 7}::numeric
+                    ELSE "${filteredAttribute}" + $${paramIndex + 8}::numeric
+                END,
+            "_updatedAt" = $${paramIndex + 9}
+            WHERE _uid = $${paramIndex + 10}
         `;
 
-        // Prepare parameters
-        const params: any[] = [value, updatedAt, id];
-        let paramIndex = 4;
+        // Add values for CASE conditions - explicitly cast null values to avoid PostgreSQL type inference issues
+        values.push(max ?? null); // WHEN max is defined
+        values.push(value);
+        values.push(max ?? null);
+        values.push(max ?? null); // Enforce max limit
 
-        // Add tenant condition for shared tables
+        values.push(min ?? null); // WHEN min is defined
+        values.push(value);
+        values.push(min ?? null);
+        values.push(min ?? null); // Enforce min limit
+
+        // Default increment
+        values.push(value);
+        values.push(updatedAt);
+        values.push(id);
+
+        paramIndex += 11;
+
         if (this.sharedTables) {
-            sql += " AND _tenant = $" + paramIndex;
-            params.push(this.getTenantId());
-            paramIndex++;
+            sql += ` AND (_tenant = $${paramIndex} OR _tenant IS NULL)`;
+            values.push(this.getTenantId());
         }
 
-        // Add max/min constraints if provided
-        if (max !== undefined) {
-            sql += ` AND "${attr}" <= $${paramIndex}`;
-            params.push(max);
-            paramIndex++;
-        }
-
-        if (min !== undefined) {
-            sql += ` AND "${attr}" >= $${paramIndex}`;
-            params.push(min);
-            paramIndex++;
-        }
-
-        // Apply trigger
         sql = await this.trigger(Database.EVENT_DOCUMENT_UPDATE, sql);
 
         try {
-            // Execute the query
-            const result = await this.executeQuery(sql, params);
+            const result = await this.executeQuery(sql, values);
             return (result.rowCount ?? 0) > 0;
         } catch (e: any) {
             throw this.processException(e);

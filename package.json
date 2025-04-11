@@ -19,7 +19,7 @@
     "clean": "rm -rf dist src/**/*.js",
     "prebuild": "npm run clean",
     "build": "tsc",
-    "prepare": "npm run build",
+    "prepublishOnly": "npm run build",
     "format": "prettier --write .",
     "test": "node tests/run-tests.js",
     "test:all": "node tests/run-tests.js --all"
@@ -34,7 +34,7 @@
   "author": "Ravikant Saini",
   "license": "BSD-3-Clause",
   "devDependencies": {
-    "@nuvix/cache": "^1.0.2",
+    "@nuvix/cache": "^1.0.2-alpha.2",
     "@tsconfig/node16": "^16.1.1",
     "@types/jest": "^29.5.14",
     "@types/pg": "^8.11.11",

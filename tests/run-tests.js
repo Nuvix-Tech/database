@@ -42,6 +42,7 @@ if (!connectionString) {
 const defaultConfig = {
     SKIP_DB_TESTS: "false",
     DB: connectionString,
+    SSL: "true",
 };
 
 // Parse command line arguments

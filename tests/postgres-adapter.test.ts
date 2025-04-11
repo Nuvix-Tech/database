@@ -40,9 +40,11 @@ describe("PostgreSQL Adapter", () => {
                     max: 5,
                     idleTimeoutMillis: 10000,
                     connectionTimeoutMillis: 5000,
-                    ssl: ssl ? {
-                        rejectUnauthorized: false,
-                    } : undefined,
+                    ssl: ssl
+                        ? {
+                              rejectUnauthorized: false,
+                          }
+                        : undefined,
                 },
                 schema: "public",
             });

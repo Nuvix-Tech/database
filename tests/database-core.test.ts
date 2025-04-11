@@ -20,9 +20,11 @@ function getAdapter(): Adapter {
     const adapter = new PostgreDB({
         connection: {
             connectionString: DB,
-            ssl: ssl ? {
-                rejectUnauthorized: false,
-            } : undefined,
+            ssl: ssl
+                ? {
+                      rejectUnauthorized: false,
+                  }
+                : undefined,
         },
         schema: "public",
     });
@@ -379,8 +381,10 @@ describe("Database Core", () => {
             // it could vary based on system performance
             expect(cachedRead.getAttribute("name")).toBe("Cache Test");
 
-            const updateDoc = firstRead
-                .setAttribute("name", "Cache Test Updated")
+            const updateDoc = firstRead.setAttribute(
+                "name",
+                "Cache Test Updated",
+            );
             await db.updateDocument(testCollectionName, cacheDocId, updateDoc);
 
             await cache.clear();
