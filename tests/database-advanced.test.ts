@@ -66,27 +66,39 @@ describe("Database Advanced Tests", () => {
             await db.create();
 
             // Create test collection with various attribute types
-            await db.createCollection(testCollectionName, [
-                new Document({
-                    $id: "string_field",
-                    key: "string_field",
-                    type: "string",
-                    size: 255,
-                    required: true,
-                }),
-                new Document({
-                    $id: "int_field",
-                    key: "int_field",
-                    type: "integer",
-                    size: 11,
-                    signed: true,
-                }),
-                new Document({
-                    $id: "bool_field",
-                    key: "bool_field",
-                    type: "boolean",
-                }),
-            ]);
+            await db.createCollection(
+                testCollectionName,
+                [
+                    new Document({
+                        $id: "string_field",
+                        key: "string_field",
+                        type: "string",
+                        size: 255,
+                        required: true,
+                    }),
+                    new Document({
+                        $id: "int_field",
+                        key: "int_field",
+                        type: "integer",
+                        size: 11,
+                        signed: true,
+                    }),
+                    new Document({
+                        $id: "bool_field",
+                        key: "bool_field",
+                        type: "boolean",
+                    }),
+                ],
+                [
+                    new Document({
+                        $id: "string_field_fulltext",
+                        key: "string_field_fulltext",
+                        type: Database.INDEX_FULLTEXT,
+                        attributes: ["string_field"],
+                        orders: ["ASC"],
+                    }),
+                ],
+            );
         } catch (err) {
             console.error("Error setting up advanced database test:", err);
             throw err;
@@ -331,6 +343,39 @@ describe("Database Advanced Tests", () => {
             for (const doc of results) {
                 expect(doc.getAttribute("int_field")).toBeGreaterThan(30);
             }
+        });
+
+        test("should support text search", async () => {
+            if (!runTests) return;
+
+            // Search for documents containing "Alpha" in string_field
+            const results = await db.find(testCollectionName, [
+                Query.search("string_field", "Alpha"),
+            ]);
+
+            // Should find 2 documents
+            expect(results.length).toBe(2);
+            for (const doc of results) {
+                expect(doc.getAttribute("string_field")).toContain("Alpha");
+            }
+        });
+
+        test("should support search with multiple conditions and pagination", async () => {
+            if (!runTests) return;
+
+            // Search for documents containing "Alpha" in string_field AND bool_field is true
+            const results = await db.find(testCollectionName, [
+                Query.search("string_field", "Alpha"),
+                Query.equal("bool_field", [true]),
+                Query.limit(1),
+                Query.offset(0),
+            ]);
+
+            // Should find 1 document due to limit
+            expect(results.length).toBe(1);
+            const doc = results[0];
+            expect(doc.getAttribute("string_field")).toContain("Alpha");
+            expect(doc.getAttribute("bool_field")).toBe(true);
         });
     });
 

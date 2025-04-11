@@ -103,7 +103,6 @@ export class IndexedQueries extends Queries {
                         break;
                     }
                 }
-
                 if (!matched) {
                     this.message = `Searching by attribute "${filter.getAttribute()}" requires a fulltext index.`;
                     return false;

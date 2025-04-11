@@ -3402,9 +3402,9 @@ export class PostgreDB extends Sql implements Adapter {
 
         switch (method) {
             case Query.TYPE_SEARCH:
-                params.push(query.getValue());
+                params.push(this.getFulltextValue(query.getValue()));
                 return {
-                    condition: `to_tsvector(regexp_replace(${quotedAttribute}, '[^\\w]+', ' ', 'g')) @@ websearch_to_tsquery(${this.getFulltextValue(query.getValue())})`,
+                    condition: `to_tsvector(regexp_replace(${quotedAttribute}, '[^\\w]+', ' ', 'g')) @@ websearch_to_tsquery($${currentParamIndex})`,
                     params,
                 };
 
@@ -3840,5 +3840,9 @@ export class PostgreDB extends Sql implements Adapter {
                 inTransaction: this.inTransaction,
             },
         };
+    }
+
+    public getSupportForCastIndexArray(): boolean {
+        return false;
     }
 }
