@@ -11,7 +11,7 @@ export class PartialStructure extends Structure {
      * @param document - The document to validate
      * @returns {boolean}
      */
-    public isValid(document: any): boolean {
+    public override isValid(document: any): boolean {
         if (!(document instanceof Document)) {
             this.message = "Value must be an instance of Document";
             return false;

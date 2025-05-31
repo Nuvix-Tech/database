@@ -14,8 +14,8 @@ describe("PostgreSQL Adapter", () => {
     let db: Database;
 
     // Skip tests if adapter connection isn't possible
-    const runTests = process.env.SKIP_DB_TESTS !== "true";
-    const ssl = process.env.SSL === "true";
+    const runTests = process.env["SKIP_DB_TESTS"] !== "true";
+    const ssl = process.env["SSL"] === "true";
 
     // Set higher timeout for tests
     jest.setTimeout(60000);

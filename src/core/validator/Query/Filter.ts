@@ -35,7 +35,7 @@ export class Filter extends Base {
             if (this.schema[attribute]) {
                 return true;
             }
-            attribute = attribute.split(".")[0];
+            attribute = attribute.split(".")[0]!;
             if (this.schema[attribute]) {
                 this.message = "Cannot query nested attribute on: " + attribute;
                 return false;
@@ -60,7 +60,7 @@ export class Filter extends Base {
         }
 
         if (attribute.includes(".") && !this.schema[attribute]) {
-            attribute = attribute.split(".")[0];
+            attribute = attribute.split(".")[0]!;
         }
 
         const attributeSchema = this.schema[attribute];

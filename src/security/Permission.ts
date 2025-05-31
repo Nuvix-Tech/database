@@ -51,15 +51,15 @@ export default class Permission {
             );
         }
 
-        const perm = permissionParts[0];
+        const perm = permissionParts[0]!;
 
         if (!this.isValidPermission(perm)) {
             throw new Exception(`Invalid permission type: "${perm}".`);
         }
 
-        const fullRole = permissionParts[1].replace('")', "");
+        const fullRole = permissionParts[1]!.replace('")', "");
         const roleParts = fullRole.split(":");
-        const role = roleParts[0];
+        const role = roleParts[0]!;
 
         const hasIdentifier = roleParts.length > 1;
         const hasDimension = fullRole.includes("/");
@@ -79,7 +79,7 @@ export default class Permission {
                 throw new Exception("Only one dimension can be provided");
             }
 
-            const role = dimensionParts[0];
+            const role = dimensionParts[0]!;
             const dimension = dimensionParts[1];
 
             if (!dimension) {
@@ -89,7 +89,7 @@ export default class Permission {
         }
 
         // Has both identifier and dimension
-        const dimensionParts = roleParts[1].split("/");
+        const dimensionParts = roleParts[1]!.split("/");
         if (dimensionParts.length !== 2) {
             throw new Exception("Only one dimension can be provided");
         }

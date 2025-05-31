@@ -59,7 +59,7 @@ export class IndexedQueries extends Queries {
      * @param value - The value to validate
      * @returns {boolean}
      */
-    public isValid(value: any): boolean {
+    public override isValid(value: any): boolean {
         if (!super.isValid(value)) {
             return false;
         }

@@ -1,5 +1,5 @@
 import { Document } from "../core/Document";
-import { ColumnOptions } from "./options/columnOptions";
+import type { ColumnOptions } from "./options/columnOptions";
 
 export function Column(options?: ColumnOptions): any {
     return function (target: Object, propertyKey: string | symbol) {

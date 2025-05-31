@@ -1,7 +1,7 @@
 import { Key } from "./Key";
 
 export class Label extends Key {
-    protected message: string =
+    protected override message: string =
         "Value must be a valid string between 1 and 36 chars containing only alphanumeric chars";
 
     /**
@@ -12,7 +12,7 @@ export class Label extends Key {
      * @param value - The value to validate
      * @returns {boolean}
      */
-    public isValid(value: any): boolean {
+    public override isValid(value: any): boolean {
         if (!super.isValid(value)) {
             return false;
         }

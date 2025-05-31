@@ -3,9 +3,9 @@ import Permission from "./Permission";
 import { Roles } from "./Roles";
 
 export class Permissions extends Roles {
-    protected message: string = "Permissions Error";
-    protected allowed: string[];
-    protected length: number;
+    protected override message: string = "Permissions Error";
+    protected override allowed: string[];
+    protected override length: number;
 
     /**
      * Permissions constructor.
@@ -32,7 +32,7 @@ export class Permissions extends Roles {
      *
      * @returns {string}
      */
-    public getDescription(): string {
+    public override getDescription(): string {
         return this.message;
     }
 
@@ -44,7 +44,7 @@ export class Permissions extends Roles {
      * @param permissions - Permissions to validate
      * @returns {boolean}
      */
-    public isValid(permissions: any): boolean {
+    public override isValid(permissions: any): boolean {
         if (!Array.isArray(permissions)) {
             this.message = "Permissions must be an array of strings.";
             return false;

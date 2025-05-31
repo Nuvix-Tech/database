@@ -2,31 +2,45 @@
   "compilerOptions": {
     // Module Configuration
     "target": "ES2022",
-    "module": "CommonJS",
-    "moduleResolution": "node",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
     // Module Interop
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
+    "verbatimModuleSyntax": false,
     // Source Maps & Declaration
     "sourceMap": true,
     "declaration": true,
-    "declarationMap": false,
+    "declarationMap": true,
     "inlineSourceMap": false,
     "inlineSources": false,
     // Path Configuration
     "baseUrl": ".",
     "outDir": "dist",
     "rootDir": "./src",
-    // Type Checking
-    "strict": true,
+    // Type Checking - Rules
+    "strict": false,
     "noImplicitAny": true,
-    "skipLibCheck": true,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "strictBindCallApply": true,
     "strictPropertyInitialization": false,
+    "noImplicitThis": true,
+    "noImplicitReturns": true,
+    "noImplicitOverride": true,
+    "noUncheckedIndexedAccess": true,
+    "noPropertyAccessFromIndexSignature": true,
+    "exactOptionalPropertyTypes": true,
+    "skipLibCheck": true,
     // Decorators
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
     // Additional Checks
     "noFallthroughCasesInSwitch": true,
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "allowUnreachableCode": false,
+    "allowUnusedLabels": false,
     "forceConsistentCasingInFileNames": true,
     // Path Aliases
     "paths": {

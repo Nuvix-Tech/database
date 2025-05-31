@@ -1,5 +1,5 @@
 import { Document } from "../core/Document";
-import { IndexOptions } from "./options/IndexOptions";
+import type { IndexOptions } from "./options/IndexOptions";
 
 export function Index(options?: IndexOptions): ClassDecorator {
     return function (target: any) {

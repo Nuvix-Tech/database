@@ -26,7 +26,7 @@ export class Range extends Numeric {
      *
      * @returns {string}
      */
-    public getDescription(): string {
+    public override getDescription(): string {
         return `Value must be a valid range between ${this.min} and ${this.max}`;
     }
 
@@ -38,7 +38,7 @@ export class Range extends Numeric {
      * @param value - The value to validate
      * @returns {boolean}
      */
-    public isValid(value: any): boolean {
+    public override isValid(value: any): boolean {
         if (!super.isValid(value)) {
             return false;
         }

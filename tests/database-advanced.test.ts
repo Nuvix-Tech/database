@@ -14,8 +14,8 @@ describe("Database Advanced Tests", () => {
     let db: Database;
 
     // Skip tests if adapter connection isn't possible
-    const runTests = process.env.SKIP_DB_TESTS !== "true";
-    const ssl = process.env.SSL === "true";
+    const runTests = process.env["SKIP_DB_TESTS"] !== "true";
+    const ssl = process.env["SSL"] === "true";
 
     // Set higher timeout for tests
     jest.setTimeout(60000);
@@ -308,7 +308,7 @@ describe("Database Advanced Tests", () => {
             // Should find 2 documents
             expect(results.length).toBe(2);
             for (const doc of results) {
-                expect(doc.getAttribute("string_field")).toBe("Alpha");
+                expect(doc?.getAttribute("string_field")).toBe("Alpha");
             }
         });
 
@@ -324,8 +324,8 @@ describe("Database Advanced Tests", () => {
             // Should find 2 documents
             expect(results.length).toBe(2);
             for (const doc of results) {
-                expect(doc.getAttribute("string_field")).toBe("Alpha");
-                expect(doc.getAttribute("bool_field")).toBe(true);
+                expect(doc?.getAttribute("string_field")).toBe("Alpha");
+                expect(doc?.getAttribute("bool_field")).toBe(true);
             }
         });
 
@@ -341,7 +341,7 @@ describe("Database Advanced Tests", () => {
             // Should find 2 documents
             expect(results.length).toBe(2);
             for (const doc of results) {
-                expect(doc.getAttribute("int_field")).toBeGreaterThan(30);
+                expect(doc?.getAttribute("int_field")).toBeGreaterThan(30);
             }
         });
 
@@ -356,7 +356,7 @@ describe("Database Advanced Tests", () => {
             // Should find 2 documents
             expect(results.length).toBe(2);
             for (const doc of results) {
-                expect(doc.getAttribute("string_field")).toContain("Alpha");
+                expect(doc?.getAttribute("string_field")).toContain("Alpha");
             }
         });
 
@@ -374,8 +374,8 @@ describe("Database Advanced Tests", () => {
             // Should find 1 document due to limit
             expect(results.length).toBe(1);
             const doc = results[0];
-            expect(doc.getAttribute("string_field")).toContain("Alpha");
-            expect(doc.getAttribute("bool_field")).toBe(true);
+            expect(doc?.getAttribute("string_field")).toContain("Alpha");
+            expect(doc?.getAttribute("bool_field")).toBe(true);
         });
     });
 

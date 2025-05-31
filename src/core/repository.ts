@@ -1,6 +1,6 @@
 import Permission from "../security/Permission";
 import { Database } from "./database";
-import { DeepPartial } from "./types/deep-partial";
+import type { DeepPartial } from "./types/deep-partial";
 import { Logger } from "./logger";
 import { DatabaseError } from "../errors/base";
 import { Document } from "./Document";

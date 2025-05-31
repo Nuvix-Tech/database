@@ -14,7 +14,7 @@ import { Authorization } from "../src/security/authorization";
  * This factory allows the tests to work with any adapter implementation
  */
 function getAdapter(): Adapter {
-    const ssl = process.env.SSL === "true";
+    const ssl = process.env["SSL"] === "true";
     // Create a PostgreSQL adapter by default
     // In a production environment, you would inject the adapter based on configuration
     const adapter = new PostgreDB({
@@ -34,7 +34,7 @@ function getAdapter(): Adapter {
 }
 
 // Skip tests if adapter connection isn't possible
-const runTests = process.env.SKIP_DB_TESTS !== "true";
+const runTests = process.env["SKIP_DB_TESTS"] !== "true";
 
 describe("Database Core", () => {
     let adapter: Adapter;

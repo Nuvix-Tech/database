@@ -1,5 +1,5 @@
 import { Sql } from "./sql";
-import { Adapter } from "./base";
+import type { Adapter } from "./base";
 import { Query } from "../core/query";
 import { Document } from "../core/Document";
 import { DatabaseError } from "../errors/base";
@@ -24,8 +24,6 @@ interface MariaDBOptions {
      */
     maxVarCharLimit?: number;
 }
-
-type Pool<a extends any> = a;
 
 /**
  * MariaDB adapter class
@@ -288,11 +286,9 @@ export class MariaDB extends Sql implements Adapter {
                 }
             // fallthrough
             default:
-                const defaultConditions = query
-                    .getValues()
-                    .map((value, key) => {
-                        return `${attribute} ${this.getSQLOperator(query.getMethod())} ?`; // :${placeholder}_${key}
-                    });
+                const defaultConditions = query.getValues().map((_, __) => {
+                    return `${attribute} ${this.getSQLOperator(query.getMethod())} ?`; // :${placeholder}_${key}
+                });
                 return defaultConditions.length
                     ? `(${defaultConditions.join(" OR ")})`
                     : "";
@@ -1262,16 +1258,16 @@ export class MariaDB extends Sql implements Adapter {
     ): Promise<Document> {
         const name = this.filter(collection);
         let attributes = document.getAttributes();
-        attributes._createdAt = document.getCreatedAt();
-        attributes._updatedAt = document.getUpdatedAt();
-        attributes._permissions = document.getPermissions();
+        attributes["_createdAt"] = document.getCreatedAt();
+        attributes["_updatedAt"] = document.getUpdatedAt();
+        attributes["_permissions"] = document.getPermissions();
 
         let columns: string[] = [];
         let values: any[] = [];
         let placeholders: string[] = [];
 
         // Process attributes
-        Object.entries(attributes).forEach(([attribute, value], index) => {
+        Object.entries(attributes).forEach(([attribute, value], _) => {
             if (
                 Database.INTERNAL_ATTRIBUTES.map((v) => v.$id).includes(
                     attribute,
@@ -1396,20 +1392,20 @@ export class MariaDB extends Sql implements Adapter {
 
             batch.forEach((document, index) => {
                 const attributes = document.getAttributes();
-                attributes._uid = document.getId();
-                attributes._createdAt = document.getCreatedAt();
-                attributes._updatedAt = document.getUpdatedAt();
-                attributes._permissions = JSON.stringify(
+                attributes["_uid"] = document.getId();
+                attributes["_createdAt"] = document.getCreatedAt();
+                attributes["_updatedAt"] = document.getUpdatedAt();
+                attributes["_permissions"] = JSON.stringify(
                     document.getPermissions(),
                 );
 
                 if (document.getInternalId()) {
                     internalIds[document.getId()] = true;
-                    attributes._id = document.getInternalId();
+                    attributes["_id"] = document.getInternalId();
                 }
 
                 if (this.sharedTables) {
-                    attributes._tenant = this.tenantId;
+                    attributes["_tenant"] = this.tenantId;
                 }
 
                 if (index === 0) {
@@ -1529,17 +1525,17 @@ export class MariaDB extends Sql implements Adapter {
 
         const attributes = document.getAttributes();
         if (document.getCreatedAt()) {
-            attributes._createdAt = document.getCreatedAt();
+            attributes["_createdAt"] = document.getCreatedAt();
         }
         if (document.getUpdatedAt()) {
-            attributes._updatedAt = document.getUpdatedAt();
+            attributes["_updatedAt"] = document.getUpdatedAt();
         }
         if (document.getPermissions()) {
-            attributes._permissions = document.getPermissions();
+            attributes["_permissions"] = document.getPermissions();
         }
 
         if (this.sharedTables) {
-            attributes._tenant = this.tenantId;
+            attributes["_tenant"] = this.tenantId;
         }
 
         const columns = Object.keys(attributes)
@@ -2574,7 +2570,7 @@ export class MariaDB extends Sql implements Adapter {
      * @param e - The MySQL error object.
      * @returns The mapped custom exception.
      */
-    protected processException(e: any, m?: any): DatabaseError {
+    protected processException(e: any, _?: any): DatabaseError {
         // Timeout
         if (e.code === "PROTOCOL_SEQUENCE_TIMEOUT") {
             return new TimeoutException("Query timed out", e.code, e);
@@ -2690,7 +2686,7 @@ export class MariaDB extends Sql implements Adapter {
      *
      * @returns {Date} The maximum DateTime value as a Date object.
      */
-    public getMaxDateTime(): Date {
+    public override getMaxDateTime(): Date {
         return new Date("9999-12-31T23:59:59Z");
     }
 

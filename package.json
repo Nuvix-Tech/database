@@ -2,6 +2,7 @@
   "name": "@nuvix/database",
   "version": "1.0.2-alpha.3",
   "private": false,
+  "type": "module",
   "description": "A powerful and modern TypeScript database library inspired by cutting-edge technologies and best practices.",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -21,8 +22,8 @@
     "build": "tsc",
     "prepublishOnly": "npm run build",
     "format": "prettier --write .",
-    "test": "node tests/run-tests.js",
-    "test:all": "node tests/run-tests.js --all"
+    "test": "node tests/run-tests.mjs",
+    "test:all": "node tests/run-tests.mjs --all"
   },
   "keywords": [
     "typescript",

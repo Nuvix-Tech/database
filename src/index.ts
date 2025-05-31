@@ -7,6 +7,7 @@ export * from "./decorator/Index";
 export * from "./adapter/mariadb";
 export * from "./adapter/mysql";
 export * from "./adapter/postgre";
+export * from "./adapter/base";
 
 export { default as Permission } from "./security/Permission";
 export { default as Role } from "./security/Role";
@@ -16,6 +17,7 @@ export * from "./security/Roles";
 
 export * from "./core/validator/Structure";
 export * from "./core/validator";
+export * from "./core/validator/Validator";
 
 export * from "./core/database";
 export * from "./core/Document";

@@ -87,7 +87,7 @@ async function setupPostgresTestDB() {
 }
 
 // Run the setup if this script is executed directly
-if (require.main === module) {
+if (import.meta.url === `file://${process.argv[1]}`) {
     setupPostgresTestDB().catch(console.error);
 }
 

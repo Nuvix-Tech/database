@@ -1,5 +1,3 @@
-// src/Validator/Datetime.ts
-
 import { Validator } from "./Validator";
 
 export class Datetime extends Validator {

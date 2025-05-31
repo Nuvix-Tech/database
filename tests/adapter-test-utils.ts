@@ -31,7 +31,7 @@ export function createTestAdapter(): Adapter {
  * @returns True if adapter tests should run
  */
 export function shouldRunAdapterTests(): boolean {
-    return process.env.PG_TEST_CONNECTION === "true";
+    return process.env["PG_TEST_CONNECTION"] === "true";
 }
 
 /**

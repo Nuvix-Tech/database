@@ -53,7 +53,7 @@ export default class Role {
         const roleParts = role.split(":");
         const hasIdentifier = roleParts.length > 1;
         const hasDimension = role.includes("/");
-        let roleName = roleParts[0];
+        let roleName = roleParts[0]!;
 
         if (!hasIdentifier && !hasDimension) {
             return new Role(roleName);
@@ -70,7 +70,7 @@ export default class Role {
                 throw new Error("Only one dimension can be provided");
             }
 
-            roleName = dimensionParts[0];
+            roleName = dimensionParts[0]!;
             const dimension = dimensionParts[1];
 
             if (!dimension) {
@@ -80,7 +80,7 @@ export default class Role {
         }
 
         // Has both identifier and dimension
-        const dimensionParts = roleParts[1].split("/");
+        const dimensionParts = roleParts[1]!.split("/");
         if (dimensionParts.length !== 2) {
             throw new Error("Only one dimension can be provided");
         }

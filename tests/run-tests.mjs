@@ -13,17 +13,16 @@
  *   npm run test -- --testPathPattern=*.test.ts  - Run tests matching pattern
  */
 
-const { spawn } = require("child_process");
-const path = require("path");
-const fs = require("fs");
+import { spawn } from "child_process";
+import { join } from "path";
+import { readFileSync } from "fs";
+
+const __dirname = join(import.meta.dirname);
 
 // Read DB connection string from config.ts
 let connectionString = "";
 try {
-    const configContent = fs.readFileSync(
-        path.join(__dirname, "config.ts"),
-        "utf8",
-    );
+    const configContent = readFileSync(join(__dirname, "config.ts"), "utf8");
     const match = configContent.match(/DB\s*=\s*`(.+?)`/);
     if (match && match[1]) {
         connectionString = match[1];
@@ -42,7 +41,7 @@ if (!connectionString) {
 const defaultConfig = {
     SKIP_DB_TESTS: "false",
     DB: connectionString,
-    SSL: "true",
+    SSL: "false",
 };
 
 // Parse command line arguments

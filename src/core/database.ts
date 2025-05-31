@@ -1,4 +1,4 @@
-import { Adapter } from "../adapter/base";
+import type { Adapter } from "../adapter/base";
 import { Document } from "./Document";
 import {
     AuthorizationException,
@@ -14,14 +14,14 @@ import {
 import { ID } from "./ID";
 import { Query } from "./query";
 import Role from "../security/Role";
-import { Filter } from "./types/filter";
+import type { Filter } from "./types/filter";
 import crypto from "crypto";
 import { IndexValidator } from "./validator";
 import { DatabaseError } from "../errors/base";
 import Permission from "../security/Permission";
 import { Permissions } from "../security/Permissions";
 import { Cache } from "@nuvix/cache";
-import { Logger, LoggerOptions } from "./logger";
+import { Logger, type LoggerOptions } from "./logger";
 import { Constant } from "./constant";
 import { DateTime } from "./date-time";
 import { Repository } from "./repository";
@@ -31,7 +31,7 @@ import { PartialStructure } from "./validator/PartialStructure";
 import { DatabaseError as DatabaseException } from "../errors/base";
 import { Document as DocumentValidator } from "./validator/Queries/Document";
 import { Documents as DocumentsValidator } from "./validator/Queries/Documents";
-import {
+import type {
     CreateAttributeParams,
     CreateCollectionParams,
     CreateIndexParams,
@@ -3766,7 +3766,7 @@ export class Database extends Constant {
         const time = DateTime.now();
 
         for (let i = 0; i < documents.length; i++) {
-            let document = documents[i];
+            let document = documents[i]!;
             const createdAt = document.getCreatedAt();
             const updatedAt = document.getUpdatedAt();
 
@@ -3818,7 +3818,7 @@ export class Database extends Constant {
         });
 
         for (let i = 0; i < documents.length; i++) {
-            let document = documents[i];
+            let document = documents[i]!;
             if (this.resolveRelationships) {
                 document = await this.silent(
                     async () =>
@@ -6529,7 +6529,7 @@ export class Database extends Constant {
 
         for (let index = 0; index < queries.length; index++) {
             const query = queries[index];
-            switch (query.getMethod()) {
+            switch (query?.getMethod()) {
                 case Query.TYPE_SELECT:
                     const values = query.getValues();
                     for (
@@ -6570,7 +6570,7 @@ export class Database extends Constant {
                     query.setValues(values);
                     break;
                 default:
-                    if (query.getAttribute().includes(".")) {
+                    if (query?.getAttribute().includes(".")) {
                         queries.splice(index, 1);
                     }
                     break;
@@ -7044,13 +7044,13 @@ export class Database extends Constant {
 
         try {
             if (name in this.instanceFilters) {
-                value = await this.instanceFilters[name].encode(
+                value = await this.instanceFilters[name]!.encode(
                     value,
                     document,
                     this,
                 );
             } else {
-                value = await Database.filters[name].encode(
+                value = await Database.filters[name]!.encode(
                     value,
                     document,
                     this,
@@ -7090,13 +7090,13 @@ export class Database extends Constant {
         }
 
         if (name in this.instanceFilters) {
-            value = await this.instanceFilters[name].decode(
+            value = await this.instanceFilters[name]!.decode(
                 value,
                 document,
                 this,
             );
         } else {
-            value = await Database.filters[name].decode(value, document, this);
+            value = await Database.filters[name]!.decode(value, document, this);
         }
 
         return value;
@@ -7221,7 +7221,7 @@ export class Database extends Constant {
 
             if (attribute.getAttribute("type") === Database.VAR_DATETIME) {
                 for (let index = 0; index < queries.length; index++) {
-                    const query = queries[index];
+                    const query = queries[index]!;
                     if (query.getAttribute() === attribute.getId()) {
                         let values = query.getValues();
                         for (

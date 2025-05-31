@@ -179,7 +179,7 @@ export class Index extends Validator {
         for (const attributePosition in index.getAttribute("attributes", [])) {
             const attributeName =
                 index.getAttribute("attributes")[attributePosition];
-            const attrDoc = this.attributes[attributeName.toLowerCase()];
+            const attrDoc = this.attributes[attributeName.toLowerCase()]!;
 
             let indexLength: number;
             switch (attrDoc.getAttribute("type")) {

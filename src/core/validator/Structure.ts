@@ -140,7 +140,9 @@ export class Structure extends Validator {
      * @returns {boolean}
      */
     public static hasFormat(name: string, type: string): boolean {
-        return this.formats[name] && this.formats[name].type === type;
+        return (
+            (this.formats[name] && this.formats[name].type === type) || false
+        );
     }
 
     /**

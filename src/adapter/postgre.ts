@@ -1,8 +1,8 @@
 import { Document } from "../core/Document";
 import { Query } from "../core/query";
-import { Adapter } from "./base";
+import type { Adapter } from "./base";
 import { Sql } from "./sql";
-import { Pool, PoolConfig, PoolClient } from "pg";
+import { Pool, type PoolConfig } from "pg";
 import Transaction from "../errors/Transaction";
 import { Database } from "../core/database";
 import {
@@ -178,7 +178,7 @@ export class PostgreDB extends Sql implements Adapter {
         const checkInterval = 60000 * 10; // Check every minute
 
         // Don't create intervals in test environments
-        if (process.env.NODE_ENV === "test") {
+        if (process.env["NODE_ENV"] === "test") {
             return;
         }
 
@@ -261,7 +261,7 @@ export class PostgreDB extends Sql implements Adapter {
     /**
      * Improved version of withTransaction that properly manages client resources
      */
-    public async withTransaction<T>(
+    public override async withTransaction<T>(
         callback: (client?: any) => Promise<T>,
     ): Promise<T> {
         let client;
@@ -1206,7 +1206,7 @@ export class PostgreDB extends Sql implements Adapter {
                     attr = "_updatedAt";
                     break;
                 default:
-                    attr = this.filter(attr);
+                    attr = this.filter(attr as string);
             }
 
             // Format attribute for SQL statement
@@ -1681,7 +1681,7 @@ export class PostgreDB extends Sql implements Adapter {
             if (!permissions[row._type]) {
                 permissions[row._type] = [];
             }
-            permissions[row._type].push(row._permission);
+            permissions[row._type]?.push(row._permission);
         }
 
         return permissions;
@@ -1888,13 +1888,13 @@ export class PostgreDB extends Sql implements Adapter {
             // Update document attributes
             const attributes = document.getAttributes();
             if (document.getCreatedAt()) {
-                attributes._createdAt = document.getCreatedAt();
+                attributes["_createdAt"] = document.getCreatedAt();
             }
             if (document.getUpdatedAt()) {
-                attributes._updatedAt = document.getUpdatedAt();
+                attributes["_updatedAt"] = document.getUpdatedAt();
             }
             if (document.getPermissions()) {
-                attributes._permissions = document.getPermissions();
+                attributes["_permissions"] = document.getPermissions();
             }
 
             const setClauses: string[] = [];
@@ -1902,7 +1902,7 @@ export class PostgreDB extends Sql implements Adapter {
             let paramIndex = 3;
 
             if (this.sharedTables) {
-                attributes._tenant = this.tenantId;
+                attributes["_tenant"] = this.tenantId;
                 updateParams.push(this.tenantId);
             }
 
@@ -2293,11 +2293,11 @@ export class PostgreDB extends Sql implements Adapter {
         let hasIdAttribute = false;
         for (let i = 0; i < mappedOrderAttributes.length; i++) {
             const attribute = mappedOrderAttributes[i];
-            if (["_uid", "_id"].includes(attribute)) {
+            if (["_uid", "_id"].includes(attribute!)) {
                 hasIdAttribute = true;
             }
 
-            const filterAttribute = this.filter(attribute);
+            const filterAttribute = this.filter(attribute!);
             let orderType = this.filter(orderTypes[i] || Database.ORDER_ASC);
 
             // Handle cursor-based pagination for first order attribute
@@ -2305,7 +2305,7 @@ export class PostgreDB extends Sql implements Adapter {
                 i === 0 &&
                 cursor &&
                 cursor[
-                    attribute === "_uid"
+                    (attribute === "_uid"
                         ? "$id"
                         : attribute === "_id"
                           ? "$internalId"
@@ -2315,7 +2315,7 @@ export class PostgreDB extends Sql implements Adapter {
                               ? "$createdAt"
                               : attribute === "_updatedAt"
                                 ? "$updatedAt"
-                                : attribute
+                                : attribute)!
                 ]
             ) {
                 let orderMethodInternalId = Query.TYPE_GREATER; // To preserve natural order
@@ -2362,7 +2362,7 @@ export class PostgreDB extends Sql implements Adapter {
                                 ? "$updatedAt"
                                 : attribute;
 
-                params.push(cursor[cursorAttrKey]);
+                params.push(cursor[cursorAttrKey!]);
                 params.push(cursor["$internalId"]);
                 paramIndex += 2;
             } else if (cursorDirection === Database.CURSOR_BEFORE) {
@@ -2842,11 +2842,11 @@ export class PostgreDB extends Sql implements Adapter {
         return false;
     }
 
-    getLikeOperator(): string {
+    override getLikeOperator(): string {
         return "ILIKE";
     }
 
-    protected getSQLTable(name: string): string {
+    protected override getSQLTable(name: string): string {
         const prefixPart = this.prefix ? `${this.prefix}_` : "";
         return `"${this.getDatabase()}"."${prefixPart}${this.filter(name)}"`;
     }
@@ -2891,7 +2891,7 @@ export class PostgreDB extends Sql implements Adapter {
                 return `to_tsvector(regexp_replace(${quotedAttribute}, '[^\\w]+', ' ', 'g')) @@ websearch_to_tsquery(${this.getFulltextValue(query.getValue())})`;
 
             case Query.TYPE_BETWEEN:
-                let betweenValues = query.getValues();
+                // let betweenValues = query.getValues();
                 return `${quotedAttribute} BETWEEN $${paramCount++} AND $${paramCount++}`;
 
             case Query.TYPE_IS_NULL:
@@ -2919,7 +2919,7 @@ export class PostgreDB extends Sql implements Adapter {
                         : this.getSQLOperator(query.getMethod());
 
                 let values = query.getValues();
-                values.forEach((_, index) => {
+                values.forEach((_, __) => {
                     conditions.push(
                         `${quotedAttribute} ${operator} $${paramCount++}`,
                     );
@@ -2992,7 +2992,7 @@ export class PostgreDB extends Sql implements Adapter {
      * @param params - The array to push parameters to
      * @param query - The query with values to bind
      */
-    protected bindConditionValue(params: any[], query: Query): void {
+    protected override bindConditionValue(params: any[], query: Query): void {
         const method = query.getMethod();
         const values = query.getValues();
 
@@ -3050,7 +3050,7 @@ export class PostgreDB extends Sql implements Adapter {
      * @param value - The search string to format
      * @returns A formatted string suitable for full-text search
      */
-    protected getFulltextValue(value: string): string {
+    protected override getFulltextValue(value: string): string {
         const exact = value.startsWith('"') && value.endsWith('"');
 
         // Remove special characters
@@ -3072,7 +3072,7 @@ export class PostgreDB extends Sql implements Adapter {
      * @param data - Data to pass to event handlers (e.g., SQL query)
      * @returns The potentially modified data
      */
-    protected async trigger<T>(event: string, data: T): Promise<T> {
+    protected override async trigger<T>(event: string, data: T): Promise<T> {
         // First make a copy of the data to avoid unexpected side effects
         let result = data;
 
@@ -3304,7 +3304,7 @@ export class PostgreDB extends Sql implements Adapter {
      * @param queries - The array of Query objects
      * @returns A string containing the SQL conditions
      */
-    public getSQLConditions(queries: Query[]): string {
+    public override getSQLConditions(queries: Query[]): string {
         if (!queries || queries.length === 0) {
             return "";
         }
@@ -3458,12 +3458,11 @@ export class PostgreDB extends Sql implements Adapter {
                     );
                 }
                 return {
-                    condition:
-                        containsConditions.length === 0
-                            ? ""
-                            : containsConditions.length === 1
-                              ? containsConditions[0]
-                              : `(${containsConditions.join(" OR ")})`,
+                    condition: (containsConditions.length === 0
+                        ? ""
+                        : containsConditions.length === 1
+                          ? containsConditions[0]
+                          : `(${containsConditions.join(" OR ")})`)!,
                     params,
                 };
 
@@ -3479,12 +3478,11 @@ export class PostgreDB extends Sql implements Adapter {
                 }
 
                 return {
-                    condition:
-                        conditions.length === 0
-                            ? ""
-                            : conditions.length === 1
-                              ? conditions[0]
-                              : `(${conditions.join(" OR ")})`,
+                    condition: (conditions.length === 0
+                        ? ""
+                        : conditions.length === 1
+                          ? conditions[0]
+                          : `(${conditions.join(" OR ")})`)!,
                     params,
                 };
         }
@@ -3678,7 +3676,7 @@ export class PostgreDB extends Sql implements Adapter {
         sql: string,
         executionTime: number,
         success: boolean,
-        description: string,
+        _: string,
     ): void {
         // Update counters
         this.queryStats.totalQueries++;
