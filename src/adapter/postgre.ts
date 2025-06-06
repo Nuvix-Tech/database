@@ -2530,31 +2530,39 @@ export class PostgreDB extends Sql implements Adapter {
 
         // Process query conditions
         if (queries && queries.length > 0) {
-            const conditions = this.getSQLConditions(queries);
-            if (conditions) {
-                where.push(conditions);
-                let conditionParams: any[] = [];
-                for (const query of queries) {
-                    this.bindConditionValue(conditionParams, query);
-                }
-                params.push(...conditionParams);
-                paramIndex += conditionParams.length;
+            const conditionsAndParams = this.getSQLConditionsWithParams(
+                queries,
+                paramIndex,
+            );
+            if (conditionsAndParams.conditions) {
+                where.push(conditionsAndParams.conditions);
+                params.push(...conditionsAndParams.params);
+                paramIndex += conditionsAndParams.params.length;
             }
         }
 
+        // Add tenant condition for shared tables
         // Add tenant condition for shared tables
         if (this.sharedTables) {
             let orIsNull = "";
             if (collection === Database.METADATA) {
                 orIsNull = " OR table_main._tenant IS NULL";
             }
-            where.push(`(table_main._tenant = $${paramIndex++}${orIsNull})`);
+            where.push(`(table_main._tenant = $${paramIndex}${orIsNull})`);
             params.push(this.getTenantId());
+            paramIndex++;
         }
 
         // Add authorization check if enabled
         if (Authorization.getStatus()) {
-            where.push(this.getSQLPermissionsCondition(name, roles));
+            where.push(
+                this.getSQLPermissionsConditionWithParam(
+                    name,
+                    roles,
+                    undefined,
+                    paramIndex,
+                ),
+            );
             if (this.sharedTables) {
                 params.push(this.getTenantId());
                 paramIndex++;
@@ -2608,18 +2616,18 @@ export class PostgreDB extends Sql implements Adapter {
 
         // Process query conditions
         if (queries && queries.length > 0) {
-            const conditions = this.getSQLConditions(queries);
-            if (conditions) {
-                where.push(conditions);
-                let conditionParams: any[] = [];
-                for (const query of queries) {
-                    this.bindConditionValue(conditionParams, query);
-                }
-                params.push(...conditionParams);
-                paramIndex += conditionParams.length;
+            const conditionsAndParams = this.getSQLConditionsWithParams(
+                queries,
+                paramIndex,
+            );
+            if (conditionsAndParams.conditions) {
+                where.push(conditionsAndParams.conditions);
+                params.push(...conditionsAndParams.params);
+                paramIndex += conditionsAndParams.params.length;
             }
         }
 
+        // Add tenant condition for shared tables
         // Add tenant condition for shared tables
         if (this.sharedTables) {
             let orIsNull = "";
@@ -2633,7 +2641,14 @@ export class PostgreDB extends Sql implements Adapter {
 
         // Add authorization check if enabled
         if (Authorization.getStatus()) {
-            where.push(this.getSQLPermissionsCondition(name, roles));
+            where.push(
+                this.getSQLPermissionsConditionWithParam(
+                    name,
+                    roles,
+                    undefined,
+                    paramIndex,
+                ),
+            );
             if (this.sharedTables) {
                 params.push(this.getTenantId());
                 paramIndex++;

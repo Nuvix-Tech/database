@@ -2,6 +2,7 @@ import fs from "fs";
 import path from "path";
 import { Document } from "./Document";
 
+// TODO: create actual migration logic
 export class MigrationGenerator {
     static generateMigrationFile(entities: any[], migrationName: string) {
         const upOperations = MigrationGenerator.createUpOperations(entities);

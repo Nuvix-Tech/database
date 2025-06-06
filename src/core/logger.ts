@@ -27,6 +27,7 @@ export interface LoggerOptions {
     warn?: boolean;
     info?: boolean;
     sql?: boolean;
+    writeLogFile?: boolean;
     useStdout?: boolean;
     useStderr?: boolean;
     logFilePath?: string;
@@ -63,6 +64,7 @@ export class Logger {
     private static maxLogFiles: number;
     private static asyncFileLogging: boolean;
     private static includeTimestamp: boolean;
+    private static fileLoggingEnabled: boolean = false;
     private static writeQueue: Promise<void> = Promise.resolve();
     private context: LogContext = {};
 
@@ -83,6 +85,7 @@ export class Logger {
             maxLogFiles: 5,
             asyncFileLogging: true,
             includeTimestamp: true,
+            writeLogFile: false,
         };
 
         // Handle boolean option (disable all logging)
@@ -114,6 +117,7 @@ export class Logger {
         Logger.maxLogFiles = finalOptions.maxLogFiles!;
         Logger.asyncFileLogging = finalOptions.asyncFileLogging!;
         Logger.includeTimestamp = finalOptions.includeTimestamp!;
+        Logger.fileLoggingEnabled = finalOptions.writeLogFile!;
 
         // Initialize log directory if it doesn't exist
         const logDir = path.dirname(Logger.logFilePath);
@@ -186,13 +190,15 @@ export class Logger {
         isError: boolean = false,
     ): void {
         const formattedMessages = this.formatMessages(level, colorFn, messages);
-        this.writeToFile(
-            messages.map((msg) => ({
-                ...this.context,
-                level,
-                message: msg,
-            })),
-        );
+        if (Logger.fileLoggingEnabled) {
+            this.writeToFile(
+                messages.map((msg) => ({
+                    ...this.context,
+                    level,
+                    message: msg,
+                })),
+            );
+        }
 
         isError
             ? this.writeToStderr(formattedMessages)
