@@ -3,6 +3,7 @@ export { default as ConflictException } from "./Conflict";
 export { default as DependencyException } from "./Dependency";
 export { default as DuplicateException } from "./Duplicate";
 export { default as LimitException } from "./Limit";
+export { default as OrderException } from "./Order";
 export { default as NotFoundException } from "./NotFound";
 export { default as QueryException } from "./Query";
 export { default as RelationshipException } from "./Relationship";

@@ -4,26 +4,26 @@
   "private": false,
   "type": "module",
   "description": "A powerful and modern TypeScript database library inspired by cutting-edge technologies and best practices.",
-  "main": "dist/index.js",
+  "main": "dist/index.cjs.js",
+  "module": "dist/index.esm.js",
   "types": "dist/index.d.ts",
   "repository": {
     "url": "http://github.com/Nuvix-Tech/database"
   },
   "exports": {
     ".": {
-      "import": "./dist/index.js",
-      "require": "./dist/index.js"
-    },
-    "./dist": {
-      "import": "./dist/index.js",
-      "require": "./dist/index.js"
+      "import": "./dist/index.esm.js",
+      "require": "./dist/index.cjs.js",
+      "types": "./dist/index.d.ts"
     }
   },
   "scripts": {
-    "clean": "rm -rf dist src/**/*.js",
-    "prebuild": "npm run clean",
-    "build": "tsc",
-    "prepublishOnly": "npm run build",
+    "clean": "rm -rf dist",
+    "prebuild": "bun run clean",
+    "build": "rollup -c",
+    "build:watch": "rollup -c -w",
+    "build:test": "node test-build.js",
+    "prepublishOnly": "bun run build",
     "format": "prettier --write .",
     "test": "node tests/run-tests.mjs",
     "test:all": "node tests/run-tests.mjs --all"
@@ -39,6 +39,10 @@
   "license": "BSD-3-Clause",
   "devDependencies": {
     "@nuvix/cache": "^1.0.2-alpha.2",
+    "@rollup/plugin-commonjs": "^28.0.3",
+    "@rollup/plugin-json": "^6.1.0",
+    "@rollup/plugin-node-resolve": "^16.0.1",
+    "@rollup/plugin-typescript": "^12.1.2",
     "@tsconfig/node16": "^16.1.4",
     "@types/jest": "^29.5.14",
     "@types/pg": "^8.15.2",
@@ -50,7 +54,10 @@
     "mysql2": "^3.14.1",
     "pg": "^8.16.0",
     "prettier": "^3.5.3",
+    "rollup": "^4.41.1",
+    "rollup-plugin-dts": "^6.2.1",
     "ts-jest": "^29.3.4",
+    "tslib": "^2.8.1",
     "typescript": "^5.8.3"
   },
   "dependencies": {
