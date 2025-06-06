@@ -8,7 +8,7 @@
   "module": "dist/index.esm.js",
   "types": "dist/index.d.ts",
   "repository": {
-    "url": "http://github.com/Nuvix-Tech/database"
+    "url": "git+ssh://git@github.com/Nuvix-Tech/database.git"
   },
   "exports": {
     ".": {
@@ -19,11 +19,11 @@
   },
   "scripts": {
     "clean": "rm -rf dist",
-    "prebuild": "bun run clean",
+    "prebuild": "npm run clean",
     "build": "rollup -c",
     "build:watch": "rollup -c -w",
     "build:test": "node test-build.js",
-    "prepublishOnly": "bun run build",
+    "prepublishOnly": "npm run build",
     "format": "prettier --write .",
     "test": "node tests/run-tests.mjs",
     "test:all": "node tests/run-tests.mjs --all"
