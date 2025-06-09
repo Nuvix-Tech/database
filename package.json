@@ -1,6 +1,6 @@
 {
   "name": "@nuvix/database",
-  "version": "1.0.3-alpha.2",
+  "version": "1.0.3-alpha.3",
   "private": false,
   "type": "module",
   "description": "A powerful and modern TypeScript database library inspired by cutting-edge technologies and best practices.",
