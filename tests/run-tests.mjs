@@ -79,7 +79,7 @@ if (jestArgs.length === 0) {
         jestArgs = [];
     } else {
         // Core tests by default
-        jestArgs = ["--testPathPattern", "database-core\\.test\\.ts$"];
+        jestArgs = ["--testPathPattern", "tests/core/.*\\.test\\.ts$"];
     }
 }
 
