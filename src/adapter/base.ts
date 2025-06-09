@@ -37,6 +37,8 @@ export interface Adapter {
 
     getInTransaction(): number;
 
+    getClient(): Promise<any>;
+
     init(): void;
 
     startTransaction(c: any): Promise<boolean>;

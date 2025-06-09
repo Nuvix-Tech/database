@@ -238,6 +238,20 @@ export class Query {
     }
 
     /**
+     * Find a cursor query in an array of queries
+     *
+     * @param queries
+     * @returns {Query | undefined}
+     */
+    public static findCursor(queries: Query[]): Query | undefined {
+        return queries.find((query) =>
+            [Query.TYPE_CURSOR_AFTER, Query.TYPE_CURSOR_BEFORE].includes(
+                query.getMethod(),
+            ),
+        );
+    }
+
+    /**
      * Convert query to array representation
      *
      * @returns {object}

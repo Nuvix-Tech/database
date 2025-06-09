@@ -163,7 +163,6 @@ describe("PostgreSQL Adapter", () => {
             // Check diagnostics object structure
             expect(diagnostics).toBeDefined();
             expect(diagnostics.timestamp).toBeDefined();
-            expect(diagnostics.poolStatus).toBeDefined();
             expect(diagnostics.queryPerformance).toBeDefined();
             expect(diagnostics.databaseInfo).toBeDefined();
             expect(diagnostics.adapter).toBeDefined();

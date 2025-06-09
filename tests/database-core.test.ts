@@ -238,7 +238,6 @@ describe("Database Core", () => {
             expect(result).toBeTruthy();
             expect(result.getAttribute("name")).toBe("John Doe Updated");
             expect(result.getAttribute("age")).toBe(31);
-            await db.getCache().clear(); // Some issue with cache
             // Verify update via a separate get operation
             const updatedDoc = await db.getDocument(testCollectionName, docId);
             expect(updatedDoc.getAttribute("name")).toBe("John Doe Updated");

@@ -377,6 +377,50 @@ describe("Database Advanced Tests", () => {
             expect(doc?.getAttribute("string_field")).toContain("Alpha");
             expect(doc?.getAttribute("bool_field")).toBe(true);
         });
+
+        test("should support sorting results", async () => {
+            if (!runTests) return;
+
+            // Find documents sorted by int_field DESC
+            const results = await db.find(testCollectionName, [
+                Query.orderDesc("int_field"),
+                Query.limit(3),
+            ]);
+
+            // Should return 3 documents sorted by int_field
+            expect(results.length).toBe(3);
+            expect(results[0]?.getAttribute("int_field")).toBeGreaterThanOrEqual(
+                results[1]?.getAttribute("int_field"),
+            );
+            expect(results[1]?.getAttribute("int_field")).toBeGreaterThanOrEqual(
+                results[2]?.getAttribute("int_field"),
+            );
+        });
+
+        test("should support cursor-based pagination", async () => {
+            if (!runTests) return;
+
+            // Find first 2 documents sorted by int_field ASC
+            const firstPage = await db.find(testCollectionName, [
+                Query.orderAsc("int_field"),
+                Query.limit(2),
+            ]);
+
+            expect(firstPage.length).toBe(2);
+            const cursor = firstPage[1]; // Use last document's ID as cursor
+            const queries = [
+                Query.orderAsc("int_field"),
+                Query.limit(2),
+                Query.cursorAfter(cursor?.getId() || ""),
+            ]
+            const cursorQuery = Query.findCursor(queries)
+            cursorQuery?.setValue(cursor!);
+            // Find next page using cursor
+            const secondPage = await db.find(testCollectionName, queries);
+
+            expect(secondPage.length).toBe(2);
+            expect(secondPage[0]?.getId()).not.toBe(firstPage[0]?.getId());
+        });
     });
 
     describe("Aggregation Operations", () => {
@@ -450,6 +494,46 @@ describe("Database Advanced Tests", () => {
 
             // Verify increment
             expect(retrievedDoc.getAttribute("int_field")).toBe(150);
+        });
+    });
+
+    describe("Document Attributes", () => {
+        test("should decrement numeric attributes", async () => {
+            if (!runTests) return;
+
+            // Create a test document
+            const docId = "decrement-doc-" + Date.now();
+            const doc = new Document({
+                $id: docId,
+                string_field: "Decrement Test",
+                int_field: 100,
+                bool_field: true,
+                $permissions: [
+                    Permission.read(Role.any()),
+                    Permission.update(Role.any()),
+                    Permission.delete(Role.any()),
+                ],
+            });
+
+            // Save document
+            await db.createDocument(testCollectionName, doc);
+
+            // Decrement int_field by 50
+            await db.decreaseDocumentAttribute(
+                testCollectionName,
+                docId,
+                "int_field",
+                50,
+            );
+
+            // Retrieve document
+            const retrievedDoc = await db.getDocument(
+                testCollectionName,
+                docId,
+            );
+
+            // Verify decrement
+            expect(retrievedDoc.getAttribute("int_field")).toBe(50);
         });
     });
 
