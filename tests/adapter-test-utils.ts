@@ -13,16 +13,16 @@ import { Pool } from "pg";
  */
 export async function createTestAdapter(): Promise<Adapter> {
     const ssl = process.env["SSL"] === "true";
-        const client = await new Pool({
-            connectionString: DB,
-            ssl: ssl ? { rejectUnauthorized: false } : undefined,
-        }).connect();
-        const defaultOptions = {
-            connection: client,
-            schema: "public",
-        };
-        const adapter = new PostgreDB({ ...defaultOptions });
-        return adapter;
+    const client = await new Pool({
+        connectionString: DB,
+        ssl: ssl ? { rejectUnauthorized: false } : undefined,
+    }).connect();
+    const defaultOptions = {
+        connection: client,
+        schema: "public",
+    };
+    const adapter = new PostgreDB({ ...defaultOptions });
+    return adapter;
 }
 
 /**

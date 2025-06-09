@@ -309,7 +309,7 @@ describe("PostgreSQL Adapter", () => {
             if (!runTests) return;
             try {
                 await db.deleteCollection(extraCollection);
-            } catch { }
+            } catch {}
         });
 
         test("should create and drop schema", async () => {
@@ -324,35 +324,105 @@ describe("PostgreSQL Adapter", () => {
             if (!runTests) return;
             // Create a new collection
             await db.createCollection(extraCollection, [
-                new Document({ $id: "foo", key: "foo", type: "string", size: 50 }),
+                new Document({
+                    $id: "foo",
+                    key: "foo",
+                    type: "string",
+                    size: 50,
+                }),
             ]);
             // Add attribute
-            expect(await adapter.createAttribute(extraCollection, "bar", "integer", 4)).toBe(true);
+            expect(
+                await adapter.createAttribute(
+                    extraCollection,
+                    "bar",
+                    "integer",
+                    4,
+                ),
+            ).toBe(true);
             // Update attribute
-            expect(await adapter.updateAttribute(extraCollection, "bar", "integer", 8)).toBe(true);
+            expect(
+                await adapter.updateAttribute(
+                    extraCollection,
+                    "bar",
+                    "integer",
+                    8,
+                ),
+            ).toBe(true);
             // Rename attribute
-            expect(await adapter.renameAttribute(extraCollection, "bar", "baz")).toBe(true);
+            expect(
+                await adapter.renameAttribute(extraCollection, "bar", "baz"),
+            ).toBe(true);
             // Delete attribute
-            expect(await adapter.deleteAttribute(extraCollection, "baz")).toBe(true);
+            expect(await adapter.deleteAttribute(extraCollection, "baz")).toBe(
+                true,
+            );
             // Create index
-            expect(await adapter.createIndex(extraCollection, "foo_idx", "key", ["foo"])).toBe(true);
+            expect(
+                await adapter.createIndex(extraCollection, "foo_idx", "key", [
+                    "foo",
+                ]),
+            ).toBe(true);
             // Rename index
-            expect(await adapter.renameIndex(extraCollection, "foo_idx", "foo_idx2")).toBe(true);
+            expect(
+                await adapter.renameIndex(
+                    extraCollection,
+                    "foo_idx",
+                    "foo_idx2",
+                ),
+            ).toBe(true);
             // Delete index
-            expect(await adapter.deleteIndex(extraCollection, "foo_idx2")).toBe(true);
+            expect(await adapter.deleteIndex(extraCollection, "foo_idx2")).toBe(
+                true,
+            );
         });
 
         test("should handle relationship management", async () => {
             if (!runTests) return;
             // Create two collections
-            await db.createCollection(extraCollection + "1", [new Document({ $id: "a", key: "a", type: "string", size: 10 })]);
-            await db.createCollection(extraCollection + "2", [new Document({ $id: "b", key: "b", type: "string", size: 10 })]);
+            await db.createCollection(extraCollection + "1", [
+                new Document({ $id: "a", key: "a", type: "string", size: 10 }),
+            ]);
+            await db.createCollection(extraCollection + "2", [
+                new Document({ $id: "b", key: "b", type: "string", size: 10 }),
+            ]);
             // One-to-one
-            expect(await adapter.createRelationship(extraCollection + "1", extraCollection + "2", "oneToOne", true, "rel1", "rel2")).toBe(true);
+            expect(
+                await adapter.createRelationship(
+                    extraCollection + "1",
+                    extraCollection + "2",
+                    "oneToOne",
+                    true,
+                    "rel1",
+                    "rel2",
+                ),
+            ).toBe(true);
             // Update relationship
-            expect(await adapter.updateRelationship(extraCollection + "1", extraCollection + "2", "oneToOne", true, "rel1", "rel2", "parent", "rel1_new", "rel2_new")).toBe(true);
+            expect(
+                await adapter.updateRelationship(
+                    extraCollection + "1",
+                    extraCollection + "2",
+                    "oneToOne",
+                    true,
+                    "rel1",
+                    "rel2",
+                    "parent",
+                    "rel1_new",
+                    "rel2_new",
+                ),
+            ).toBe(true);
             // Delete relationship
-            expect(await adapter.deleteRelationship(extraCollection + "1", extraCollection + "2", "oneToOne", true, "rel1_new", "rel2_new", "parent")).toBe(true);
+            expect(
+                await adapter.deleteRelationship(
+                    extraCollection + "1",
+                    extraCollection + "2",
+                    "oneToOne",
+                    true,
+                    "rel1_new",
+                    "rel2_new",
+                    "parent",
+                ),
+            ).toBe(true);
         });
 
         test("should handle bulk document operations", async () => {
@@ -361,14 +431,24 @@ describe("PostgreSQL Adapter", () => {
                 new Document({ name: "Bulk1", value: 1 }),
                 new Document({ name: "Bulk2", value: 2 }),
             ];
-            const created = await adapter.createDocuments(extraCollection, docs);
+            const created = await adapter.createDocuments(
+                extraCollection,
+                docs,
+            );
             expect(created.length).toBe(2);
             // Update documents
             const updateDoc = new Document({ value: 99 });
-            const updatedCount = await adapter.updateDocuments(extraCollection, updateDoc, created);
+            const updatedCount = await adapter.updateDocuments(
+                extraCollection,
+                updateDoc,
+                created,
+            );
             expect(updatedCount).toBe(2);
             // Delete documents
-            const deletedCount = await adapter.deleteDocuments(extraCollection, created.map(d => d.getId()));
+            const deletedCount = await adapter.deleteDocuments(
+                extraCollection,
+                created.map((d) => d.getId()),
+            );
             expect(deletedCount).toBe(2);
         });
 
@@ -385,7 +465,8 @@ describe("PostgreSQL Adapter", () => {
             if (!runTests) return;
             const size = await adapter.getSizeOfCollection(extraCollection);
             expect(typeof size).toBe("number");
-            const sizeDisk = await adapter.getSizeOfCollectionOnDisk(extraCollection);
+            const sizeDisk =
+                await adapter.getSizeOfCollectionOnDisk(extraCollection);
             expect(typeof sizeDisk).toBe("number");
             const diag = await adapter.getDiagnostics();
             expect(diag).toBeDefined();
@@ -396,10 +477,20 @@ describe("PostgreSQL Adapter", () => {
         test("should translate PostgreSQL errors", async () => {
             if (!runTests) return;
             // Duplicate collection
-            await expect(db.createCollection(extraCollection, [new Document({ $id: "foo", key: "foo", type: "string", size: 50 })])).rejects.toBeDefined();
+            await expect(
+                db.createCollection(extraCollection, [
+                    new Document({
+                        $id: "foo",
+                        key: "foo",
+                        type: "string",
+                        size: 50,
+                    }),
+                ]),
+            ).rejects.toBeDefined();
             // Drop non-existent attribute
-            await expect(adapter.deleteAttribute(extraCollection, "nonexistent"))
-                .resolves.toBe(true); // Should resolve as per implementation
+            await expect(
+                adapter.deleteAttribute(extraCollection, "nonexistent"),
+            ).resolves.toBe(true); // Should resolve as per implementation
         });
     });
 });

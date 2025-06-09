@@ -20,7 +20,7 @@ export interface PostgreDBOptions {
 }
 
 /**
- * @todo support pool and PoolClient 
+ * @todo support pool and PoolClient
  */
 export class PostgreDB extends Sql implements Adapter {
     /**
@@ -326,7 +326,7 @@ export class PostgreDB extends Sql implements Adapter {
         }
 
         if (this.client) {
-            this.client.release()
+            this.client.release();
             // Wait for all clients to be released
             // await this.pool.end();
             this.instance = null;
@@ -1036,9 +1036,9 @@ export class PostgreDB extends Sql implements Adapter {
 
                     const junction = this.getSQLTable(
                         "_" +
-                        collectionDoc.getInternalId() +
-                        "_" +
-                        relatedCollectionDoc.getInternalId(),
+                            collectionDoc.getInternalId() +
+                            "_" +
+                            relatedCollectionDoc.getInternalId(),
                     );
 
                     if (filteredNewKey) {
@@ -1128,34 +1128,34 @@ export class PostgreDB extends Sql implements Adapter {
                     const junction =
                         side === Database.RELATION_SIDE_PARENT
                             ? this.getSQLTable(
-                                "_" +
-                                collectionDoc.getInternalId() +
-                                "_" +
-                                relatedCollectionDoc.getInternalId(),
-                            )
+                                  "_" +
+                                      collectionDoc.getInternalId() +
+                                      "_" +
+                                      relatedCollectionDoc.getInternalId(),
+                              )
                             : this.getSQLTable(
-                                "_" +
-                                relatedCollectionDoc.getInternalId() +
-                                "_" +
-                                collectionDoc.getInternalId(),
-                            );
+                                  "_" +
+                                      relatedCollectionDoc.getInternalId() +
+                                      "_" +
+                                      collectionDoc.getInternalId(),
+                              );
 
                     const perms =
                         side === Database.RELATION_SIDE_PARENT
                             ? this.getSQLTable(
-                                "_" +
-                                collectionDoc.getInternalId() +
-                                "_" +
-                                relatedCollectionDoc.getInternalId() +
-                                "_perms",
-                            )
+                                  "_" +
+                                      collectionDoc.getInternalId() +
+                                      "_" +
+                                      relatedCollectionDoc.getInternalId() +
+                                      "_perms",
+                              )
                             : this.getSQLTable(
-                                "_" +
-                                relatedCollectionDoc.getInternalId() +
-                                "_" +
-                                collectionDoc.getInternalId() +
-                                "_perms",
-                            );
+                                  "_" +
+                                      relatedCollectionDoc.getInternalId() +
+                                      "_" +
+                                      collectionDoc.getInternalId() +
+                                      "_perms",
+                              );
 
                     sql = `DROP TABLE ${junction}; DROP TABLE ${perms}`;
                     break;
@@ -2301,17 +2301,17 @@ export class PostgreDB extends Sql implements Adapter {
                 i === 0 &&
                 cursor &&
                 cursor[
-                (attribute === "_uid"
-                    ? "$id"
-                    : attribute === "_id"
-                        ? "$internalId"
-                        : attribute === "_tenant"
+                    (attribute === "_uid"
+                        ? "$id"
+                        : attribute === "_id"
+                          ? "$internalId"
+                          : attribute === "_tenant"
                             ? "$tenant"
                             : attribute === "_createdAt"
-                                ? "$createdAt"
-                                : attribute === "_updatedAt"
-                                    ? "$updatedAt"
-                                    : attribute)!
+                              ? "$createdAt"
+                              : attribute === "_updatedAt"
+                                ? "$updatedAt"
+                                : attribute)!
                 ]
             ) {
                 let orderMethodInternalId = Query.TYPE_GREATER; // To preserve natural order
@@ -2349,14 +2349,14 @@ export class PostgreDB extends Sql implements Adapter {
                     attribute === "_uid"
                         ? "$id"
                         : attribute === "_id"
-                            ? "$internalId"
-                            : attribute === "_tenant"
-                                ? "$tenant"
-                                : attribute === "_createdAt"
-                                    ? "$createdAt"
-                                    : attribute === "_updatedAt"
-                                        ? "$updatedAt"
-                                        : attribute;
+                          ? "$internalId"
+                          : attribute === "_tenant"
+                            ? "$tenant"
+                            : attribute === "_createdAt"
+                              ? "$createdAt"
+                              : attribute === "_updatedAt"
+                                ? "$updatedAt"
+                                : attribute;
 
                 params.push(cursor[cursorAttrKey!]);
                 params.push(cursor["$internalId"]);
@@ -2384,8 +2384,8 @@ export class PostgreDB extends Sql implements Adapter {
                         ? Query.TYPE_LESSER
                         : Query.TYPE_GREATER
                     : orderType === Database.ORDER_DESC
-                        ? Query.TYPE_GREATER
-                        : Query.TYPE_LESSER;
+                      ? Query.TYPE_GREATER
+                      : Query.TYPE_LESSER;
 
             where.push(
                 `(table_main._id ${this.getSQLOperator(orderMethod)} $${paramIndex})`,
@@ -3382,8 +3382,8 @@ export class PostgreDB extends Sql implements Adapter {
                     condition: (containsConditions.length === 0
                         ? ""
                         : containsConditions.length === 1
-                            ? containsConditions[0]
-                            : `(${containsConditions.join(" OR ")})`)!,
+                          ? containsConditions[0]
+                          : `(${containsConditions.join(" OR ")})`)!,
                     params,
                 };
 
@@ -3402,8 +3402,8 @@ export class PostgreDB extends Sql implements Adapter {
                     condition: (conditions.length === 0
                         ? ""
                         : conditions.length === 1
-                            ? conditions[0]
-                            : `(${conditions.join(" OR ")})`)!,
+                          ? conditions[0]
+                          : `(${conditions.join(" OR ")})`)!,
                     params,
                 };
         }
@@ -3740,7 +3740,7 @@ export class PostgreDB extends Sql implements Adapter {
                 errorRate:
                     queryStats.totalQueries > 0
                         ? (queryStats.failedQueries / queryStats.totalQueries) *
-                        100
+                          100
                         : 0,
                 recentQueries,
             },

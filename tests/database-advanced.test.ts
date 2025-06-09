@@ -389,12 +389,12 @@ describe("Database Advanced Tests", () => {
 
             // Should return 3 documents sorted by int_field
             expect(results.length).toBe(3);
-            expect(results[0]?.getAttribute("int_field")).toBeGreaterThanOrEqual(
+            expect(
+                results[0]?.getAttribute("int_field"),
+            ).toBeGreaterThanOrEqual(results[1]?.getAttribute("int_field"));
+            expect(
                 results[1]?.getAttribute("int_field"),
-            );
-            expect(results[1]?.getAttribute("int_field")).toBeGreaterThanOrEqual(
-                results[2]?.getAttribute("int_field"),
-            );
+            ).toBeGreaterThanOrEqual(results[2]?.getAttribute("int_field"));
         });
 
         test("should support cursor-based pagination", async () => {
@@ -412,8 +412,8 @@ describe("Database Advanced Tests", () => {
                 Query.orderAsc("int_field"),
                 Query.limit(2),
                 Query.cursorAfter(cursor?.getId() || ""),
-            ]
-            const cursorQuery = Query.findCursor(queries)
+            ];
+            const cursorQuery = Query.findCursor(queries);
             cursorQuery?.setValue(cursor!);
             // Find next page using cursor
             const secondPage = await db.find(testCollectionName, queries);
