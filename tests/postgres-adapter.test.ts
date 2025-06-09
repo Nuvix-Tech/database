@@ -4,6 +4,7 @@ import { Query } from "../src/core/query";
 import { DB } from "./config";
 import { Database } from "../src/core/database";
 import { Cache, RedisAdapter } from "@nuvix/cache";
+import { Pool } from "pg";
 
 /**
  * Tests for the PostgreSQL adapter focused on connection pool management,
@@ -32,23 +33,16 @@ describe("PostgreSQL Adapter", () => {
         }
 
         try {
-            // Initialize adapter with custom pool settings
-            adapter = new PostgreDB({
-                connection: {
-                    connectionString: DB,
-                    // Custom pool settings to test pool management
-                    max: 5,
-                    idleTimeoutMillis: 10000,
-                    connectionTimeoutMillis: 5000,
-                    ssl: ssl
-                        ? {
-                              rejectUnauthorized: false,
-                          }
-                        : undefined,
-                },
+            const ssl = process.env["SSL"] === "true";
+            const client = await new Pool({
+                connectionString: DB,
+                ssl: ssl ? { rejectUnauthorized: false } : undefined,
+            }).connect();
+            const defaultOptions = {
+                connection: client,
                 schema: "public",
-            });
-
+            };
+            adapter = new PostgreDB({ ...defaultOptions });
             adapter.init();
             await adapter.ping();
 
@@ -100,49 +94,6 @@ describe("PostgreSQL Adapter", () => {
         } catch (err) {
             console.error("Error cleaning up PostgreSQL adapter test:", err);
         }
-    });
-
-    describe("Pool Management", () => {
-        test("should provide pool statistics", async () => {
-            if (!runTests) return;
-
-            const stats = adapter.getPoolStats();
-
-            expect(stats).toBeDefined();
-            expect(stats.totalCount).toBeDefined();
-            expect(stats.idleCount).toBeDefined();
-            expect(stats.waitingCount).toBeDefined();
-        });
-
-        test("should acquire and release connections", async () => {
-            if (!runTests) return;
-
-            // Get initial stats
-            const initialStats = adapter.getPoolStats();
-
-            // Acquire multiple clients simultaneously
-            const clients = await Promise.all([
-                adapter.getClient(),
-                adapter.getClient(),
-                adapter.getClient(),
-            ]);
-
-            // Check stats after acquisition
-            const midStats = adapter.getPoolStats();
-            expect(midStats.idleCount).toBeLessThan(initialStats.idleCount + 3);
-
-            // Release all clients
-            clients.forEach((client) => client.release());
-
-            // Small delay to allow pool to process releases
-            await new Promise((resolve) => setTimeout(resolve, 100));
-
-            // Check stats after release
-            const finalStats = adapter.getPoolStats();
-            expect(finalStats.idleCount).toBeGreaterThanOrEqual(
-                initialStats.idleCount,
-            );
-        });
     });
 
     describe("Query Execution", () => {
@@ -359,7 +310,7 @@ describe("PostgreSQL Adapter", () => {
             if (!runTests) return;
             try {
                 await db.deleteCollection(extraCollection);
-            } catch {}
+            } catch { }
         });
 
         test("should create and drop schema", async () => {

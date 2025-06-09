@@ -8,28 +8,23 @@ import { Cache, RedisAdapter } from "@nuvix/cache";
 import Permission from "../src/security/Permission";
 import Role from "../src/security/Role";
 import { Authorization } from "../src/security/authorization";
+import { Pool } from "pg";
 
 /**
  * Gets an initialized database adapter for testing
  * This factory allows the tests to work with any adapter implementation
  */
-function getAdapter(): Adapter {
+async function getAdapter(): Promise<Adapter> {
     const ssl = process.env["SSL"] === "true";
-    // Create a PostgreSQL adapter by default
-    // In a production environment, you would inject the adapter based on configuration
-    const adapter = new PostgreDB({
-        connection: {
-            connectionString: DB,
-            ssl: ssl
-                ? {
-                      rejectUnauthorized: false,
-                  }
-                : undefined,
-        },
+    const client = await new Pool({
+        connectionString: DB,
+        ssl: ssl ? { rejectUnauthorized: false } : undefined,
+    }).connect();
+    const defaultOptions = {
+        connection: client,
         schema: "public",
-    });
-
-    adapter.init();
+    };
+    const adapter = new PostgreDB({ ...defaultOptions });
     return adapter;
 }
 
@@ -56,7 +51,7 @@ describe("Database Core", () => {
 
         try {
             // Initialize adapter
-            adapter = getAdapter();
+            adapter = await getAdapter();
             await (adapter as PostgreDB).ping();
             const prefix = `test_${Date.now()}`;
             // Initialize cache and database

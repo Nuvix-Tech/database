@@ -59,7 +59,7 @@ describe('Query', () => {
             const result = Query.parseQueries(queries);
             expect(result.length).toBe(2);
             expect(result[0]).toBeInstanceOf(Query);
-            expect(result[1].getMethod()).toBe('greaterThan');
+            expect(result[1]?.getMethod()).toBe('greaterThan');
         });
     });
 
@@ -101,7 +101,7 @@ describe('Query', () => {
             const q2 = Query.limit(10);
             const filtered = Query.getByType([q1, q2], ['equal']);
             expect(filtered.length).toBe(1);
-            expect(filtered[0].getMethod()).toBe('equal');
+            expect(filtered[0]?.getMethod()).toBe('equal');
         });
         it('should group queries by type', () => {
             const queries = [

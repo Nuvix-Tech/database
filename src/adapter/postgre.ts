@@ -19,6 +19,9 @@ export interface PostgreDBOptions {
     schema?: string;
 }
 
+/**
+ * @todo support pool and PoolClient 
+ */
 export class PostgreDB extends Sql implements Adapter {
     /**
      * @description PostgreSQL connection pool
@@ -96,6 +99,10 @@ export class PostgreDB extends Sql implements Adapter {
 
     isInitialized(): boolean {
         return this.instance !== null;
+    }
+
+    protected usePrefix() {
+        return this.prefix ? `${this.prefix}_` : "";
     }
 
     public init() {
@@ -494,7 +501,7 @@ export class PostgreDB extends Sql implements Adapter {
                 `;
                 const result = await this.executeQuery(
                     query,
-                    [name, collection],
+                    [name, `${this.usePrefix()}${collection}`],
                     undefined,
                     "exists_table",
                 );
@@ -542,7 +549,6 @@ export class PostgreDB extends Sql implements Adapter {
             throw new DatabaseError("Collection name is required");
         }
 
-        const prefix = this.getPrefix();
         const id = this.filter(name);
         const attributeStrings: string[] = [];
         let sqlStatements: string[] = [];
@@ -612,26 +618,26 @@ export class PostgreDB extends Sql implements Adapter {
         // Index statements
         if (this.sharedTables) {
             sqlStatements.push(
-                `CREATE UNIQUE INDEX "${prefix}_${this.getTenantId()}_${id}_uid" ON ${this.getSQLTable(id)} (LOWER(_uid), _tenant)`,
+                `CREATE UNIQUE INDEX "${this.usePrefix()}${this.getTenantId()}_${id}_uid" ON ${this.getSQLTable(id)} (LOWER(_uid), _tenant)`,
             );
             sqlStatements.push(
-                `CREATE INDEX "${prefix}_${this.getTenantId()}_${id}_created" ON ${this.getSQLTable(id)} (_tenant, "_createdAt")`,
+                `CREATE INDEX "${this.usePrefix()}${this.getTenantId()}_${id}_created" ON ${this.getSQLTable(id)} (_tenant, "_createdAt")`,
             );
             sqlStatements.push(
-                `CREATE INDEX "${prefix}_${this.getTenantId()}_${id}_updated" ON ${this.getSQLTable(id)} (_tenant, "_updatedAt")`,
+                `CREATE INDEX "${this.usePrefix()}${this.getTenantId()}_${id}_updated" ON ${this.getSQLTable(id)} (_tenant, "_updatedAt")`,
             );
             sqlStatements.push(
-                `CREATE INDEX "${prefix}_${this.getTenantId()}_${id}_tenant_id" ON ${this.getSQLTable(id)} (_tenant, _id)`,
+                `CREATE INDEX "${this.usePrefix()}${this.getTenantId()}_${id}_tenant_id" ON ${this.getSQLTable(id)} (_tenant, _id)`,
             );
         } else {
             sqlStatements.push(
-                `CREATE UNIQUE INDEX "${prefix}_${id}_uid" ON ${this.getSQLTable(id)} (LOWER(_uid))`,
+                `CREATE UNIQUE INDEX "${this.usePrefix()}${id}_uid" ON ${this.getSQLTable(id)} (LOWER(_uid))`,
             );
             sqlStatements.push(
-                `CREATE INDEX "${prefix}_${id}_created" ON ${this.getSQLTable(id)} ("_createdAt")`,
+                `CREATE INDEX "${this.usePrefix()}${id}_created" ON ${this.getSQLTable(id)} ("_createdAt")`,
             );
             sqlStatements.push(
-                `CREATE INDEX "${prefix}_${id}_updated" ON ${this.getSQLTable(id)} ("_updatedAt")`,
+                `CREATE INDEX "${this.usePrefix()}${id}_updated" ON ${this.getSQLTable(id)} ("_updatedAt")`,
             );
         }
 
@@ -649,14 +655,14 @@ export class PostgreDB extends Sql implements Adapter {
 
         // Permissions table indexes
         if (this.sharedTables) {
-            sqlStatements.push(`CREATE UNIQUE INDEX "${prefix}_${this.getTenantId()}_${id}_ukey" 
+            sqlStatements.push(`CREATE UNIQUE INDEX "${this.usePrefix()}${this.getTenantId()}_${id}_ukey" 
         ON ${this.getSQLTable(id + "_perms")} USING btree (_tenant,_document,_type,_permission)`);
-            sqlStatements.push(`CREATE INDEX "${prefix}_${this.getTenantId()}_${id}_permission" 
+            sqlStatements.push(`CREATE INDEX "${this.usePrefix()}${this.getTenantId()}_${id}_permission" 
         ON ${this.getSQLTable(id + "_perms")} USING btree (_tenant,_permission,_type)`);
         } else {
-            sqlStatements.push(`CREATE UNIQUE INDEX "${prefix}_${id}_ukey" 
+            sqlStatements.push(`CREATE UNIQUE INDEX "${this.usePrefix()}${id}_ukey" 
         ON ${this.getSQLTable(id + "_perms")} USING btree (_document,_type,_permission)`);
-            sqlStatements.push(`CREATE INDEX "${prefix}_${id}_permission" 
+            sqlStatements.push(`CREATE INDEX "${this.usePrefix()}${id}_permission" 
         ON ${this.getSQLTable(id + "_perms")} USING btree (_permission,_type)`);
         }
 
@@ -1226,8 +1232,7 @@ export class PostgreDB extends Sql implements Adapter {
                 );
         }
 
-        const prefix = this.getPrefix();
-        const key = `"${prefix}_${this.getTenantId()}_${collectionId}_${indexId}"`;
+        const key = `"${this.usePrefix()}${this.getTenantId()}_${collectionId}_${indexId}"`;
         let attributesStr = processedAttributes.join(", ");
 
         // Add tenant ID to index for shared tables
@@ -1251,8 +1256,7 @@ export class PostgreDB extends Sql implements Adapter {
         const indexId = this.filter(id);
         const schemaName = this.database;
 
-        const prefix = this.getPrefix();
-        const key = `"${prefix}_${this.getTenantId()}_${name}_${indexId}"`;
+        const key = `"${this.usePrefix()}${this.getTenantId()}_${name}_${indexId}"`;
 
         let sql = `DROP INDEX IF EXISTS "${schemaName}".${key}`;
         sql = await this.trigger(Database.EVENT_INDEX_DELETE, sql);
@@ -1273,11 +1277,10 @@ export class PostgreDB extends Sql implements Adapter {
         const filteredCollection = this.filter(collection);
         const filteredOldName = this.filter(oldName);
         const filteredNewName = this.filter(newName);
-        const prefix = this.getPrefix();
         const schemaName = this.database;
 
-        const oldIndexName = `"${prefix}_${this.getTenantId()}_${filteredCollection}_${filteredOldName}"`;
-        const newIndexName = `"${prefix}_${this.getTenantId()}_${filteredCollection}_${filteredNewName}"`;
+        const oldIndexName = `"${this.usePrefix()}${this.getTenantId()}_${filteredCollection}_${filteredOldName}"`;
+        const newIndexName = `"${this.usePrefix()}${this.getTenantId()}_${filteredCollection}_${filteredNewName}"`;
 
         let sql = `ALTER INDEX "${schemaName}".${oldIndexName} RENAME TO ${newIndexName}`;
         sql = await this.trigger(Database.EVENT_INDEX_RENAME, sql);
@@ -2855,7 +2858,7 @@ export class PostgreDB extends Sql implements Adapter {
     }
 
     protected override getSQLTable(name: string): string {
-        const prefixPart = this.prefix ? `${this.prefix}_` : "";
+        const prefixPart = this.usePrefix();
         return `"${this.getDatabase()}"."${prefixPart}${this.filter(name)}"`;
     }
 

@@ -1,6 +1,7 @@
 import { PostgreDB } from "../src/adapter/postgre";
 import { Adapter } from "../src/adapter/base";
 import { DB } from "./config";
+import { Pool } from "pg";
 
 /**
  * Adapter test utility functions
@@ -10,20 +11,18 @@ import { DB } from "./config";
  * Creates and initializes a database adapter for testing
  * @returns An initialized adapter instance
  */
-export function createTestAdapter(): Adapter {
-    // Currently hardcoded to PostgreSQL, can be extended to support other adapters
-    const adapter = new PostgreDB({
-        connection: {
+export async function createTestAdapter(): Promise<Adapter> {
+    const ssl = process.env["SSL"] === "true";
+        const client = await new Pool({
             connectionString: DB,
-            ssl: {
-                rejectUnauthorized: false,
-            },
-        },
-        schema: "public",
-    });
-
-    adapter.init();
-    return adapter;
+            ssl: ssl ? { rejectUnauthorized: false } : undefined,
+        }).connect();
+        const defaultOptions = {
+            connection: client,
+            schema: "public",
+        };
+        const adapter = new PostgreDB({ ...defaultOptions });
+        return adapter;
 }
 
 /**

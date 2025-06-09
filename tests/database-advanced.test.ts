@@ -7,6 +7,7 @@ import { DB } from "./config";
 import { DuplicateException } from "../src/errors";
 import Role from "../src/security/Role";
 import Permission from "../src/security/Permission";
+import { Pool } from "pg";
 
 describe("Database Advanced Tests", () => {
     let adapter: PostgreDB;
@@ -33,17 +34,16 @@ describe("Database Advanced Tests", () => {
 
         try {
             // Initialize adapter
-            adapter = new PostgreDB({
-                connection: {
-                    connectionString: DB,
-                    ssl: ssl
-                        ? {
-                              rejectUnauthorized: false,
-                          }
-                        : undefined,
-                },
+            const ssl = process.env["SSL"] === "true";
+            const client = await new Pool({
+                connectionString: DB,
+                ssl: ssl ? { rejectUnauthorized: false } : undefined,
+            }).connect();
+            const defaultOptions = {
+                connection: client,
                 schema: "public",
-            });
+            };
+            adapter = new PostgreDB({ ...defaultOptions });
 
             adapter.init();
             await adapter.ping();
