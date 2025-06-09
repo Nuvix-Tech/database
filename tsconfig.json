@@ -17,20 +17,20 @@
     // Path Configuration
     "baseUrl": ".",
     "outDir": "dist",
-    "rootDir": "./src",
+    // "rootDir": "./src",
     // Type Checking - Rules
     "strict": false,
-    // "noImplicitAny": true,
-    // "strictNullChecks": true,
-    // "strictFunctionTypes": true,
-    // "strictBindCallApply": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "strictBindCallApply": true,
     "strictPropertyInitialization": false,
     "noImplicitThis": true,
-    // "noImplicitReturns": true,
-    // "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noImplicitOverride": true,
     "noUncheckedIndexedAccess": true,
     "noPropertyAccessFromIndexSignature": true,
-    // "exactOptionalPropertyTypes": true,
+    "exactOptionalPropertyTypes": true,
     "skipLibCheck": true,
     // Decorators
     "experimentalDecorators": true,
@@ -44,9 +44,17 @@
     "forceConsistentCasingInFileNames": true,
     // Path Aliases
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": [
+        "src/*"
+      ]
     }
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
+  "include": [
+    "src/**/*",
+    "tests/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
 }

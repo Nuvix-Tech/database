@@ -2,7 +2,7 @@ import { Document } from "../core/Document";
 import { Query } from "../core/query";
 import type { Adapter } from "./base";
 import { Sql } from "./sql";
-import { Pool, type PoolConfig } from "pg";
+import { type PoolConfig, PoolClient } from "pg";
 import Transaction from "../errors/Transaction";
 import { Database } from "../core/database";
 import {
@@ -14,24 +14,23 @@ import {
 } from "../errors";
 import { Authorization } from "../security/authorization";
 
-interface PostgreDBOptions {
-    connection: PoolConfig | Pool;
+export interface PostgreDBOptions {
+    connection: PoolClient; //PoolConfig | Pool;
     schema?: string;
 }
 
-// Extend Sql which should extend DatabaseAdapter
 export class PostgreDB extends Sql implements Adapter {
     /**
      * @description PostgreSQL connection pool
      */
-    private pool: Pool;
+    // private pool: Pool;
+
+    private client: PoolClient;
 
     /**
      * instance of PostgreDB
      */
     private instance: this | null = null;
-
-    private timeout: number;
 
     /**
      * Pool statistics for monitoring
@@ -103,33 +102,31 @@ export class PostgreDB extends Sql implements Adapter {
         if (this.instance)
             throw new InitializeError("PostgreSql adapter already initialized");
         try {
-            // Prepare connection config with defaults
-            let poolConfig: PoolConfig;
+            this.client = this.options.connection;
 
-            if (this.options.connection instanceof Pool) {
-                this.pool = this.options.connection;
-                poolConfig = this.pool.options;
-            } else {
-                // Apply default configuration while preserving user settings
-                poolConfig = {
-                    ...this.defaultPoolConfig,
-                    ...this.options.connection,
-                };
+            // TODO: support both pool & PoolClient
+            // let poolConfig: PoolConfig;
+            // if (this.options.connection instanceof Pool) {
+            //     this.pool = this.options.connection;
+            //     poolConfig = this.pool.options;
+            // } else {
+            //     poolConfig = {
+            //         ...this.defaultPoolConfig,
+            //         ...this.options.connection,
+            //     };
 
-                this.pool = new Pool(poolConfig);
-            }
+            //     this.pool = new Pool(poolConfig);
+            // }
 
             this.instance = this;
 
-            // Setup pool event handlers
-            this.setupPoolListeners();
+            // this.setupPoolListeners();
 
-            // Start periodic pool health check
-            this.startPoolHealthCheck();
+            // this.startPoolHealthCheck();
 
-            this.logger.info(
-                `PostgreSQL pool initialized with max ${poolConfig.max} connections`,
-            );
+            // this.logger.info(
+            //     `PostgreSQL pool initialized with max ${poolConfig.max} connections`,
+            // );
         } catch (e) {
             this.logger.error(e);
             throw new InitializeError(
@@ -141,112 +138,107 @@ export class PostgreDB extends Sql implements Adapter {
     /**
      * Setup event listeners for the connection pool
      */
-    private setupPoolListeners() {
-        // Handle pool errors
-        this.pool.on("error", (err, client) => {
-            this.logger.error("Unexpected error on idle client", err);
-            // Remove the problematic client from the pool
-            if (client) {
-                try {
-                    client.release(true); // Force release with error
-                } catch (e) {
-                    this.logger.error(
-                        "Error while releasing problematic client",
-                        e,
-                    );
-                }
-            }
-        });
+    // private setupPoolListeners() {
+    //     this.pool.on("error", (err, client) => {
+    //         this.logger.error("Unexpected error on idle client", err);
+    //         if (client) {
+    //             try {
+    //                 client.release(true); // Force release with error
+    //             } catch (e) {
+    //                 this.logger.error(
+    //                     "Error while releasing problematic client",
+    //                     e,
+    //                 );
+    //             }
+    //         }
+    //     });
 
-        // Track connection acquisitions
-        this.pool.on("connect", (client) => {
-            this.poolStats.totalConnections++;
-        });
+    //     this.pool.on("connect", (client) => {
+    //         this.poolStats.totalConnections++;
+    //     });
 
-        // Track when clients are removed from the pool
-        this.pool.on("remove", (client) => {
-            if (this.poolStats.totalConnections > 0) {
-                this.poolStats.totalConnections--;
-            }
-        });
-    }
+    //     this.pool.on("remove", (client) => {
+    //         if (this.poolStats.totalConnections > 0) {
+    //             this.poolStats.totalConnections--;
+    //         }
+    //     });
+    // }
 
     /**
      * Start periodic health check of the connection pool
      */
-    private startPoolHealthCheck() {
-        const checkInterval = 60000 * 10; // Check every minute
+    // private startPoolHealthCheck() {
+    //     const checkInterval = 60000 * 10; // Check every minute
 
-        // Don't create intervals in test environments
-        if (process.env["NODE_ENV"] === "test") {
-            return;
-        }
+    //     // Don't create intervals in test environments
+    //     if (process.env["NODE_ENV"] === "test") {
+    //         return;
+    //     }
 
-        const intervalId = setInterval(async () => {
-            try {
-                // Only check if initialized
-                if (!this.instance) {
-                    return;
-                }
+    //     const intervalId = setInterval(async () => {
+    //         try {
+    //             // Only check if initialized
+    //             if (!this.isInitialized()) {
+    //                 return;
+    //             }
 
-                const idleCount = this.pool.idleCount;
-                const totalCount = this.pool.totalCount;
-                const waitingCount = this.pool.waitingCount;
+    //             const idleCount = this.pool.idleCount;
+    //             const totalCount = this.pool.totalCount;
+    //             const waitingCount = this.pool.waitingCount;
 
-                this.poolStats = {
-                    totalConnections: totalCount,
-                    idleConnections: idleCount,
-                    waitingClients: waitingCount,
-                    lastChecked: Date.now(),
-                };
+    //             this.poolStats = {
+    //                 totalConnections: totalCount,
+    //                 idleConnections: idleCount,
+    //                 waitingClients: waitingCount,
+    //                 lastChecked: Date.now(),
+    //             };
 
-                // Log if pool is under pressure (many waiting clients)
-                if (waitingCount > 5) {
-                    this.logger.warn(
-                        `PostgreSQL pool pressure: ${waitingCount} clients waiting, ${totalCount} total connections, ${idleCount} idle`,
-                    );
-                }
+    //             // Log if pool is under pressure (many waiting clients)
+    //             if (waitingCount > 5) {
+    //                 this.logger.warn(
+    //                     `PostgreSQL pool pressure: ${waitingCount} clients waiting, ${totalCount} total connections, ${idleCount} idle`,
+    //                 );
+    //             }
 
-                // Ping database to ensure connection is still valid
-                // await this.ping();
-            } catch (err) {
-                this.logger.error("Error in pool health check:", err);
-            }
-        }, checkInterval);
+    //             // Ping database to ensure connection is still valid
+    //             // await this.ping();
+    //         } catch (err) {
+    //             this.logger.error("Error in pool health check:", err);
+    //         }
+    //     }, checkInterval);
 
-        // Store for cleanup
-        this.cleanupCallbacks.push(() => {
-            clearInterval(intervalId);
-        });
-    }
+    //     // Store for cleanup
+    //     this.cleanupCallbacks.push(() => {
+    //         clearInterval(intervalId);
+    //     });
+    // }
 
-    // Store cleanup functions
     private cleanupCallbacks: Array<() => void> = [];
 
     /**
      * Get current pool statistics
      */
-    public getPoolStats() {
-        return {
-            ...this.poolStats,
-            totalCount: this.pool?.totalCount,
-            idleCount: this.pool?.idleCount,
-            waitingCount: this.pool?.waitingCount,
-        };
-    }
+    // public getPoolStats() {
+    //     return {
+    //         ...this.poolStats,
+    //         totalCount: this.pool?.totalCount,
+    //         idleCount: this.pool?.idleCount,
+    //         waitingCount: this.pool?.waitingCount,
+    //     };
+    // }
 
     /**
      * Acquire a client with timeout
      * @returns A PostgreSQL client from the pool
      */
     public async getClient(): Promise<any> {
-        if (!this.pool) {
-            throw new DatabaseError("No PostgreSQL connection pool available");
+        if (!this.client) {
+            throw new DatabaseError("No PostgreSQL client available");
         }
 
         try {
-            const client = await this.pool.connect();
-            return client;
+            // const client = await this.pool.connect();
+            return this.client;
         } catch (err: any) {
             this.logger.error(
                 "Failed to acquire database client from pool:",
@@ -287,9 +279,9 @@ export class PostgreDB extends Sql implements Adapter {
             }
             throw err;
         } finally {
-            if (client) {
-                client.release();
-            }
+            // if (client) {
+            //     client.release();
+            // }
         }
     }
 
@@ -326,9 +318,10 @@ export class PostgreDB extends Sql implements Adapter {
             }
         }
 
-        if (this.pool) {
+        if (this.client) {
+            this.client.release()
             // Wait for all clients to be released
-            await this.pool.end();
+            // await this.pool.end();
             this.instance = null;
             this.logger.info("PostgreSQL connection pool has been closed");
         }
@@ -1037,9 +1030,9 @@ export class PostgreDB extends Sql implements Adapter {
 
                     const junction = this.getSQLTable(
                         "_" +
-                            collectionDoc.getInternalId() +
-                            "_" +
-                            relatedCollectionDoc.getInternalId(),
+                        collectionDoc.getInternalId() +
+                        "_" +
+                        relatedCollectionDoc.getInternalId(),
                     );
 
                     if (filteredNewKey) {
@@ -1129,34 +1122,34 @@ export class PostgreDB extends Sql implements Adapter {
                     const junction =
                         side === Database.RELATION_SIDE_PARENT
                             ? this.getSQLTable(
-                                  "_" +
-                                      collectionDoc.getInternalId() +
-                                      "_" +
-                                      relatedCollectionDoc.getInternalId(),
-                              )
+                                "_" +
+                                collectionDoc.getInternalId() +
+                                "_" +
+                                relatedCollectionDoc.getInternalId(),
+                            )
                             : this.getSQLTable(
-                                  "_" +
-                                      relatedCollectionDoc.getInternalId() +
-                                      "_" +
-                                      collectionDoc.getInternalId(),
-                              );
+                                "_" +
+                                relatedCollectionDoc.getInternalId() +
+                                "_" +
+                                collectionDoc.getInternalId(),
+                            );
 
                     const perms =
                         side === Database.RELATION_SIDE_PARENT
                             ? this.getSQLTable(
-                                  "_" +
-                                      collectionDoc.getInternalId() +
-                                      "_" +
-                                      relatedCollectionDoc.getInternalId() +
-                                      "_perms",
-                              )
+                                "_" +
+                                collectionDoc.getInternalId() +
+                                "_" +
+                                relatedCollectionDoc.getInternalId() +
+                                "_perms",
+                            )
                             : this.getSQLTable(
-                                  "_" +
-                                      relatedCollectionDoc.getInternalId() +
-                                      "_" +
-                                      collectionDoc.getInternalId() +
-                                      "_perms",
-                              );
+                                "_" +
+                                relatedCollectionDoc.getInternalId() +
+                                "_" +
+                                collectionDoc.getInternalId() +
+                                "_perms",
+                            );
 
                     sql = `DROP TABLE ${junction}; DROP TABLE ${perms}`;
                     break;
@@ -2305,17 +2298,17 @@ export class PostgreDB extends Sql implements Adapter {
                 i === 0 &&
                 cursor &&
                 cursor[
-                    (attribute === "_uid"
-                        ? "$id"
-                        : attribute === "_id"
-                          ? "$internalId"
-                          : attribute === "_tenant"
+                (attribute === "_uid"
+                    ? "$id"
+                    : attribute === "_id"
+                        ? "$internalId"
+                        : attribute === "_tenant"
                             ? "$tenant"
                             : attribute === "_createdAt"
-                              ? "$createdAt"
-                              : attribute === "_updatedAt"
-                                ? "$updatedAt"
-                                : attribute)!
+                                ? "$createdAt"
+                                : attribute === "_updatedAt"
+                                    ? "$updatedAt"
+                                    : attribute)!
                 ]
             ) {
                 let orderMethodInternalId = Query.TYPE_GREATER; // To preserve natural order
@@ -2353,14 +2346,14 @@ export class PostgreDB extends Sql implements Adapter {
                     attribute === "_uid"
                         ? "$id"
                         : attribute === "_id"
-                          ? "$internalId"
-                          : attribute === "_tenant"
-                            ? "$tenant"
-                            : attribute === "_createdAt"
-                              ? "$createdAt"
-                              : attribute === "_updatedAt"
-                                ? "$updatedAt"
-                                : attribute;
+                            ? "$internalId"
+                            : attribute === "_tenant"
+                                ? "$tenant"
+                                : attribute === "_createdAt"
+                                    ? "$createdAt"
+                                    : attribute === "_updatedAt"
+                                        ? "$updatedAt"
+                                        : attribute;
 
                 params.push(cursor[cursorAttrKey!]);
                 params.push(cursor["$internalId"]);
@@ -2388,8 +2381,8 @@ export class PostgreDB extends Sql implements Adapter {
                         ? Query.TYPE_LESSER
                         : Query.TYPE_GREATER
                     : orderType === Database.ORDER_DESC
-                      ? Query.TYPE_GREATER
-                      : Query.TYPE_LESSER;
+                        ? Query.TYPE_GREATER
+                        : Query.TYPE_LESSER;
 
             where.push(
                 `(table_main._id ${this.getSQLOperator(orderMethod)} $${paramIndex})`,
@@ -3082,31 +3075,6 @@ export class PostgreDB extends Sql implements Adapter {
     }
 
     /**
-     * Implementation of trigger that uses EventEmitter from the parent class
-     * @param event - Event name
-     * @param data - Data to pass to event handlers (e.g., SQL query)
-     * @returns The potentially modified data
-     */
-    protected override async trigger<T>(event: string, data: T): Promise<T> {
-        // First make a copy of the data to avoid unexpected side effects
-        let result = data;
-
-        // Get listeners for this event and the generic event
-        const listeners = [
-            ...this.listeners(event),
-            ...this.listeners(Database.EVENT_ALL),
-        ];
-
-        // Emit events explicitly
-        this.emit(event, data);
-        this.emit(Database.EVENT_ALL, data);
-
-        // Process any synchronous modifications listeners might have made
-        // In the future, this could be enhanced to support async modifications
-        return result;
-    }
-
-    /**
      * Set query timeout in milliseconds
      */
     public setTimeout(
@@ -3118,8 +3086,6 @@ export class PostgreDB extends Sql implements Adapter {
                 "Timeout value must be greater than or equal to 0",
             );
         }
-
-        this.timeout = milliseconds;
 
         // Use the standard EventEmitter.emit method from parent class
         this.emit("timeout:set", { milliseconds, event });
@@ -3274,69 +3240,6 @@ export class PostgreDB extends Sql implements Adapter {
     }
 
     /**
-     * Generate SQL permission condition with parameter index
-     *
-     * @param collection - Collection name
-     * @param roles - Authorization roles
-     * @param forPermission - Permission type
-     * @param paramIndex - Starting parameter index
-     * @returns SQL condition for permissions
-     */
-    protected override getSQLPermissionsCondition(
-        collection: string,
-        roles: string[],
-        forPermission: string = Database.PERMISSION_READ,
-        paramIndex: number | any = 1,
-    ): string {
-        const permsTable = this.getSQLTable(collection + "_perms");
-
-        let sql = `table_main._uid IN (
-              SELECT _document
-              FROM ${permsTable}
-              WHERE _permission IN ('any'`;
-
-        if (roles.length > 0) {
-            sql += ", '" + roles.join("', '") + "'";
-        }
-
-        sql += `)
-                AND _type = '${forPermission}'
-                `;
-
-        if (this.sharedTables) {
-            sql += `AND _tenant = $${paramIndex}`;
-        }
-
-        sql += ")";
-
-        return sql;
-    }
-
-    /**
-     * Generates SQL conditions from an array of Query objects
-     * This method handles parameter counting locally for thread safety
-     *
-     * @param queries - The array of Query objects
-     * @returns A string containing the SQL conditions
-     */
-    public override getSQLConditions(queries: Query[]): string {
-        if (!queries || queries.length === 0) {
-            return "";
-        }
-
-        const conditions: string[] = [];
-
-        for (const query of queries) {
-            const condition = this.getSQLCondition(query);
-            if (condition) {
-                conditions.push(condition);
-            }
-        }
-
-        return conditions.length === 0 ? "" : `(${conditions.join(" AND ")})`;
-    }
-
-    /**
      * Creates SQL conditions for an array of queries with proper parameter indices
      * @param queries - The queries to create conditions for
      * @param startParamIndex - The starting parameter index
@@ -3476,8 +3379,8 @@ export class PostgreDB extends Sql implements Adapter {
                     condition: (containsConditions.length === 0
                         ? ""
                         : containsConditions.length === 1
-                          ? containsConditions[0]
-                          : `(${containsConditions.join(" OR ")})`)!,
+                            ? containsConditions[0]
+                            : `(${containsConditions.join(" OR ")})`)!,
                     params,
                 };
 
@@ -3496,8 +3399,8 @@ export class PostgreDB extends Sql implements Adapter {
                     condition: (conditions.length === 0
                         ? ""
                         : conditions.length === 1
-                          ? conditions[0]
-                          : `(${conditions.join(" OR ")})`)!,
+                            ? conditions[0]
+                            : `(${conditions.join(" OR ")})`)!,
                     params,
                 };
         }
@@ -3626,7 +3529,7 @@ export class PostgreDB extends Sql implements Adapter {
         description: string = "query",
     ): Promise<T> {
         const startTime = Date.now();
-        const useClient = client || this.pool;
+        const useClient = client || this.client;
         let success = false;
 
         try {
@@ -3771,7 +3674,7 @@ export class PostgreDB extends Sql implements Adapter {
         const now = Date.now();
 
         // Pool statistics
-        const poolStats = this.getPoolStats();
+        // const poolStats = this.getPoolStats();
 
         // Query statistics
         const queryStats = this.getQueryStats();
@@ -3817,24 +3720,24 @@ export class PostgreDB extends Sql implements Adapter {
         // Return comprehensive diagnostics
         return {
             timestamp: now,
-            poolStatus: {
-                ...poolStats,
-                maxConnections: this.defaultPoolConfig.max,
-                connectionUtilization:
-                    poolStats.totalConnections > 0
-                        ? ((poolStats.totalConnections -
-                              poolStats.idleConnections) /
-                              poolStats.totalConnections) *
-                          100
-                        : 0,
-            },
+            // poolStatus: {
+            //     // ...poolStats,
+            //     maxConnections: this.defaultPoolConfig.max,
+            //     connectionUtilization:
+            //         poolStats.totalConnections > 0
+            //             ? ((poolStats.totalConnections -
+            //                 poolStats.idleConnections) /
+            //                 poolStats.totalConnections) *
+            //             100
+            //             : 0,
+            // },
             queryPerformance: {
                 ...queryStats,
                 averageQueryTimeMs: avgQueryTime,
                 errorRate:
                     queryStats.totalQueries > 0
                         ? (queryStats.failedQueries / queryStats.totalQueries) *
-                          100
+                        100
                         : 0,
                 recentQueries,
             },

@@ -351,4 +351,105 @@ describe("PostgreSQL Adapter", () => {
             expect(events[0].success).toBe(true);
         });
     });
+
+    // --- Advanced and missing tests for PostgreDB ---
+    describe("Advanced PostgreDB Adapter Features", () => {
+        const extraCollection = testCollectionName + "_extra";
+        afterAll(async () => {
+            if (!runTests) return;
+            try {
+                await db.deleteCollection(extraCollection);
+            } catch {}
+        });
+
+        test("should create and drop schema", async () => {
+            if (!runTests) return;
+            const schemaName = "test_schema_" + Date.now();
+            expect(await adapter.create(schemaName)).toBe(true);
+            expect(await adapter.exists(schemaName)).toBe(true);
+            expect(await adapter.drop(schemaName)).toBe(true);
+        });
+
+        test("should handle attribute and index management", async () => {
+            if (!runTests) return;
+            // Create a new collection
+            await db.createCollection(extraCollection, [
+                new Document({ $id: "foo", key: "foo", type: "string", size: 50 }),
+            ]);
+            // Add attribute
+            expect(await adapter.createAttribute(extraCollection, "bar", "integer", 4)).toBe(true);
+            // Update attribute
+            expect(await adapter.updateAttribute(extraCollection, "bar", "integer", 8)).toBe(true);
+            // Rename attribute
+            expect(await adapter.renameAttribute(extraCollection, "bar", "baz")).toBe(true);
+            // Delete attribute
+            expect(await adapter.deleteAttribute(extraCollection, "baz")).toBe(true);
+            // Create index
+            expect(await adapter.createIndex(extraCollection, "foo_idx", "key", ["foo"])).toBe(true);
+            // Rename index
+            expect(await adapter.renameIndex(extraCollection, "foo_idx", "foo_idx2")).toBe(true);
+            // Delete index
+            expect(await adapter.deleteIndex(extraCollection, "foo_idx2")).toBe(true);
+        });
+
+        test("should handle relationship management", async () => {
+            if (!runTests) return;
+            // Create two collections
+            await db.createCollection(extraCollection + "1", [new Document({ $id: "a", key: "a", type: "string", size: 10 })]);
+            await db.createCollection(extraCollection + "2", [new Document({ $id: "b", key: "b", type: "string", size: 10 })]);
+            // One-to-one
+            expect(await adapter.createRelationship(extraCollection + "1", extraCollection + "2", "oneToOne", true, "rel1", "rel2")).toBe(true);
+            // Update relationship
+            expect(await adapter.updateRelationship(extraCollection + "1", extraCollection + "2", "oneToOne", true, "rel1", "rel2", "parent", "rel1_new", "rel2_new")).toBe(true);
+            // Delete relationship
+            expect(await adapter.deleteRelationship(extraCollection + "1", extraCollection + "2", "oneToOne", true, "rel1_new", "rel2_new", "parent")).toBe(true);
+        });
+
+        test("should handle bulk document operations", async () => {
+            if (!runTests) return;
+            const docs = [
+                new Document({ name: "Bulk1", value: 1 }),
+                new Document({ name: "Bulk2", value: 2 }),
+            ];
+            const created = await adapter.createDocuments(extraCollection, docs);
+            expect(created.length).toBe(2);
+            // Update documents
+            const updateDoc = new Document({ value: 99 });
+            const updatedCount = await adapter.updateDocuments(extraCollection, updateDoc, created);
+            expect(updatedCount).toBe(2);
+            // Delete documents
+            const deletedCount = await adapter.deleteDocuments(extraCollection, created.map(d => d.getId()));
+            expect(deletedCount).toBe(2);
+        });
+
+        test("should handle permission changes on update", async () => {
+            if (!runTests) return;
+            const doc = new Document({ name: "PermTest", value: 10 });
+            await db.createDocument(extraCollection, doc);
+            doc.setAttribute("$permissions", ["role:admin"]);
+            await adapter.updateDocument(extraCollection, doc.getId(), doc);
+            // Should not throw
+        });
+
+        test("should get collection size and diagnostics", async () => {
+            if (!runTests) return;
+            const size = await adapter.getSizeOfCollection(extraCollection);
+            expect(typeof size).toBe("number");
+            const sizeDisk = await adapter.getSizeOfCollectionOnDisk(extraCollection);
+            expect(typeof sizeDisk).toBe("number");
+            const diag = await adapter.getDiagnostics();
+            expect(diag).toBeDefined();
+            expect(diag.poolStatus).toBeDefined();
+            expect(diag.queryPerformance).toBeDefined();
+        });
+
+        test("should translate PostgreSQL errors", async () => {
+            if (!runTests) return;
+            // Duplicate collection
+            await expect(db.createCollection(extraCollection, [new Document({ $id: "foo", key: "foo", type: "string", size: 50 })])).rejects.toBeDefined();
+            // Drop non-existent attribute
+            await expect(adapter.deleteAttribute(extraCollection, "nonexistent"))
+                .resolves.toBe(true); // Should resolve as per implementation
+        });
+    });
 });
