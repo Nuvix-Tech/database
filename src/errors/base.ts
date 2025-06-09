@@ -8,3 +8,5 @@ export class DatabaseError extends Error {
         this.name = this.constructor.name;
     }
 }
+
+export { DatabaseError as DatabaseException };
