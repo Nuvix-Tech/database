@@ -7463,10 +7463,15 @@ export class Database extends Constant {
             ? `${this.cacheName}-cache-${this.getPrefix()}:${tenantId}:${pattern}`
             : `${this.cacheName}-cache-${this.getPrefix()}:${tenantId}:*`;
 
-        const keys = await this.cache.keys(cacheKey);
-
+        const keys = await this.cache.list(cacheKey);
+        console.log(
+            "++++++++++++++++++++",
+            await (this.cache as any).list(),
+            "_________+++++___",
+        );
+        console.log(keys, "creaeCache"); //#debug
         for (const key of keys) {
-            await this.cache.delete(key);
+            await this.cache.purge(key);
         }
 
         return true;
@@ -7490,11 +7495,7 @@ export class Database extends Constant {
      * @param ttl - Optional time-to-live in seconds (defaults to configured cacheTTL)
      * @return Promise<boolean>
      */
-    protected async setCacheValue(
-        key: string,
-        value: any,
-        ttl?: number,
-    ): Promise<boolean> {
+    protected async setCacheValue(key: string, value: any): Promise<boolean> {
         if (!this.cacheEnabled) {
             return false;
         }
@@ -7503,7 +7504,7 @@ export class Database extends Constant {
             const cacheKey = key.includes(this.cacheName)
                 ? key
                 : this.generateCacheKey(key);
-            return await this.cache.set(cacheKey, value, ttl ?? this.cacheTTL);
+            return (await this.cache.save(cacheKey, value)) as boolean;
         } catch (error) {
             this.logger.error("Cache set error:", error);
             return false;
@@ -7516,7 +7517,7 @@ export class Database extends Constant {
      * @param key - Key identifier
      * @return Promise<any>
      */
-    protected async getCacheValue(key: string): Promise<any> {
+    protected async getCacheValue(key: string, ttl?: number): Promise<any> {
         if (!this.cacheEnabled) {
             return null;
         }
@@ -7525,7 +7526,7 @@ export class Database extends Constant {
             const cacheKey = key.includes(this.cacheName)
                 ? key
                 : this.generateCacheKey(key);
-            return await this.cache.get(cacheKey);
+            return await this.cache.load(cacheKey, ttl ?? this.cacheTTL);
         } catch (error) {
             this.logger.error("Cache get error:", error);
             return null;

@@ -2,6 +2,8 @@ import { PostgreDB } from "../src/adapter/postgre";
 import { Adapter } from "../src/adapter/base";
 import { DB } from "./config";
 import { Pool } from "pg";
+import { createClient } from "redis";
+import { Redis } from "@nuvix/cache";
 
 /**
  * Adapter test utility functions
@@ -48,3 +50,12 @@ export function getTestCollectionName(prefix: string = "test"): string {
 export function logSkippedTests(): void {
     console.log("Skipping adapter tests. Set PG_TEST_CONNECTION=true to run.");
 }
+
+export const getRedisClient = async () => {
+    const client = createClient({
+        url: process.env["REDIS_URL"] || "redis://localhost:6379",
+    });
+    await client.connect();
+    const redis = new Redis(client as any);
+    return redis;
+};

@@ -690,6 +690,13 @@ export class PostgreDB extends Sql implements Adapter {
                 const indexType = index.getAttribute("type");
                 const indexAttributes = index.getAttribute("attributes", []);
                 const indexOrders = index.getAttribute("orders", []);
+                const indexAttributeTypes = indexAttributes.reduce(
+                    (acc: Record<string, string>, attr: any) => {
+                        acc[attr.$id] = attr.type;
+                        return acc;
+                    },
+                    {},
+                );
 
                 await this.createIndex(
                     id,
@@ -698,6 +705,7 @@ export class PostgreDB extends Sql implements Adapter {
                     indexAttributes,
                     [],
                     indexOrders,
+                    indexAttributeTypes,
                 );
             }
 
@@ -1182,6 +1190,7 @@ export class PostgreDB extends Sql implements Adapter {
         attributes: string[],
         lengths: number[] = [],
         orders: string[] = [],
+        indexAttributeTypes: Record<string, string> = {},
     ): Promise<boolean> {
         const collectionId = this.filter(collection);
         const indexId = this.filter(id);
@@ -1210,7 +1219,16 @@ export class PostgreDB extends Sql implements Adapter {
 
             // Format attribute for SQL statement
             if (type === Database.INDEX_UNIQUE) {
-                processedAttributes.push(`LOWER("${attr}"::text) ${order}`);
+                if (
+                    indexAttributeTypes[attr] &&
+                    indexAttributeTypes[attr] === Database.VAR_STRING
+                ) {
+                    // Case-insensitive for strings using LOWER()
+                    processedAttributes.push(`LOWER("${attr}") ${order}`);
+                } else {
+                    // Fast byte comparison for non-strings
+                    processedAttributes.push(`"${attr}" ${order}`);
+                }
             } else {
                 processedAttributes.push(`"${attr}" ${order}`);
             }

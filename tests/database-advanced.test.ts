@@ -2,12 +2,13 @@ import { Database } from "../src/core/database";
 import { Document } from "../src/core/Document";
 import { Query } from "../src/core/query";
 import { PostgreDB } from "../src/adapter/postgre";
-import { Cache, RedisAdapter } from "@nuvix/cache";
+import { Cache, Redis } from "@nuvix/cache";
 import { DB } from "./config";
 import { DuplicateException } from "../src/errors";
 import Role from "../src/security/Role";
 import Permission from "../src/security/Permission";
 import { Pool } from "pg";
+import { getRedisClient } from "./adapter-test-utils";
 
 describe("Database Advanced Tests", () => {
     let adapter: PostgreDB;
@@ -49,13 +50,7 @@ describe("Database Advanced Tests", () => {
             await adapter.ping();
 
             // Initialize cache with custom prefix for test isolation
-            cache = new Cache(
-                new RedisAdapter({
-                    host: "localhost",
-                    port: 6379,
-                    namespace: `db-adv-test-${Date.now()}`,
-                }),
-            );
+            cache = new Cache(await getRedisClient());
 
             // Create database instance
             db = new Database(adapter, cache, {
@@ -112,9 +107,6 @@ describe("Database Advanced Tests", () => {
             // Clean up test collection
             await db.deleteCollection(testCollectionName);
             await adapter.close();
-
-            // Clear cache (using any to bypass type checking)
-            await cache.clear();
         } catch (err) {
             console.error("Error cleaning up advanced database test:", err);
         }
@@ -194,8 +186,6 @@ describe("Database Advanced Tests", () => {
                 testCollectionName,
                 docId,
             );
-
-            await cache.clear(); // TODO: Temporary fix for cache issue
 
             // Verify updates
             expect(retrievedDoc.getAttribute("string_field")).toBe("Updated");

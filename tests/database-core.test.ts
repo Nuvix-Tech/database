@@ -4,11 +4,12 @@ import { Query } from "../src/core/query";
 import { Adapter } from "../src/adapter/base";
 import { PostgreDB } from "../src/adapter/postgre";
 import { DB } from "./config";
-import { Cache, RedisAdapter } from "@nuvix/cache";
+import { Cache } from "@nuvix/cache";
 import Permission from "../src/security/Permission";
 import Role from "../src/security/Role";
 import { Authorization } from "../src/security/authorization";
 import { Pool } from "pg";
+import { getRedisClient } from "./adapter-test-utils";
 
 /**
  * Gets an initialized database adapter for testing
@@ -55,13 +56,7 @@ describe("Database Core", () => {
             await (adapter as PostgreDB).ping();
             const prefix = `test_${Date.now()}`;
             // Initialize cache and database
-            cache = new Cache(
-                new RedisAdapter({
-                    host: "localhost",
-                    port: 6379,
-                    namespace: "test-core",
-                }),
-            );
+            cache = new Cache(await getRedisClient());
             db = new Database(adapter, cache, {
                 logger: true,
             });
@@ -381,7 +376,7 @@ describe("Database Core", () => {
             );
             await db.updateDocument(testCollectionName, cacheDocId, updateDoc);
 
-            await cache.clear();
+            await cache.flush();
             await new Promise((resolve) => setTimeout(resolve, 3000));
 
             const updatedDoc = await db.getDocument(
@@ -394,7 +389,6 @@ describe("Database Core", () => {
                 async () =>
                     await db.deleteDocument(testCollectionName, cacheDocId),
             );
-            console.log(cache.getStats());
         });
     });
 });

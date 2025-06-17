@@ -3,8 +3,9 @@ import { Document } from "../src/core/Document";
 import { Query } from "../src/core/query";
 import { DB } from "./config";
 import { Database } from "../src/core/database";
-import { Cache, RedisAdapter } from "@nuvix/cache";
+import { Cache } from "@nuvix/cache";
 import { Pool } from "pg";
+import { getRedisClient } from "./adapter-test-utils";
 
 /**
  * Tests for the PostgreSQL adapter focused on connection pool management,
@@ -50,13 +51,7 @@ describe("PostgreSQL Adapter", () => {
             adapter.setPrefix(testPrefix);
 
             // Initialize database
-            const cache = new Cache(
-                new RedisAdapter({
-                    host: "localhost",
-                    port: 6379,
-                    namespace: "pg-adapter-test",
-                }),
-            );
+            const cache = new Cache(await getRedisClient());
             db = new Database(adapter, cache, {
                 logger: true,
             });
