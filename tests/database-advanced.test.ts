@@ -105,6 +105,7 @@ describe("Database Advanced Tests", () => {
 
         try {
             // Clean up test collection
+            console.log(await cache.getStats());
             await db.deleteCollection(testCollectionName);
             await adapter.close();
         } catch (err) {
@@ -706,7 +707,7 @@ describe("Database Advanced Tests", () => {
             await db.getDocument(testCollectionName, docId);
 
             // Clear entire cache
-            await db.clearCache();
+            await db.getCache().flush();
 
             // Document should be fetched from database, not cache
             const start = performance.now();
@@ -724,14 +725,14 @@ describe("Database Advanced Tests", () => {
 
             // Test TTL methods
             const defaultTTL = db.getCacheTTL();
-            expect(defaultTTL).toBe(300); // Default 5 minutes
+            expect(defaultTTL).toBe(86400);
 
             const newTTL = 600;
             db.setCacheTTL(newTTL);
             expect(db.getCacheTTL()).toBe(newTTL);
 
             // Reset to default
-            db.setCacheTTL(300);
+            db.setCacheTTL(86400);
         });
     });
 });

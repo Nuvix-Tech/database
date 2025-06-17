@@ -112,9 +112,11 @@ export class Database extends Constant {
 
     protected relationshipDeleteStack: Document[] = [];
 
+    protected globalCollections: Record<string, boolean> = {};
+
     protected logger: Logger;
 
-    protected cacheTTL: number = 300; // Default TTL: 5 minutes
+    protected cacheTTL: number = 60 * 60 * 24; // 24 hours
     protected cacheEnabled: boolean = true;
 
     constructor(
@@ -135,7 +137,7 @@ export class Database extends Constant {
         this.instanceFilters = options.filters ?? {};
         this.cacheName = "default";
         this.logger = new Logger(options.logger);
-        this.cacheTTL = options.cacheTTL ?? 300;
+        this.cacheTTL = options.cacheTTL ?? 60 * 60 * 24; // Default to 24 hours
         this.cacheEnabled = options.cacheEnabled ?? true;
 
         this.entities = options.entities as any[];
@@ -818,7 +820,7 @@ export class Database extends Constant {
             deleted: deleted,
         });
 
-        await this.clearCache();
+        await this.cache.flush();
 
         return deleted;
     }
@@ -3220,14 +3222,25 @@ export class Database extends Constant {
             false,
         );
 
-        const collectionCacheKey = `collection:${_collection.getId()}`;
-        let documentCacheKey = `${collectionCacheKey}:${id}`;
+        const { collectionKey, documentKey, hashKey } = this.getCacheKeys(
+            _collection.getId(),
+            id,
+            selections,
+        );
 
-        if (selections.length > 0) {
-            documentCacheKey += `:${crypto.createHash("md5").update(selections.join("")).digest("hex")}`;
+        let cache: any = null;
+        try {
+            cache = await this.cache.load(
+                documentKey!,
+                this.cacheTTL,
+                hashKey!,
+            );
+        } catch (e: any) {
+            this.logger.warn(
+                "Warning: Failed to get document from cache: " + e.message,
+            );
+            cache = null;
         }
-
-        const cache = await this.getCacheValue(documentCacheKey);
 
         if (cache) {
             const document = new Document<any>(cache);
@@ -3290,39 +3303,32 @@ export class Database extends Constant {
             );
         }
 
-        const hasTwoWayRelationship = relationships.some(
-            (relationship: any) =>
-                relationship.getAttribute("options", {})["twoWay"],
-        );
-
-        for (const [key, value] of Object.entries(this.map)) {
-            const [k, v] = key.split("=>");
-            const ck = `map:${k}`;
-            let cache = await this.getCacheValue(ck);
-            if (!cache) {
-                cache = [];
-            }
-            if (!cache.includes(v)) {
-                cache.push(v);
-                await this.setCacheValue(ck, cache);
+        // Don't save to cache if it's part of a relationship
+        if (relationships.length === 0) {
+            try {
+                await this.cache.save(
+                    documentKey!,
+                    document.toObject(),
+                    hashKey!,
+                );
+                await this.cache.save(collectionKey, "empty", documentKey!);
+            } catch (e: any) {
+                this.logger.warn(
+                    "Failed to save document to cache: " + e.message,
+                );
             }
         }
 
-        if (!hasTwoWayRelationship && relationships.length === 0) {
-            await this.setCacheValue(collectionCacheKey, "empty");
-            await this.setCacheValue(documentCacheKey, document.toObject());
-        }
-
-        for (const query of queries) {
-            if (query.getMethod() === Query.TYPE_SELECT) {
-                const values = query.getValues();
-                for (const internalAttribute of this.getInternalAttributes()) {
-                    if (!values.includes(internalAttribute["$id"])) {
-                        document.removeAttribute(internalAttribute["$id"]);
-                    }
-                }
-            }
-        }
+        // for (const query of queries) {
+        //     if (query.getMethod() === Query.TYPE_SELECT) {
+        //         const values = query.getValues();
+        //         for (const internalAttribute of this.getInternalAttributes()) {
+        //             if (!values.includes(internalAttribute["$id"])) {
+        //                 document.removeAttribute(internalAttribute["$id"]);
+        //             }
+        //         }
+        //     }
+        // }
 
         await this.trigger(Database.EVENT_DOCUMENT_READ, document);
 
@@ -6397,8 +6403,16 @@ export class Database extends Constant {
      * @return boolean
      */
     public async purgeCachedCollection(collectionId: string): Promise<boolean> {
-        const collectionKey = `collection:${collectionId}*`;
-        return await this.clearCache(collectionKey);
+        const { collectionKey } = this.getCacheKeys(collectionId);
+
+        const documentKeys = await this.cache.list(collectionKey);
+        for (const documentKey of documentKeys) {
+            await this.cache.purge(documentKey);
+        }
+
+        await this.cache.purge(collectionKey);
+
+        return true;
     }
 
     /**
@@ -6414,10 +6428,23 @@ export class Database extends Constant {
         collectionId: string,
         id: string,
     ): Promise<boolean> {
-        const collectionKey = `collection:${collectionId}`;
-        const documentKey = `${collectionKey}:${id}*`;
+        const { collectionKey, documentKey } = this.getCacheKeys(
+            collectionId,
+            id,
+        );
 
-        return await this.clearCache(documentKey);
+        await this.cache.purge(collectionKey!, documentKey!);
+        await this.cache.purge(documentKey!);
+
+        await this.trigger(
+            Database.EVENT_DOCUMENT_PURGE,
+            new Document({
+                $id: id,
+                $collection: collectionId,
+            }),
+        );
+
+        return true;
     }
 
     /**
@@ -7457,25 +7484,25 @@ export class Database extends Constant {
      * @param pattern - Optional pattern to selectively clear cache (defaults to all)
      * @return Promise<boolean>
      */
-    public async clearCache(pattern?: string): Promise<boolean> {
-        const tenantId = this.adapter.getTenantId() ?? "default";
-        const cacheKey = pattern
-            ? `${this.cacheName}-cache-${this.getPrefix()}:${tenantId}:${pattern}`
-            : `${this.cacheName}-cache-${this.getPrefix()}:${tenantId}:*`;
+    // public async clearCache(pattern?: string): Promise<boolean> {
+    //     const tenantId = this.adapter.getTenantId() ?? "default";
+    //     const cacheKey = pattern
+    //         ? `${this.cacheName}-cache-${this.getPrefix()}:${tenantId}:${pattern}`
+    //         : `${this.cacheName}-cache-${this.getPrefix()}:${tenantId}:*`;
 
-        const keys = await this.cache.list(cacheKey);
-        console.log(
-            "++++++++++++++++++++",
-            await (this.cache as any).list(),
-            "_________+++++___",
-        );
-        console.log(keys, "creaeCache"); //#debug
-        for (const key of keys) {
-            await this.cache.purge(key);
-        }
+    //     const keys = await this.cache.list(cacheKey);
+    //     console.log(
+    //         "++++++++++++++++++++",
+    //         await (this.cache as any).list(),
+    //         "_________+++++___",
+    //     );
+    //     console.log(keys, "creaeCache"); //#debug
+    //     for (const key of keys) {
+    //         await this.cache.purge(key);
+    //     }
 
-        return true;
-    }
+    //     return true;
+    // }
 
     /**
      * Generate standard cache key format
@@ -7531,5 +7558,57 @@ export class Database extends Constant {
             this.logger.error("Cache get error:", error);
             return null;
         }
+    }
+
+    /**
+     * Generate cache keys for collection and document caching
+     *
+     * @param collectionId - The collection ID
+     * @param documentId - Optional document ID
+     * @param selects - Array of selected attributes
+     */
+    public getCacheKeys(
+        collectionId: string,
+        documentId?: string | null,
+        selects: string[] = [],
+    ): {
+        collectionKey: string;
+        documentKey: string | null;
+        hashKey: string | null;
+    } {
+        let hostname: string | undefined;
+
+        // if (this.adapter.getSupportForHostname()) {
+        //     hostname = this.adapter.getHostname();
+        // }
+
+        let tenantSegment: string | number | null = this.adapter.getTenantId();
+
+        // Check if this is a global collection that doesn't use tenant segmentation
+        if (
+            collectionId === Database.METADATA &&
+            this.globalCollections?.[documentId as string]
+        ) {
+            tenantSegment = null;
+        }
+
+        const collectionKey = `${this.cacheName}-cache-${hostname ?? ""}:${this.getPrefix()}:${tenantSegment}:collection:${collectionId}`;
+
+        let documentKey: string | null = null;
+        let documentHashKey: string | null = null;
+
+        if (documentId) {
+            documentKey = documentHashKey = `${collectionKey}:${documentId}`;
+
+            if (selects.length > 0) {
+                const selectsHash = crypto
+                    .createHash("md5")
+                    .update(selects.join(""))
+                    .digest("hex");
+                documentHashKey = `${documentKey}:${selectsHash}`;
+            }
+        }
+
+        return { collectionKey, documentKey, hashKey: documentHashKey };
     }
 }

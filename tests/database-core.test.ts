@@ -52,8 +52,21 @@ describe("Database Core", () => {
 
         try {
             // Initialize adapter
-            adapter = await getAdapter();
-            await (adapter as PostgreDB).ping();
+            // Initialize adapter
+            const ssl = process.env["SSL"] === "true";
+            const client = await new Pool({
+                connectionString: DB,
+                ssl: ssl ? { rejectUnauthorized: false } : undefined,
+            }).connect();
+            const defaultOptions = {
+                connection: client,
+                schema: "public",
+            };
+            adapter = new PostgreDB({ ...defaultOptions });
+
+            adapter.init();
+            await adapter.ping();
+
             const prefix = `test_${Date.now()}`;
             // Initialize cache and database
             cache = new Cache(await getRedisClient());

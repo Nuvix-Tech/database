@@ -98,6 +98,7 @@ export class Constant {
     public static readonly EVENT_DOCUMENT_SUM = "document_sum";
     public static readonly EVENT_DOCUMENT_INCREASE = "document_increase";
     public static readonly EVENT_DOCUMENT_DECREASE = "document_decrease";
+    public static readonly EVENT_DOCUMENT_PURGE = "document_purge";
 
     public static readonly EVENT_PERMISSIONS_CREATE = "permissions_create";
     public static readonly EVENT_PERMISSIONS_READ = "permissions_read";

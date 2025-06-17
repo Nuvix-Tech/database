@@ -2,8 +2,8 @@ import { PostgreDB } from "../src/adapter/postgre";
 import { Adapter } from "../src/adapter/base";
 import { DB } from "./config";
 import { Pool } from "pg";
-import { createClient } from "redis";
 import { Redis } from "@nuvix/cache";
+import IORedis from "ioredis";
 
 /**
  * Adapter test utility functions
@@ -52,10 +52,7 @@ export function logSkippedTests(): void {
 }
 
 export const getRedisClient = async () => {
-    const client = createClient({
-        url: process.env["REDIS_URL"] || "redis://localhost:6379",
-    });
-    await client.connect();
-    const redis = new Redis(client as any);
+    const client = new IORedis();
+    const redis = new Redis(client);
     return redis;
 };

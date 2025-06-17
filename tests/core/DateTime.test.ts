@@ -16,7 +16,7 @@ describe("DateTime", () => {
                 }
             }
 
-            static now() {
+            static override now() {
                 return new RealDate(isoDate).getTime();
             }
         };
