@@ -1,0 +1,65 @@
+{
+  "compilerOptions": {
+    // Base Options
+    "target": "ES2022", // For Node.js 18+ features
+    "module": "NodeNext", // Enable Node.js-style resolution
+    "moduleResolution": "NodeNext", // Required for Node ESM
+    "lib": [
+      "ES2022"
+    ],
+    // Strictness
+    "strict": true, // Enable all strict type checks
+    "noImplicitAny": true,
+    "noImplicitThis": true,
+    "alwaysStrict": true,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "strictBindCallApply": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true, // Strict array/object indexing
+    "noPropertyAccessFromIndexSignature": true,
+    // Project Layout
+    "rootDir": "./src",
+    "outDir": "./dist",
+    "baseUrl": "./src",
+    "paths": {
+      "@core/*": [
+        "core/*"
+      ],
+      "@adapters/*": [
+        "adapters/*"
+      ],
+      "@utils/*": [
+        "utils/*"
+      ],
+      "@validators/*": [
+        "validators/*"
+      ],
+      "@hooks/*": [
+        "hooks/*"
+      ]
+    },
+    // Module Output
+    "esModuleInterop": true, // For CommonJS interop
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "declaration": true, // Emit .d.ts files
+    "declarationMap": false,
+    "sourceMap": true, // Useful for debugging
+    "inlineSources": true,
+    "isolatedModules": true,
+    // Optimization & Compatibility
+    "allowSyntheticDefaultImports": true,
+    "noEmitOnError": true,
+    "skipLibCheck": true // Speed up compile (safe for internal libs)
+  },
+  "include": [
+    "src"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "test",
+    "**/*.test.ts"
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  "name": "@nuvix/db",
+  "version": "0.1.0",
+  "description": "Modular and performant database library for Nuvix, with internal complexity abstracted from developers.",
+  "license": "BSD-3-Clause",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "type": "module",
+  "private": true,
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "scripts": {
+    "dev": "tsup src/index.ts --watch --onSuccess \"node dist/index.js\"",
+    "build": "tsup",
+    "lint": "eslint . --ext .ts",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run lint && npm run build && npm run typecheck"
+  },
+  "dependencies": {
+    "pino": "^9.7.0",
+    "zod": "^4.0.14"
+  },
+  "devDependencies": {
+    "@types/node": "^24.1.0",
+    "prettier": "^3.6.2",
+    "typescript": "^5.8.3"
+  },
+  "engines": {
+    "node": ">=18.17"
+  },
+  "keywords": [
+    "nuvix",
+    "database",
+    "typescript",
+    "orm",
+    "query-builder",
+    "postgresql",
+    "modular",
+    "zod",
+    "validation",
+    "pino"
+  ]
+}
