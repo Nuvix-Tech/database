@@ -41,6 +41,8 @@ export class Entity<T extends Partial<IEntity> = IEntity> {
         "getSequence",
         "getInternalId",
         "getCollection",
+        "createdAt",
+        "updatedAt",
         "getPermissions",
         "getRead",
         "getCreate",
@@ -165,6 +167,22 @@ export class Entity<T extends Partial<IEntity> = IEntity> {
             throw new StructureException("$collection must be a string");
         }
         return collection;
+    }
+
+    public createdAt(): Date | null {
+        const value = this.get('$createdAt', null);
+        if (typeof value === 'string') {
+            return new Date(value);
+        }
+        return value as Date;
+    }
+
+    public updatedAt(): Date | null {
+        const value = this.get('$updatedAt', null);
+        if (typeof value === 'string') {
+            return new Date(value);
+        }
+        return value as Date;
     }
 
     public getPermissions(): string[] {

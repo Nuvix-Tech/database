@@ -31,9 +31,26 @@ export abstract class BaseAdapter extends EventEmitter {
     public setMeta(meta: Partial<Meta>) {
         this._meta = meta;
     }
+
+    protected sanitize(value: string): string {
+        if (value === null || value === undefined) {
+            throw new DatabaseException(
+                "Failed to sanitize key: value is null or undefined",
+            );
+        }
+
+        const sanitized = value.replace(/[^A-Za-z0-9_\-]/g, "");
+        if (sanitized === "") {
+            throw new DatabaseException(
+                "Failed to sanitize key: filtered value is empty",
+            );
+        }
+
+        return sanitized;
+    }
 }
 
-interface Meta {
+export interface Meta {
     database: string;
     schema: string;
     sharedTables: boolean;
