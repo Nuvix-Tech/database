@@ -8,6 +8,6 @@ export interface IEntity {
     $createdAt: Date | string | null;
     $updatedAt: Date | string | null;
     $permissions: string[];
-    $internalId: string;
+    $sequence: number;
     $collection: string;
 }
