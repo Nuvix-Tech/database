@@ -5,13 +5,15 @@ export const AttributeType = z.enum(AttributeEnum);
 
 export const AttributeSchema = z.object({
     $id: z.string(),
-    key: z.string(),
+    key: z.string().optional(),
     type: AttributeType,
     size: z.number().default(0),
     required: z.boolean().default(false),
     signed: z.boolean().default(false),
     array: z.boolean().default(false).optional(),
     filters: z.array(z.string()).optional().default([]),
+    default: z.any().optional(),
+    options: z.record(z.string(), z.any()).optional(),
 });
 
 export const IndexType = z.enum(IndexEnum);

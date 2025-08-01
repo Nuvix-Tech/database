@@ -1,12 +1,18 @@
 import { EventEmitter } from "stream";
-import { EventsEnum } from "./enums.js";
+import { EventsEnum, PermissionEnum } from "./enums.js";
 
 
 export class Database extends EventEmitter<Record<EventsEnum, any>> {
-
+    public static METADATA: string = '_metadata';
     public static INTERNAL_ATTRIBUTES: string[] = [];
     public static INTERNAL_INDEXES: string[] = [];
-    public static METADATA: string = '_metadata';
+    public static PERMISSIONS: PermissionEnum[] = [
+        PermissionEnum.Create,
+        PermissionEnum.Read,
+        PermissionEnum.Update,
+        PermissionEnum.Delete,
+    ];
+    public static ARRAY_INDEX_LENGTH: number = 1000; // TODO 
 
     constructor() {
         super();

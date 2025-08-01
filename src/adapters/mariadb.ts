@@ -2,7 +2,8 @@ import { DatabaseException, TransactionException } from "@errors/index.js";
 import { BaseAdapter } from "./base.js";
 import { CreateCollectionOptions, IAdapter, IClient } from "./interface.js";
 import { createPool, Pool, Connection, PoolOptions, PoolConnection } from 'mysql2/promise';
-import { AttributeEnum } from "@core/enums.js";
+import { AttributeEnum, EventsEnum, IndexEnum, RelationEnum, RelationSideEnum } from "@core/enums.js";
+import { Database } from "@core/database.js";
 
 class MariaClient implements IClient {
     private connection: Connection | Pool;
@@ -107,34 +108,196 @@ export class MariaDB extends BaseAdapter implements IAdapter {
     }
 
     async create(name: string): Promise<void> {
-        name = this.sanitize(name);
+        name = this.quote(name);
         if (await this.exists(name)) return;
 
-        const sql = `CREATE DATABASE \`{ name }\` /*!40100 DEFAULT CHARACTER SET utf8mb4 */;`;
+        let sql = `CREATE DATABASE ${name} /*!40100 DEFAULT CHARACTER SET utf8mb4 */;`;
+        sql = this.trigger(EventsEnum.DatabaseCreate, sql);
+
         await this.client.query(sql);
     }
 
     async delete(name: string): Promise<void> {
-        name = this.sanitize(name);
-        await this.client.query(`DROP SCHEMA IF EXISTS \`${name}\`;`);
+        name = this.quote(name);
+        await this.client.query(`DROP SCHEMA IF EXISTS ${name};`);
     }
 
-    async createCollection({ name, attributes, indexes, documentSecurity }: CreateCollectionOptions): Promise<void> {
+    async createCollection({ name, attributes, indexes }: CreateCollectionOptions): Promise<void> {
         name = this.sanitize(name);
-        const attributeSql = [];
-        const indexSql = [];
+        const attributeSql: string[] = [];
+        const indexSql: string[] = [];
         const hash: Record<string, typeof attributes[number]> = {};
 
         attributes.forEach(attribute => {
             const id = this.sanitize(attribute.getId());
             hash[id] = attribute;
 
+            const type = this.getSQLType(
+                attribute.get('type'),
+                attribute.get('size'),
+                attribute.get('signed'),
+                attribute.get('array')
+            );
+
+            if (attribute.get('type') === AttributeEnum.Virtual) {
+                return;
+            }
+
+            if (attribute.get('type') === AttributeEnum.Relation) {
+                const options = attribute.get('options', {}) as Record<string, any>;
+                const relationType = options['relationType'] ?? null;
+                const twoWay = options['twoWay'] ?? false;
+                const side = options['side'] ?? null;
+
+                if (
+                    relationType === RelationEnum.ManyToMany
+                    || (relationType === RelationEnum.OneToOne && !twoWay && side === 'child')
+                    || (relationType === RelationEnum.OneToMany && side === RelationSideEnum.Parent)
+                    || (relationType === RelationEnum.ManyToOne && side === RelationSideEnum.Child)
+                ) {
+                    return;
+                }
+            }
+
+            let sql = `${this.quote(id)} ${type}`;
+            attributeSql.push(sql);
         })
 
-        indexes?.forEach(index => {
+        indexes?.forEach((index, key) => {
+            const indexId = this.sanitize(index.getId());
+            const indexType = index.get('type');
+            let indexAttributes = index.get('attributes') as string[];
+            const lengths = index.get('lengths') || [];
+            const orders = index.get('orders') || [];
 
-        })
+            indexAttributes = indexAttributes.map((attribute, nested) => {
+                let indexLength = lengths[nested] ?? '';
+                indexLength = indexLength ? `(${Number(indexLength)})` : '';
+                let indexOrder = orders[nested] ?? '';
+                let indexAttribute = this.quote(
+                    this.getInternalKeyForAttribute(attribute)
+                );
+
+                if (indexType === IndexEnum.FullText) {
+                    indexOrder = '';
+                }
+
+                let attrSql = `${indexAttribute}${indexLength}${indexOrder ? ' ' + indexOrder : ''}`;
+
+                if (
+                    hash[indexAttribute]?.get('array', false) &&
+                    this.$supportForCastIndexArray
+                ) {
+                    attrSql = `(CAST(\`${indexAttribute}\` AS char(${Database.ARRAY_INDEX_LENGTH}) ARRAY))`;
+                }
+
+                return attrSql;
+            });
+
+            let attributesSql = indexAttributes.join(', ');
+
+            if (this.$sharedTables && indexType !== IndexEnum.FullText) {
+                attributesSql = `_tenant, ${attributesSql}`;
+            }
+
+            indexSql.push(`${indexType} \`${indexId}\` (${attributesSql})`);
+        });
+
+        const columns = [
+            '`_id` INT(11) UNSIGNED NOT NULL AUTO_INCREMENT',
+            '`_uid` VARCHAR(255) NOT NULL',
+            '`_createdAt` DATETIME(3) DEFAULT NULL',
+            '`_updatedAt` DATETIME(3) DEFAULT NULL',
+            '`_permissions` MEDIUMTEXT DEFAULT NULL',
+            ...attributeSql
+        ];
+
+        let tableSql = `
+            CREATE TABLE ${this.quote(name)} (
+            ${columns.join(',\n')},
+            PRIMARY KEY (_id)
+            ${indexSql.length ? ',\n' + indexSql.join(',\n') : ''}
+        `;
+
+        if (this.$sharedTables) {
+            tableSql += `,
+            _tenant INT(11) UNSIGNED DEFAULT NULL,
+            UNIQUE KEY _uid (_uid, _tenant),
+            KEY _created_at (_tenant, _createdAt),
+            KEY _updated_at (_tenant, _updatedAt),
+            KEY _tenant_id (_tenant, _id)
+            `;
+        } else {
+            tableSql += `,
+            UNIQUE KEY _uid (_uid),
+            KEY _created_at (_createdAt),
+            KEY _updated_at (_updatedAt)
+            `;
+        }
+
+        tableSql += `
+            )
+        `;
+        tableSql = this.trigger(EventsEnum.CollectionCreate, tableSql);
+
+        let permissionsTable = `
+                CREATE TABLE ${this.quote(name + '_perms')} (
+                    _id INT(11) UNSIGNED NOT NULL AUTO_INCREMENT,
+                    _type VARCHAR(12) NOT NULL,
+                    _permission VARCHAR(255) NOT NULL,
+                    _document VARCHAR(255) NOT NULL,
+                    PRIMARY KEY (_id),
+            `;
+
+        if (this.$sharedTables) {
+            permissionsTable += `
+                    _tenant INT(11) UNSIGNED DEFAULT NULL,
+                    UNIQUE INDEX _index1 (_document, _tenant, _type, _permission),
+                    INDEX _permission (_tenant, _permission, _type)
+                `;
+        } else {
+            permissionsTable += `
+                    UNIQUE INDEX _index1 (_document, _type, _permission),
+                    INDEX _permission (_permission, _type)
+                `;
+        }
+
+        permissionsTable += `
+                )
+            `;
+        permissionsTable = this.trigger(EventsEnum.CollectionCreate, permissionsTable);
+
+        await this.client.query(tableSql);
+        await this.client.query(permissionsTable);
     }
+
+    public async getSizeOfCollectionOnDisk(collection: string): Promise<number> {
+        collection = this.sanitize(collection);
+        const database = this.client.$database;
+        collection = `${this.$namespace}_${collection}`;
+        const collectionName = `${database}/${collection}`;
+        const permissionsName = `${database}/${collection}_perms`;
+
+        const sql = `
+            SELECT SUM(FS_BLOCK_SIZE + ALLOCATED_SIZE) as size
+            FROM INFORMATION_SCHEMA.INNODB_SYS_TABLESPACES
+            WHERE NAME = ?
+        `;
+
+        const [collectionRows]: any = await this.client.query(sql, [collectionName]);
+        const [permissionsRows]: any = await this.client.query(sql, [permissionsName]);
+        const collectionSize = collectionRows[0]?.size ?? 0;
+        const permissionsSize = permissionsRows[0]?.size ?? 0;
+        return Number(collectionSize) + Number(permissionsSize);
+    }
+
+
+
+
+
+
+
+
 
     protected getSQLType(type: AttributeEnum, size: number, signed?: boolean, array?: boolean): string {
         if (array) {
@@ -166,6 +329,8 @@ export class MariaDB extends BaseAdapter implements IAdapter {
                 return 'VARCHAR(255)';
             case AttributeEnum.Object:
                 return 'JSON';
+            case AttributeEnum.Virtual:
+                return '';
             default:
                 throw new DatabaseException(`Unsupported attribute type: ${type}`);
         }

@@ -10,4 +10,5 @@ export interface IEntity {
     $permissions: string[];
     $sequence: number;
     $collection: string;
+    $tenant?: number | null; // Optional tenant ID for multi-tenant support
 }

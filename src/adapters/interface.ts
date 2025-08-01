@@ -65,5 +65,4 @@ export interface CreateCollectionOptions {
     name: string;
     attributes: Doc<Attribute>[];
     indexes?: Doc<Index>[];
-    documentSecurity?: boolean;
 }

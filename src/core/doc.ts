@@ -39,6 +39,7 @@ export class Doc<T extends Partial<IEntity> = IEntity> {
         "prepend",
         "getId",
         "getSequence",
+        "getTenant",
         "getInternalId",
         "getCollection",
         "createdAt",
@@ -90,10 +91,11 @@ export class Doc<T extends Partial<IEntity> = IEntity> {
         return new Doc(data);
     }
 
-    public get<K extends keyof T, D extends unknown = null>(name: K, _default?: D): TransformEntity<T>[K] extends undefined ? D : TransformEntity<T>[K];
-    public get<K extends string, D extends unknown = null>(name: K, _default?: D): D;
-    public get<K extends keyof T>(name: K, _default: any = null): TransformEntity<T>[K] {
-        return (this as any)[name] ?? _default;
+    public get<K extends keyof T, D = null>(name: K, _default?: D): Exclude<TransformEntity<T>[K], undefined> | D;
+    public get<K extends string, D = null>(name: K, _default?: D): D;
+    public get<K extends keyof T, D = null>(name: K, _default: D = null as D): Exclude<TransformEntity<T>[K], undefined> | D {
+        const value = (this as any)[name];
+        return value === undefined ? _default : value;
     }
 
     public getAll(): TransformEntity<T> {
@@ -155,6 +157,15 @@ export class Doc<T extends Partial<IEntity> = IEntity> {
 
     public getSequence(): number {
         return this.get("$sequence") as number;
+    }
+
+    public getTenant(): number | null {
+        const tenant = this.get("$tenant", null);
+        if (tenant === null || typeof tenant === "number") {
+            return tenant;
+        } else {
+            throw new StructureException("$tenant must be a number or null");
+        }
     }
 
     /**
