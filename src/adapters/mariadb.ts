@@ -40,6 +40,10 @@ class MariaClient implements IClient {
         return this.connection.query
     }
 
+    quote(name: string): string {
+        return `'${name}'`;
+    }
+
     async ping(): Promise<void> {
         try {
             await this.$client.ping()
@@ -174,62 +178,4 @@ export class MariaDB extends BaseAdapter implements IAdapter {
         return `\`${this.sanitize(name)}\``;
     }
 
-    // Capabilities
-    get $supportsCastIndexArray(): boolean {
-        return false;
-    }
-
-    get $supportsIndex(): boolean {
-        return true;
-    }
-
-    get $supportsUniqueIndex(): boolean {
-        return true;
-    }
-
-    get $supportsFulltextIndex(): boolean {
-        return true;
-    }
-
-    get $supportsFulltextWildcardIndex(): boolean {
-        return true;
-    }
-
-    get $supportsTimeouts(): boolean {
-        return true;
-    }
-
-    get $supportsCasting(): boolean {
-        return false;
-    }
-
-    get $supportsJSONOverlaps(): boolean {
-        return false;
-    }
-
-    // Limits
-    get $limitString(): number {
-        return 4294967295; // TODO: ------
-    }
-
-    get $limitInt(): number {
-        return 4294967295;
-    }
-
-    get $limitAttributes(): number {
-        return 1017;
-    }
-
-    get $limitIndexes(): number {
-        return 64;
-    }
-
-    // Max Sizes
-    get $maxVarcharLength(): number {
-        return 16381;
-    }
-
-    get $maxIndexLength(): number {
-        return 768;
-    }
 }

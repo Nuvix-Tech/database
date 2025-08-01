@@ -1,13 +1,43 @@
 import { DatabaseException } from "@errors/base.js";
 import { EventEmitter } from "stream";
 import { IAdapter, IClient } from "./interface.js";
-import { AttributeEnum, EventsEnum } from "@core/enums.js";
+import { AttributeEnum, EventsEnum, IndexEnum, PermissionEnum } from "@core/enums.js";
 import { CreateAttribute } from "./types.js";
+import { Doc } from "@core/doc.js";
+import { Database } from "@core/database.js";
 
 export abstract class BaseAdapter extends EventEmitter {
     public readonly type: string = 'base';
     protected _meta: Partial<Meta> = {};
     protected abstract client: IClient;
+
+    readonly $limitForString: number = 4294967295;
+    readonly $limitForInt: number = 4294967295;
+    readonly $limitForAttributes: number = 1017;
+    readonly $limitForIndexes: number = 64;
+    readonly $supportForSchemas: boolean = true;
+    readonly $supportForIndex: boolean = true;
+    readonly $supportForAttributes: boolean = true;
+    readonly $supportForUniqueIndex: boolean = true;
+    readonly $supportForFulltextIndex: boolean = true;
+    readonly $supportForUpdateLock: boolean = true;
+    readonly $supportForAttributeResizing: boolean = true;
+    readonly $supportForBatchOperations: boolean = true;
+    readonly $supportForGetConnectionId: boolean = true;
+    readonly $supportForCacheSkipOnFailure: boolean = true;
+    readonly $supportForHostname: boolean = true;
+    readonly $documentSizeLimit: number = 65535;
+    readonly $supportForCasting: boolean = false;
+    readonly $supportForNumericCasting: boolean = false;
+    readonly $supportForQueryContains: boolean = true;
+    readonly $supportForIndexArray: boolean = true;
+    readonly $supportForCastIndexArray: boolean = false;
+    readonly $supportForRelationships: boolean = true;
+    readonly $supportForReconnection: boolean = true;
+    readonly $supportForBatchCreateAttributes: boolean = true;
+    readonly $maxVarcharLength: number = 16381;
+    readonly $maxIndexLength: number = this.$sharedTables ? 767 : 768;
+
 
     protected transformations: Partial<Record<EventsEnum, Array<[string, (query: string) => string]>>> = {
         [EventsEnum.All]: [],
@@ -183,6 +213,42 @@ export abstract class BaseAdapter extends EventEmitter {
         await this.client.query(sql);
     }
 
+    public async renameAttribute(
+        collection: string,
+        oldName: string,
+        newName: string
+    ): Promise<void> {
+        if (!oldName || !newName || !collection) {
+            throw new DatabaseException("Failed to rename attribute: oldName, newName, and collection are required");
+        }
+
+        const table = this.getSQLTable(collection);
+        let sql = `
+            ALTER TABLE ${table}
+            RENAME COLUMN ${this.$.quote(oldName)} TO ${this.$.quote(newName)}
+        `;
+        sql = this.trigger(EventsEnum.AttributeUpdate, sql);
+
+        await this.client.query(sql);
+    }
+
+    public async deleteAttribute(
+        collection: string,
+        name: string
+    ): Promise<void> {
+        if (!name || !collection) {
+            throw new DatabaseException("Failed to delete attribute: name and collection are required");
+        }
+
+        const table = this.getSQLTable(collection);
+        let sql = `
+            ALTER TABLE ${table}
+            DROP COLUMN ${this.$.quote(name)}
+        `;
+        sql = this.trigger(EventsEnum.AttributeDelete, sql);
+
+        await this.client.query(sql);
+    }
 
     protected abstract getSQLType(type: AttributeEnum, size: number, signed?: boolean, array?: boolean): string;
 
@@ -191,6 +257,168 @@ export abstract class BaseAdapter extends EventEmitter {
             throw new DatabaseException("Failed to get SQL table: name is empty");
         }
         return `${this.$.quote(this.$database)}.${this.$.quote(`${this.$namespace}_${name}`)}`;
+    }
+
+    protected getSQLIndexType(type: IndexEnum): string {
+        switch (type) {
+            case IndexEnum.Unique:
+                return 'UNIQUE';
+            case IndexEnum.FullText:
+                return 'FULLTEXT';
+            case IndexEnum.Key:
+                return 'INDEX';
+            default:
+                throw new DatabaseException(`Unsupported index type: ${type}`);
+        }
+    }
+
+    protected getSQLPermissionCondition(
+        { collection, roles, alias, type = PermissionEnum.Read }: { collection: string, roles: string[], alias: string, type?: PermissionEnum }
+    ): string {
+        if (!collection || !roles || !alias) {
+            throw new DatabaseException("Failed to get SQL permission condition: collection, roles, and alias are required");
+        }
+
+        if (type && !Object.values(PermissionEnum).includes(type)) {
+            throw new DatabaseException(`Unknown permission type: ${type}`);
+        }
+
+        const quotedRoles = roles.map(role => this.client.quote(role)).join(', ');
+
+        return `${this.$.quote(alias)}.${this.$.quote('_uid')} IN (
+            SELECT _document
+            FROM ${this.getSQLTable(collection + '_perms')}
+            WHERE _permission IN (${quotedRoles})
+              AND _type = '${type}'
+              ${this.getTenantQuery ? this.getTenantQuery(collection) : ''}
+        )`;
+    }
+
+    public getTenantQuery(
+        collection: string,
+        alias: string = '',
+        tenantCount: number = 0,
+        condition: string = 'AND'
+    ): string {
+        if (!this.$sharedTables) {
+            return '';
+        }
+
+        let dot = '';
+        let quotedAlias = alias;
+        if (alias !== '') {
+            dot = '.';
+            quotedAlias = this.$.quote(alias);
+        }
+
+        let bindings: string[] = [];
+        if (tenantCount === 0) {
+            bindings.push('?');
+        } else {
+            bindings = Array.from({ length: tenantCount }, _ => `?`);
+        }
+        const bindingsStr = bindings.join(',');
+
+        let orIsNull = '';
+        if (collection === Database.METADATA) {
+            orIsNull = ` OR ${quotedAlias}${dot}_tenant IS NULL`;
+        }
+
+        return `${condition} (${quotedAlias}${dot}_tenant IN (${bindingsStr})${orIsNull})`;
+    }
+
+    protected getAttributeProjection(selections: string[], prefix: string): string {
+        if (!selections || selections.length === 0 || selections.includes('*')) {
+            return `${this.$.quote(prefix)}.*`;
+        }
+
+        const internalKeys = [
+            '$id',
+            '$sequence',
+            '$permissions',
+            '$createdAt',
+            '$updatedAt',
+        ];
+
+        // Remove internal keys and $collection from selections
+        selections = selections.filter(
+            (s) => ![...internalKeys, '$collection'].includes(s)
+        );
+
+        // Add internal keys as their mapped SQL names
+        for (const internalKey of internalKeys) {
+            selections.push(this.getInternalKeyForAttribute(internalKey));
+        }
+
+        const projected = selections.map(
+            (selection) =>
+                `${this.$.quote(prefix)}.${this.$.quote(selection)}`
+        );
+
+        return projected.join(',');
+    }
+
+    protected getInternalKeyForAttribute(attribute: string): string {
+        switch (attribute) {
+            case '$id':
+                return '_uid';
+            case '$sequence':
+                return '_id';
+            case '$collection':
+                return '_collection';
+            case '$tenant':
+                return '_tenant';
+            case '$createdAt':
+                return '_createdAt';
+            case '$updatedAt':
+                return '_updatedAt';
+            case '$permissions':
+                return '_permissions';
+            default:
+                return attribute;
+        }
+    }
+
+    protected getFulltextValue(value: string): string {
+        const exact = value.startsWith('"') && value.endsWith('"');
+
+        // Replace reserved chars with space
+        const specialChars = ['@', '+', '-', '*', ')', '(', ',', '<', '>', '~', '"'];
+        let sanitized = value;
+        for (const char of specialChars) {
+            sanitized = sanitized.split(char).join(' ');
+        }
+        sanitized = sanitized.replace(/\s+/g, ' ').trim();
+
+        if (!sanitized) {
+            return '';
+        }
+
+        if (exact) {
+            sanitized = `"${sanitized}"`;
+        } else {
+            sanitized += '*';
+        }
+
+        return sanitized;
+    }
+
+    public getCountOfAttributes(collection: Doc): number {
+        const attributes = collection.get('attributes', []);
+        return attributes.length + this.$countOfDefaultAttributes;
+    }
+
+    public getCountOfIndexes(collection: Doc): number {
+        const indexes = collection.get('indexes', []);
+        return indexes.length + this.$countOfDefaultIndexes;
+    }
+
+    public get $countOfDefaultAttributes(): number {
+        return Database.INTERNAL_ATTRIBUTES.length;
+    }
+
+    public get $countOfDefaultIndexes(): number {
+        return Database.INTERNAL_INDEXES.length;
     }
 }
 

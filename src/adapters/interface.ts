@@ -3,20 +3,30 @@ import { Meta } from "./base.js";
 import { Doc } from "@core/doc.js";
 
 export interface IAdapter {
-    readonly $supportsCastIndexArray: boolean;
-    readonly $supportsIndex: boolean;
-    readonly $supportsUniqueIndex: boolean;
-    readonly $supportsFulltextIndex: boolean;
-    readonly $supportsFulltextWildcardIndex: boolean;
-    readonly $supportsTimeouts: boolean;
-    readonly $supportsCasting: boolean;
-    readonly $supportsJSONOverlaps: boolean;
-
-    // Limits
-    readonly $limitString: number;
-    readonly $limitInt: number;
-    readonly $limitAttributes: number;
-    readonly $limitIndexes: number;
+    readonly $limitForString: number;
+    readonly $limitForInt: number;
+    readonly $limitForAttributes: number;
+    readonly $limitForIndexes: number;
+    readonly $supportForSchemas: boolean;
+    readonly $supportForIndex: boolean;
+    readonly $supportForAttributes: boolean;
+    readonly $supportForUniqueIndex: boolean;
+    readonly $supportForFulltextIndex: boolean;
+    readonly $supportForUpdateLock: boolean;
+    readonly $supportForAttributeResizing: boolean;
+    readonly $supportForBatchOperations: boolean;
+    readonly $supportForGetConnectionId: boolean;
+    readonly $supportForCacheSkipOnFailure: boolean;
+    readonly $supportForHostname: boolean;
+    readonly $documentSizeLimit: number;
+    readonly $supportForCasting: boolean;
+    readonly $supportForNumericCasting: boolean;
+    readonly $supportForQueryContains: boolean;
+    readonly $supportForIndexArray: boolean;
+    readonly $supportForCastIndexArray: boolean;
+    readonly $supportForRelationships: boolean;
+    readonly $supportForReconnection: boolean;
+    readonly $supportForBatchCreateAttributes: boolean;
 
     // Max Sizes
     readonly $maxVarcharLength: number;
@@ -48,6 +58,7 @@ export interface IClient {
     transaction<T>(callback: (client: any) => Promise<T>): Promise<T>;
     query<T>(query: string, params?: any[]): Promise<T>;
     ping(): Promise<void>;
+    quote(name: string): string;
 }
 
 export interface CreateCollectionOptions {
