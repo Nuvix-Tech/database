@@ -1,4 +1,6 @@
-import { AttributeEnum, IndexEnum } from "@core/enums.js";
+import { AttributeEnum, CursorEnum, IndexEnum, OrderEnum, PermissionEnum } from "@core/enums.js";
+import { Query } from "@core/query.js";
+import { QueryBuilder } from "@utils/query-builder.js";
 import { Attribute } from "@validators/schema.js";
 
 export type CreateAttribute = {
@@ -46,4 +48,18 @@ export interface IncreaseDocumentAttribute {
     updatedAt: Date;
     min?: number;
     max?: number;
+}
+
+export interface Find {
+    collection: string;
+    query?: ((builder: QueryBuilder) => QueryBuilder) | Query[];
+    options?: {
+        limit?: number;
+        offset?: number;
+        orderAttributes?: string[];
+        orderTypes?: OrderEnum[];
+        cursor?: Record<string, string | number>
+        cursorDirection?: CursorEnum
+        permission?: PermissionEnum
+    };
 }

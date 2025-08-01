@@ -5,8 +5,9 @@ import { createPool, Pool, Connection, PoolOptions, PoolConnection } from 'mysql
 import { AttributeEnum, EventsEnum, IndexEnum, RelationEnum, RelationSideEnum } from "@core/enums.js";
 import { Database } from "@core/database.js";
 import { Doc } from "@core/doc.js";
-import { ColumnInfo, CreateIndex, IncreaseDocumentAttribute, UpdateAttribute } from "./types.js";
+import { ColumnInfo, CreateIndex, Find, IncreaseDocumentAttribute, UpdateAttribute } from "./types.js";
 import { Attribute } from "@validators/schema.js";
+import { Query, QueryType } from "@core/query.js";
 
 class MariaClient implements IClient {
     private connection: Connection | Pool;
@@ -745,6 +746,11 @@ export class MariaDB extends BaseAdapter implements IAdapter {
     }
 
 
+
+    public getLikeOperator(): string {
+        return 'LIKE';
+    }
+
     protected getSQLType(type: AttributeEnum, size: number, signed?: boolean, array?: boolean): string {
         if (array) {
             return `JSON`;
@@ -782,6 +788,70 @@ export class MariaDB extends BaseAdapter implements IAdapter {
         }
     }
 
+    protected getSQLCondition(query: Query, binds: any[]): string {
+        query.setAttribute(this.getInternalKeyForAttribute(query.getAttribute()));
+
+        const attribute = this.quote(this.sanitize(query.getAttribute()));
+        const alias = this.quote(Query.DEFAULT_ALIAS);
+        const method = query.getMethod();
+
+        switch (method) {
+            case QueryType.Or:
+            case QueryType.And:
+                const conditions: string[] = [];
+                for (const q of query.getValue() as Query[]) {
+                    conditions.push(this.getSQLCondition(q, binds));
+                }
+
+                const methodStr = method.toUpperCase();
+                return conditions.length === 0 ? '' : ` ${methodStr} (` + conditions.join(' AND ') + ')';
+
+            case QueryType.Search:
+                binds.push(this.getFulltextValue(query.getValue()));
+                return `MATCH(${alias}.${attribute}) AGAINST (? IN BOOLEAN MODE)`;
+
+            case QueryType.Between:
+                const values = query.getValues();
+                binds.push(values[0], values[1]);
+                return `${alias}.${attribute} BETWEEN ? AND ?`;
+
+            case QueryType.IsNull:
+            case QueryType.IsNotNull:
+                return `${alias}.${attribute} ${this.getSQLOperator(method)}`;
+
+            case QueryType.Contains:
+                if (this.$supportForJSONOverlaps && query.onArray()) {
+                    binds.push(JSON.stringify(query.getValues()));
+                    return `JSON_OVERLAPS(${alias}.${attribute}, ?)`;
+                }
+            // Fall through to default case
+
+            default:
+                const defaultConditions: string[] = [];
+                for (const value of query.getValues()) {
+                    let processedValue = value;
+                    switch (method) {
+                        case QueryType.StartsWith:
+                            processedValue = this.escapeWildcards(value) + '%';
+                            break;
+                        case QueryType.EndsWith:
+                            processedValue = '%' + this.escapeWildcards(value);
+                            break;
+                        case QueryType.Contains:
+                            processedValue = query.onArray()
+                                ? JSON.stringify(value)
+                                : '%' + this.escapeWildcards(value) + '%';
+                            break;
+                    }
+
+                    binds.push(processedValue);
+                    defaultConditions.push(`${alias}.${attribute} ${this.getSQLOperator(method)} ?`);
+                }
+
+                return defaultConditions.length === 0 ? '' : '(' + defaultConditions.join(' OR ') + ')';
+        }
+    }
+
     public quote(name: string): string {
         if (!name) {
             throw new DatabaseException("Failed to quote name: name is empty");
@@ -791,5 +861,28 @@ export class MariaDB extends BaseAdapter implements IAdapter {
 
     protected processException(error: any, message?: string): never {
         throw new DatabaseException('Not implemented')
+    }
+
+    public get $supportForJSONOverlaps() {
+        return true;
+    }
+
+    readonly $supportForTimeouts = true;
+
+    public setTimeout(milliseconds: number, event: EventsEnum = EventsEnum.All): void {
+        if (!this.$supportForTimeouts) {
+            return;
+        }
+        if (milliseconds <= 0) {
+            throw new DatabaseException('Timeout must be greater than 0');
+        }
+
+        this.$timeout = milliseconds;
+
+        const seconds = milliseconds / 1000;
+
+        this.before(event, 'timeout', (sql: string) => {
+            return `SET STATEMENT max_statement_time = ${seconds} FOR ${sql}`;
+        });
     }
 }

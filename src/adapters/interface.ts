@@ -1,6 +1,7 @@
 import { Attribute, Index } from "@validators/schema.js";
 import { Meta } from "./base.js";
 import { Doc } from "@core/doc.js";
+import { Find } from "./types.js";
 
 export interface IAdapter {
     readonly $limitForString: number;
@@ -48,6 +49,8 @@ export interface IAdapter {
     createCollection(options: CreateCollectionOptions): Promise<void>;
     createDocument<D extends Doc>(collection: string, document: D): Promise<D>;
     updateDocument<D extends Doc>(collection: string, document: D, skipPermissions?: boolean): Promise<D>;
+
+    find<D extends Doc>(params: Find): Promise<D[]>;
 
     quote(name: string): string;
 }

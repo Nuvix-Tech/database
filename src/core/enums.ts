@@ -77,3 +77,13 @@ export enum EventsEnum {
     IndexCreate = "index_create",
     IndexDelete = "index_delete",
 }
+
+export enum CursorEnum {
+    After = 'after',
+    Before = 'before'
+}
+
+export enum OrderEnum {
+    Asc = 'asc',
+    Desc = 'desc'
+}

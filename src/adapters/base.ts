@@ -1,20 +1,23 @@
 import { DatabaseException } from "@errors/base.js";
 import { EventEmitter } from "stream";
 import { IAdapter, IClient } from "./interface.js";
-import { AttributeEnum, EventsEnum, IndexEnum, PermissionEnum } from "@core/enums.js";
-import { CreateAttribute } from "./types.js";
+import { AttributeEnum, CursorEnum, EventsEnum, IndexEnum, OrderEnum, PermissionEnum } from "@core/enums.js";
+import { CreateAttribute, Find } from "./types.js";
 import { Doc } from "@core/doc.js";
 import { Database } from "@core/database.js";
 import { QueryBuilder } from "@utils/query-builder.js";
 import { Query, QueryType } from "@core/query.js";
 import { Entities, IEntity } from "types.js";
 import { Logger } from "@utils/logger.js";
+import { Authorization } from "@utils/authorization.js";
 
 export abstract class BaseAdapter extends EventEmitter {
     public readonly type: string = 'base';
     protected _meta: Partial<Meta> = {};
     protected abstract client: IClient;
     protected $logger = new Logger();
+
+    protected $timeout: number = 0;
 
     readonly $limitForString: number = 4294967295;
     readonly $limitForInt: number = 4294967295;
@@ -388,6 +391,304 @@ export abstract class BaseAdapter extends EventEmitter {
         }
     }
 
+    public async find<D extends Doc>({
+        collection,
+        query = [],
+        options = {}
+    }: Find): Promise<D[]> {
+        const {
+            limit = 25,
+            offset,
+            orderAttributes = [],
+            orderTypes = [],
+            cursor = {},
+            cursorDirection = CursorEnum.After,
+            permission = PermissionEnum.Read
+        } = options;
+
+        const name = this.sanitize(collection);
+        const roles = Authorization.getRoles();
+        const where: string[] = [];
+        const orders: string[] = [];
+        const params: (string | number | undefined | null)[] = [];
+        const alias = Query.DEFAULT_ALIAS;
+
+        const queries = [...(Array.isArray(query) ? query : query(new QueryBuilder()).build())];
+
+        const cursorWhere: string[] = [];
+
+        orderAttributes.forEach((originalAttribute, i) => {
+            let attribute = this.getInternalKeyForAttribute(originalAttribute);
+            attribute = this.sanitize(attribute);
+
+            let orderType = orderTypes[i] ?? OrderEnum.Asc;
+            let direction = orderType;
+
+            if (cursorDirection === CursorEnum.Before) {
+                direction = (direction === OrderEnum.Asc)
+                    ? OrderEnum.Desc
+                    : OrderEnum.Asc;
+            }
+
+            orders.push(`${this.$.quote(attribute)} ${direction}`);
+
+            // Build pagination WHERE clause only if we have a cursor
+            if (cursor && Object.keys(cursor).length) {
+                // Special case: No tie breaks. only 1 attribute and it's a unique primary key
+                if (orderAttributes.length === 1 && i === 0 && originalAttribute === '$sequence') {
+                    const operator = (direction === OrderEnum.Desc)
+                        ? QueryType.LessThan
+                        : QueryType.GreaterThan;
+
+                    cursorWhere.push(`${this.$.quote(alias)}.${this.$.quote(attribute)} ${this.getSQLOperator(operator)} ?`);
+                    params.push(cursor[originalAttribute]);
+                    return;
+                }
+
+                const conditions: string[] = [];
+
+                // Add equality conditions for previous attributes
+                for (let j = 0; j < i; j++) {
+                    const prevOriginal = orderAttributes[j]!;
+                    const prevAttr = this.sanitize(this.getInternalKeyForAttribute(prevOriginal));
+
+                    conditions.push(`${this.$.quote(alias)}.${this.$.quote(prevAttr)} = ?`);
+                    params.push(cursor[prevOriginal]);
+                }
+
+                // Add comparison for current attribute
+                const operator = (direction === OrderEnum.Desc)
+                    ? QueryType.LessThan
+                    : QueryType.GreaterThan;
+
+                conditions.push(`${this.$.quote(alias)}.${this.$.quote(attribute)} ${this.getSQLOperator(operator)} ?`);
+                params.push(cursor[originalAttribute]);
+
+                cursorWhere.push(`(${conditions.join(' AND ')})`);
+            }
+        });
+
+        if (cursorWhere.length) {
+            where.push('(' + cursorWhere.join(' OR ') + ')');
+        }
+
+        const conditions = this.getSQLConditions(queries, params);
+        if (conditions) {
+            where.push(conditions);
+        }
+
+        if (Authorization.getStatus()) {
+            where.push(this.getSQLPermissionsCondition({
+                collection: name, roles, alias, type: permission
+            }));
+            if (this.$sharedTables) params.push(this.$tenantId);
+        }
+
+        if (this.$sharedTables) {
+            params.push(this.$tenantId);
+            where.push(this.getTenantQuery(collection, alias, undefined, ''));
+        }
+
+        const sqlWhere = where.length ? 'WHERE ' + where.join(' AND ') : '';
+        const sqlOrder = 'ORDER BY ' + orders.join(', ');
+
+        let sqlLimit = '';
+        if (limit !== null && limit !== undefined) {
+            params.push(limit);
+            sqlLimit = 'LIMIT ?';
+        }
+
+        if (offset !== null && offset !== undefined) {
+            params.push(offset);
+            sqlLimit += ' OFFSET ?';
+        }
+
+        const selections = this.getAttributeSelections(queries);
+
+        let sql = `
+            SELECT ${this.getAttributeProjection(selections, alias)}
+            FROM ${this.getSQLTable(name)} AS ${this.$.quote(alias)}
+            ${sqlWhere}
+            ${sqlOrder}
+            ${sqlLimit}
+        `;
+        sql = this.trigger(EventsEnum.DocumentFind, sql);
+
+        try {
+            const [rows]: any = await this.client.query(sql, params);
+
+            const results = rows.map((document: any, index: number) => {
+                if ('_uid' in document) {
+                    document['$id'] = document['_uid'];
+                    delete document['_uid'];
+                }
+                if ('_id' in document) {
+                    document['$sequence'] = document['_id'];
+                    delete document['_id'];
+                }
+                if ('_tenant' in document) {
+                    document['$tenant'] = document['_tenant'];
+                    delete document['_tenant'];
+                }
+                if ('_createdAt' in document) {
+                    document['$createdAt'] = document['_createdAt'];
+                    delete document['_createdAt'];
+                }
+                if ('_updatedAt' in document) {
+                    document['$updatedAt'] = document['_updatedAt'];
+                    delete document['_updatedAt'];
+                }
+                if ('_permissions' in document) {
+                    const _permissions = document['_permissions'];
+                    try {
+                        if (typeof _permissions === 'string') {
+                            document['$permissions'] = JSON.parse(document['_permissions'] ?? '[]');
+                        } else if (Array.isArray(_permissions)) {
+                            document['$permissions'] = _permissions;
+                        } else {
+                            this.$logger.warn(`Unexpected type for _permissions: ${typeof _permissions}. Expected string or array.`);
+                            document['$permissions'] = [];
+                        }
+                    } catch {
+                        document['$permissions'] = [];
+                    }
+                    delete document['_permissions'];
+                }
+
+                return Doc.from(document);
+            });
+
+            if (cursorDirection === CursorEnum.Before) {
+                results.reverse();
+            }
+
+            return results;
+        } catch (e: any) {
+            throw this.processException(e, 'Failed to find documents');
+        }
+    }
+
+    public async count(
+        collection: string,
+        queries: ((b: QueryBuilder) => QueryBuilder) | Array<Query> = [],
+        max?: number
+    ): Promise<number> {
+        const name = this.sanitize(collection);
+        const roles = Authorization.getRoles();
+        const params: any[] = [];
+        const where: string[] = [];
+        const alias = Query.DEFAULT_ALIAS;
+
+        const queryList = [...(Array.isArray(queries) ? queries : queries(new QueryBuilder()).build())];
+
+        const conditions = this.getSQLConditions(queryList, params);
+        if (conditions) {
+            where.push(conditions);
+        }
+
+        if (Authorization.getStatus()) {
+            where.push(this.getSQLPermissionsCondition({
+                collection: name, roles, alias, type: PermissionEnum.Read
+            }));
+            if (this.$sharedTables) params.push(this.$tenantId);
+        }
+
+        if (this.$sharedTables) {
+            params.push(this.$tenantId);
+            where.push(this.getTenantQuery(collection, alias, undefined, ''));
+        }
+
+        let limit = '';
+        if (max !== null && max !== undefined) {
+            params.push(max);
+            limit = 'LIMIT ?';
+        }
+
+        const sqlWhere = where.length > 0
+            ? 'WHERE ' + where.join(' AND ')
+            : '';
+
+        let sql = `
+            SELECT COUNT(1) as sum FROM (
+                SELECT 1
+                FROM ${this.getSQLTable(name)} AS ${this.$.quote(alias)}
+                ${sqlWhere}
+                ${limit}
+            ) table_count
+        `;
+
+        sql = this.trigger(EventsEnum.DocumentCount, sql);
+
+        try {
+            const [rows] = await this.client.query<any>(sql, params);
+            const result = rows[0];
+            return result?.sum ?? 0;
+        } catch (error) {
+            throw this.processException(error, 'Failed to count documents');
+        }
+    }
+
+    public async sum(
+        collection: string,
+        attribute: string,
+        queries: ((b: QueryBuilder) => QueryBuilder) | Array<Query> = [],
+        max?: number
+    ): Promise<number> {
+        const name = this.sanitize(collection);
+        const roles = Authorization.getRoles();
+        const params: any[] = [];
+        const where: string[] = [];
+        const alias = Query.DEFAULT_ALIAS;
+
+        const queryList = [...(Array.isArray(queries) ? queries : queries(new QueryBuilder()).build())];
+
+        const conditions = this.getSQLConditions(queryList, params);
+        if (conditions) {
+            where.push(conditions);
+        }
+
+        if (Authorization.getStatus()) {
+            where.push(this.getSQLPermissionsCondition({
+                collection: name, roles, alias, type: PermissionEnum.Read
+            }));
+            if (this.$sharedTables) params.push(this.$tenantId);
+        }
+
+        if (this.$sharedTables) {
+            params.push(this.$tenantId);
+            where.push(this.getTenantQuery(collection, alias, undefined, ''));
+        }
+
+        let limit = '';
+        if (max !== null && max !== undefined) {
+            params.push(max);
+            limit = 'LIMIT ?';
+        }
+
+        const sqlWhere = where.length > 0
+            ? 'WHERE ' + where.join(' AND ')
+            : '';
+
+        let sql = `
+            SELECT SUM(${this.$.quote(attribute)}) as sum FROM (
+                SELECT ${this.$.quote(attribute)}
+                FROM ${this.getSQLTable(name)} AS ${this.$.quote(alias)}
+                ${sqlWhere}
+                ${limit}
+            ) table_count
+        `;
+
+        sql = this.trigger(EventsEnum.DocumentSum, sql);
+
+        try {
+            const [rows] = await this.client.query<any>(sql, params);
+            const result = rows[0];
+            return result?.sum ?? 0;
+        } catch (error) {
+            throw this.processException(error, 'Failed to sum documents');
+        }
+    }
+
     protected async updatePermissions(
         collection: string,
         document: Doc,
@@ -506,6 +807,35 @@ export abstract class BaseAdapter extends EventEmitter {
 
     protected abstract getSQLType(type: AttributeEnum, size: number, signed?: boolean, array?: boolean): string;
     protected abstract processException(error: any, message?: string): never;
+    protected abstract getLikeOperator(): string;
+    protected abstract getSQLCondition(query: Query, binds: any[]): string;
+
+    protected getSQLOperator(method: string): string {
+        switch (method) {
+            case QueryType.Equal:
+                return '=';
+            case QueryType.NotEqual:
+                return '!=';
+            case QueryType.LessThan:
+                return '<';
+            case QueryType.LessThanEqual:
+                return '<=';
+            case QueryType.GreaterThan:
+                return '>';
+            case QueryType.GreaterThanEqual:
+                return '>=';
+            case QueryType.IsNull:
+                return 'IS NULL';
+            case QueryType.IsNotNull:
+                return 'IS NOT NULL';
+            case QueryType.StartsWith:
+            case QueryType.EndsWith:
+            case QueryType.Contains:
+                return this.getLikeOperator();
+            default:
+                throw new DatabaseException('Unknown method: ' + method);
+        }
+    }
 
     protected getSQLTable(name: string): string {
         if (!name) {
@@ -527,7 +857,7 @@ export abstract class BaseAdapter extends EventEmitter {
         }
     }
 
-    protected getSQLPermissionCondition(
+    protected getSQLPermissionsCondition(
         { collection, roles, alias, type = PermissionEnum.Read }: { collection: string, roles: string[], alias: string, type?: PermissionEnum }
     ): string {
         if (!collection || !roles || !alias) {
@@ -545,8 +875,31 @@ export abstract class BaseAdapter extends EventEmitter {
             FROM ${this.getSQLTable(collection + '_perms')}
             WHERE _permission IN (${quotedRoles})
               AND _type = '${type}'
-              ${this.getTenantQuery ? this.getTenantQuery(collection) : ''}
+              ${this.getTenantQuery(collection)}
         )`;
+    }
+
+    /**
+     * Builds SQL conditions recursively and mutates the provided `binds` array with bound values.
+     * @returns SQL condition string with placeholders.
+    */
+    protected getSQLConditions(queries: Query[], binds: any[], separator: string = 'AND'): string {
+        const conditions: string[] = [];
+
+        for (const query of queries) {
+            if (query.getMethod() === QueryType.Select) {
+                continue;
+            }
+
+            if (query.isNested()) {
+                conditions.push(this.getSQLConditions(query.getValues(), binds, query.getMethod()));
+            } else {
+                conditions.push(this.getSQLCondition(query, binds));
+            }
+        }
+
+        const tmp = conditions.join(` ${separator} `);
+        return tmp === '' ? '' : `(${tmp})`;
     }
 
     public getTenantQuery(
@@ -669,6 +1022,16 @@ export abstract class BaseAdapter extends EventEmitter {
         }
 
         return sanitized;
+    }
+
+    protected escapeWildcards(value: string): string {
+        const wildcards = ['%', '_', '[', ']', '^', '-', '.', '*', '+', '?', '(', ')', '{', '}', '|'];
+
+        for (const wildcard of wildcards) {
+            value = value.replace(new RegExp('\\' + wildcard.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '\\' + wildcard);
+        }
+
+        return value;
     }
 
     public getCountOfAttributes(collection: Doc): number {
