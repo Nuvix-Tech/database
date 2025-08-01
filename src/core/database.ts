@@ -3,6 +3,7 @@ import { AttributeEnum, EventsEnum, PermissionEnum } from "./enums.js";
 import { Attribute, Collection } from "@validators/schema.js";
 import { Adapter } from "@adapters/base.js";
 import { Cache } from "@nuvix/cache";
+import { Filters } from "./types.js";
 
 export class Database extends EventEmitter<Record<EventsEnum, any>> {
     public static METADATA = '_metadata' as const;
@@ -125,10 +126,26 @@ export class Database extends EventEmitter<Record<EventsEnum, any>> {
     protected readonly adapter: Adapter;
     protected readonly cache: Cache;
 
-    constructor(adapter: Adapter, cache: Cache) {
+    protected static filters: Filters = {};
+    protected readonly instanceFilters: Filters;
+    protected timestamp?: Date;
+    protected filter: boolean = true;
+    protected validate: boolean = true;
+    protected preserveDates: boolean = false;
+    protected maxQueryValues: number = 100;
+    protected globalCollections: Record<string, boolean> = {}
+
+    constructor(adapter: Adapter, cache: Cache, options: DatabaseOptions = {}) {
         super();
         this.adapter = adapter;
         this.cache = cache;
+        this.instanceFilters = options.filters || {};
     }
 
 }
+
+
+export type DatabaseOptions = {
+    tenant?: number;
+    filters?: Filters;
+};

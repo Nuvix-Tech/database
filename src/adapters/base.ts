@@ -1095,6 +1095,17 @@ export abstract class BaseAdapter extends EventEmitter {
     public get $countOfDefaultIndexes(): number {
         return Database.INTERNAL_INDEXES.length;
     }
+
+    protected readonly $internalAttrs = [
+        "$id",
+        "$sequence",
+        "$collection",
+        "$tenant",
+        "$createdAt",
+        "$updatedAt",
+        "$permissions",
+    ]
+
 }
 
 export interface Meta {

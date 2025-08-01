@@ -515,7 +515,7 @@ export class MariaDB extends BaseAdapter implements IAdapter {
 
             // Insert attributes
             Object.entries(attributes).forEach(([attribute, value], idx) => {
-                if (Database.INTERNAL_ATTRIBUTES.includes(attribute)) return;
+                if (this.$internalAttrs.includes(attribute)) return;
                 const column = this.sanitize(attribute);
                 columns.push(this.$.quote(column));
                 placeholders.push('?');
@@ -610,7 +610,7 @@ export class MariaDB extends BaseAdapter implements IAdapter {
             const columnUpdates: string[] = [];
 
             for (const [attribute, value] of Object.entries(attributes)) {
-                if (Database.INTERNAL_ATTRIBUTES.includes(attribute)) continue;
+                if (this.$internalAttrs.includes(attribute)) continue;
 
                 const column = this.sanitize(attribute);
                 columnUpdates.push(`${this.quote(column)} = ?`);
