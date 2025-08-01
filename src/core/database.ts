@@ -3,7 +3,7 @@ import { EventsEnum, PermissionEnum } from "./enums.js";
 
 
 export class Database extends EventEmitter<Record<EventsEnum, any>> {
-    public static METADATA: string = '_metadata';
+    public static METADATA = '_metadata' as const;
     public static INTERNAL_ATTRIBUTES: string[] = [];
     public static INTERNAL_INDEXES: string[] = [];
     public static PERMISSIONS: PermissionEnum[] = [

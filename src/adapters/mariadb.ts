@@ -1,11 +1,12 @@
-import { DatabaseException, TransactionException } from "@errors/index.js";
+import { DatabaseException, NotFoundException, TransactionException } from "@errors/index.js";
 import { BaseAdapter } from "./base.js";
 import { CreateCollectionOptions, IAdapter, IClient } from "./interface.js";
 import { createPool, Pool, Connection, PoolOptions, PoolConnection } from 'mysql2/promise';
 import { AttributeEnum, EventsEnum, IndexEnum, RelationEnum, RelationSideEnum } from "@core/enums.js";
 import { Database } from "@core/database.js";
 import { Doc } from "@core/doc.js";
-import { ColumnInfo } from "./types.js";
+import { ColumnInfo, CreateIndex, UpdateAttribute } from "./types.js";
+import { Attribute } from "@validators/schema.js";
 
 class MariaClient implements IClient {
     private connection: Connection | Pool;
@@ -374,10 +375,126 @@ export class MariaDB extends BaseAdapter implements IAdapter {
         }
     }
 
+    public async updateAttribute(
+        { collection, name, newName, array, size, signed, type }: UpdateAttribute
+    ): Promise<void> {
+        const tableName = this.getSQLTable(this.sanitize(collection));
+        const columnName = this.sanitize(name);
+        const newColumnName = newName ? this.sanitize(newName) : null;
+        const sqlType = this.getSQLType(type, size, signed, array);
 
+        let sql: string;
+        if (newColumnName) {
+            sql = `ALTER TABLE ${tableName} CHANGE COLUMN ${this.quote(columnName)} ${this.quote(newColumnName)} ${sqlType};`;
+        } else {
+            sql = `ALTER TABLE ${tableName} MODIFY ${this.quote(columnName)} ${sqlType};`;
+        }
 
+        sql = this.trigger(EventsEnum.AttributeUpdate, sql);
 
-    
+        try {
+            await this.client.query(sql);
+        } catch (e: any) {
+            this.processException(e, 'Failed to update attribute');
+        }
+    }
+
+    public async renameIndex(collection: string, oldName: string, newName: string): Promise<boolean> {
+        collection = this.sanitize(collection);
+        oldName = this.sanitize(oldName);
+        newName = this.sanitize(newName);
+
+        let sql = `ALTER TABLE ${this.getSQLTable(collection)} RENAME INDEX \`${oldName}\` TO \`${newName}\`;`;
+        sql = this.trigger(EventsEnum.IndexRename, sql);
+
+        try {
+            await this.client.query(sql);
+            return true;
+        } catch (e: any) {
+            this.processException(e, `Failed to rename index from ${oldName} to ${newName}`);
+        }
+    }
+
+    public async createIndex(
+        { collection: c, name, type, attributes, orders = [], lengths = [], attributeTypes = [] }: CreateIndex
+    ): Promise<boolean> {
+        const collection = await this.getDocument(Database.METADATA, c);
+        if (collection.empty()) {
+            throw new NotFoundException(`Collection "${c}" not found.`)
+        }
+
+        const _attrs = collection.get('attributes', []);
+        const collectionAttributes: Attribute[] = typeof _attrs === 'string' ? JSON.parse(_attrs) : _attrs;
+
+        const indexAttributes = attributes.map((attr, i) => {
+            let attribute: Attribute | undefined = collectionAttributes.find(
+                (collectionAttribute) =>
+                    String(collectionAttribute['$id']).toLowerCase() === String(attr).toLowerCase()
+            );
+
+            const order = !orders[i] || type === IndexEnum.FullText ? '' : orders[i];
+            const length = !lengths[i] ? '' : `(${Number(lengths[i])})`;
+
+            let internalAttr = this.sanitize(this.getInternalKeyForAttribute(attr));
+
+            let attrSql = `\`${internalAttr}\`${length}${order ? ' ' + order : ''}`;
+
+            if (this.$supportForCastIndexArray && attribute?.array) {
+                attrSql = `(CAST(\`${internalAttr}\` AS char(${Database.ARRAY_INDEX_LENGTH}) ARRAY))`;
+            }
+
+            return attrSql;
+        });
+
+        let sqlType: string;
+        switch (type) {
+            case IndexEnum.Key:
+                sqlType = 'INDEX';
+                break;
+            case IndexEnum.Unique:
+                sqlType = 'UNIQUE INDEX';
+                break;
+            case IndexEnum.FullText:
+                sqlType = 'FULLTEXT INDEX';
+                break;
+            default:
+                throw new DatabaseException(`Unknown index type: ${attributeTypes?.[0]}. Must be one of ${IndexEnum.Key}, ${IndexEnum.Unique}, ${IndexEnum.FullText}`);
+        }
+
+        let attributesSql = indexAttributes.join(', ');
+        if (this.$sharedTables && type !== IndexEnum.FullText) {
+            attributesSql = `_tenant, ${attributesSql}`;
+        }
+
+        let sql = `CREATE ${sqlType} \`${this.sanitize(name)}\` ON ${this.getSQLTable(this.sanitize(collection.getId()))} (${attributesSql})`;
+        sql = this.trigger(EventsEnum.IndexCreate, sql);
+
+        try {
+            await this.client.query(sql);
+            return true;
+        } catch (e: any) {
+            this.processException(e, 'Failed to create index');
+        }
+    }
+
+    public async deleteIndex(collection: string, id: string): Promise<boolean> {
+        collection = this.sanitize(collection);
+        id = this.sanitize(id);
+
+        let sql = `ALTER TABLE ${this.getSQLTable(collection)} DROP INDEX \`${id}\`;`;
+        sql = this.trigger(EventsEnum.IndexDelete, sql);
+
+        try {
+            await this.client.query(sql);
+            return true;
+        } catch (e: any) {
+            // MariaDB error code 1091: Can't DROP 'index'; check that column/key exists
+            if (e.code === "ER_CANT_DROP_FIELD_OR_KEY" || (e.errno === 1091)) {
+                return true;
+            }
+            this.processException(e, `Failed to delete index ${id} from collection ${collection}`);
+        }
+    }
 
     protected getSQLType(type: AttributeEnum, size: number, signed?: boolean, array?: boolean): string {
         if (array) {

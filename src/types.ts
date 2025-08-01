@@ -1,6 +1,17 @@
+import { Attribute, Index } from "@validators/schema.js";
 
-export interface NuvixEntities {
-    [collection: string]: IEntity[];
+export interface MetadataEntity {
+    $id: string;
+    $collection: string;
+    name: string;
+    attributes: Attribute[];
+    indexes: Index[];
+    documentSecurity: boolean;
+}
+
+export interface Entities {
+    [collection: string]: Partial<IEntity>;
+    _metadata: MetadataEntity;
 };
 
 export interface IEntity {

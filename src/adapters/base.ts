@@ -7,7 +7,7 @@ import { Doc } from "@core/doc.js";
 import { Database } from "@core/database.js";
 import { QueryBuilder } from "@utils/query-builder.js";
 import { Query, QueryType } from "@core/query.js";
-import { IEntity } from "types.js";
+import { Entities, IEntity } from "types.js";
 import { Logger } from "@utils/logger.js";
 
 export abstract class BaseAdapter extends EventEmitter {
@@ -259,6 +259,12 @@ export abstract class BaseAdapter extends EventEmitter {
         await this.client.query(sql);
     }
 
+    public async getDocument<C extends keyof Entities>(
+        collection: C,
+        id: string,
+        queries?: ((b: QueryBuilder) => QueryBuilder) | Array<Query>,
+        forUpdate?: boolean
+    ): Promise<Doc<Entities[C]>>;
     public async getDocument(
         collection: string,
         id: string,
@@ -333,6 +339,97 @@ export abstract class BaseAdapter extends EventEmitter {
 
         return new Doc(document);
     }
+
+    public async createDocument<D extends Doc>(collection: string, document: D): Promise<D> {
+        try {
+            const attributes: Record<string, any> = { ...document.getAll() };
+            attributes['_createdAt'] = document.createdAt();
+            attributes['_updatedAt'] = document.updatedAt();
+            attributes['_permissions'] = JSON.stringify(document.getPermissions());
+
+            if (this.$sharedTables) {
+                attributes['_tenant'] = document.getTenant();
+            }
+
+            const name = this.sanitize(collection);
+            const columns: string[] = [];
+            const placeholders: string[] = [];
+            const values: any[] = [];
+
+            // Insert attributes
+            Object.entries(attributes).forEach(([attribute, value], idx) => {
+                if (Database.INTERNAL_ATTRIBUTES.includes(attribute)) return;
+                const column = this.sanitize(attribute);
+                columns.push(this.$.quote(column));
+                placeholders.push('?');
+                // Convert arrays to JSON, booleans to int
+                if (Array.isArray(value) || (typeof value === "object" && value !== null)) {
+                    value = JSON.stringify(value);
+                }
+                if (typeof value === 'boolean') {
+                    value = value ? 1 : 0;
+                }
+                values.push(value);
+            });
+
+            // Insert internal ID if set
+            if (document.getSequence()) {
+                columns.push('_id');
+                placeholders.push('?');
+                values.push(document.getSequence());
+            }
+
+            columns.push('_uid');
+            placeholders.push('?');
+            values.push(document.getId());
+
+            let sql = `
+                INSERT INTO ${this.getSQLTable(name)} (${columns.join(', ')})
+                VALUES (${placeholders.join(', ')})
+            `;
+
+            sql = this.trigger(EventsEnum.DocumentCreate, sql);
+
+            const [result]: any = await this.client.query(sql, values);
+
+            // Set $sequence from insertId
+            document.set('$sequence', result?.insertId);
+
+            if (!result?.insertId) {
+                throw new DatabaseException('Error creating document empty "$sequence"');
+            }
+
+            // Insert permissions
+            const permissions: any[] = [];
+            for (const type of Database.PERMISSIONS || []) {
+                for (const permission of document.getPermissionsByType(type)) {
+                    const row: any[] = [type, String(permission).replace(/"/g, ''), document.getId()];
+                    if (this.$sharedTables) {
+                        row.push(document.getTenant());
+                    }
+                    permissions.push(row);
+                }
+            }
+
+            if (permissions.length) {
+                const tenantColumn = this.$sharedTables ? ', _tenant' : '';
+                const columnsPerm = ['_type', '_permission', '_document'];
+                if (this.$sharedTables) columnsPerm.push('_tenant');
+                const placeholdersPerm = '(' + columnsPerm.map(() => '?').join(', ') + ')';
+                const sqlPermissions = `
+                    INSERT INTO ${this.getSQLTable(name + '_perms')} (${columnsPerm.join(', ')})
+                    VALUES ${permissions.map(() => placeholdersPerm).join(', ')}
+                `;
+                const valuesPerm = permissions.flat();
+                await this.client.query(sqlPermissions, valuesPerm);
+            }
+
+            return document;
+        } catch (e: any) {
+            throw this.processException(e, 'Failed to create document');
+        }
+    }
+
 
 
     protected abstract getSQLType(type: AttributeEnum, size: number, signed?: boolean, array?: boolean): string;
