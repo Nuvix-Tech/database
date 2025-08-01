@@ -336,6 +336,7 @@ export abstract class BaseAdapter extends EventEmitter {
 
 
     protected abstract getSQLType(type: AttributeEnum, size: number, signed?: boolean, array?: boolean): string;
+    protected abstract processException(error: any, message?: string): never;
 
     protected getSQLTable(name: string): string {
         if (!name) {

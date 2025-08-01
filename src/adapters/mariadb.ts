@@ -4,6 +4,8 @@ import { CreateCollectionOptions, IAdapter, IClient } from "./interface.js";
 import { createPool, Pool, Connection, PoolOptions, PoolConnection } from 'mysql2/promise';
 import { AttributeEnum, EventsEnum, IndexEnum, RelationEnum, RelationSideEnum } from "@core/enums.js";
 import { Database } from "@core/database.js";
+import { Doc } from "@core/doc.js";
+import { ColumnInfo } from "./types.js";
 
 class MariaClient implements IClient {
     private connection: Connection | Pool;
@@ -284,20 +286,98 @@ export class MariaDB extends BaseAdapter implements IAdapter {
             WHERE NAME = ?
         `;
 
-        const [collectionRows]: any = await this.client.query(sql, [collectionName]);
-        const [permissionsRows]: any = await this.client.query(sql, [permissionsName]);
-        const collectionSize = collectionRows[0]?.size ?? 0;
-        const permissionsSize = permissionsRows[0]?.size ?? 0;
-        return Number(collectionSize) + Number(permissionsSize);
+        try {
+            const [collectionRows]: any = await this.client.query(sql, [collectionName]);
+            const [permissionsRows]: any = await this.client.query(sql, [permissionsName]);
+            const collectionSize = collectionRows[0]?.size ?? 0;
+            const permissionsSize = permissionsRows[0]?.size ?? 0;
+            return Number(collectionSize) + Number(permissionsSize);
+        } catch (e: any) {
+            throw new DatabaseException(`Failed to get size of collection ${collection}: ${e.message}`);
+        }
+    }
+
+    public async getSizeOfCollection(collection: string): Promise<number> {
+        collection = this.sanitize(collection);
+        const database = this.client.$database;
+        const tableName = `${this.$namespace}_${collection}`;
+        const permissionsName = `${tableName}_perms`;
+
+        const sql = `
+            SELECT SUM(data_length + index_length) as size
+            FROM INFORMATION_SCHEMA.TABLES
+            WHERE table_name = ? AND table_schema = ?
+        `;
+
+        try {
+            const [collectionRows]: any = await this.client.query(sql, [tableName, database]);
+            const [permissionsRows]: any = await this.client.query(sql, [permissionsName, database]);
+            const collectionSize = collectionRows[0]?.size ?? 0;
+            const permissionsSize = permissionsRows[0]?.size ?? 0;
+            return Number(collectionSize) + Number(permissionsSize);
+        } catch (e: any) {
+            this.processException(e, `Failed to get size of collection ${collection}: ${e.message}`);
+        }
+    }
+
+    public async deleteCollection(id: string): Promise<void> {
+        id = this.sanitize(id);
+
+        let sql = `DROP TABLE ${this.getSQLTable(id)}, ${this.getSQLTable(this.sanitize(id + '_perms'))};`;
+        sql = this.trigger(EventsEnum.CollectionDelete, sql);
+
+        await this.client.query(sql);
+    }
+
+    public async analyzeCollection(collection: string): Promise<boolean> {
+        const name = this.sanitize(collection);
+        const sql = `ANALYZE TABLE ${this.getSQLTable(name)}`;
+
+        try {
+            await this.client.query(sql);
+            return true;
+        } catch {
+            return false;
+        }
+    }
+
+    public async getSchemaAttributes(collection: string): Promise<Doc<ColumnInfo>[]> {
+        const schema = this.client.$database;
+        const table = `${this.$namespace}_${this.sanitize(collection)}`;
+
+        const sql = `
+            SELECT
+                COLUMN_NAME as _id,
+                COLUMN_DEFAULT as columnDefault,
+                IS_NULLABLE as isNullable,
+                DATA_TYPE as dataType,
+                CHARACTER_MAXIMUM_LENGTH as characterMaximumLength,
+                NUMERIC_PRECISION as numericPrecision,
+                NUMERIC_SCALE as numericScale,
+                DATETIME_PRECISION as datetimePrecision,
+                COLUMN_TYPE as columnType,
+                COLUMN_KEY as columnKey,
+                EXTRA as extra
+            FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
+        `;
+
+        try {
+            const [rows]: any = await this.client.query(sql, [schema, table]);
+            return rows.map((row: any) => {
+                row['$id'] = row['_id'];
+                delete row['_id'];
+                return Doc.from(row);
+            });
+        } catch (e: any) {
+            this.processException(e, 'Failed to get schema attributes');
+        }
     }
 
 
 
 
-
-
-
-
+    
 
     protected getSQLType(type: AttributeEnum, size: number, signed?: boolean, array?: boolean): string {
         if (array) {
@@ -343,4 +423,7 @@ export class MariaDB extends BaseAdapter implements IAdapter {
         return `\`${this.sanitize(name)}\``;
     }
 
+    protected processException(error: any, message?: string): never {
+        throw new DatabaseException('Not implemented')
+    }
 }
