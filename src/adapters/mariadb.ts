@@ -5,7 +5,7 @@ import { createPool, Pool, Connection, PoolOptions, PoolConnection } from 'mysql
 import { AttributeEnum, EventsEnum, IndexEnum, RelationEnum, RelationSideEnum } from "@core/enums.js";
 import { Database } from "@core/database.js";
 import { Doc } from "@core/doc.js";
-import { ColumnInfo, CreateIndex, Find, IncreaseDocumentAttribute, UpdateAttribute } from "./types.js";
+import { ColumnInfo, CreateIndex, UpdateAttribute } from "./types.js";
 import { Attribute } from "@validators/schema.js";
 import { Query, QueryType } from "@core/query.js";
 
@@ -704,49 +704,6 @@ export class MariaDB extends BaseAdapter implements IAdapter {
         return sql;
     }
 
-    public async increaseDocumentAttribute({
-        collection,
-        id,
-        attribute,
-        updatedAt,
-        value,
-        min,
-        max
-    }: IncreaseDocumentAttribute): Promise<boolean> {
-        const name = this.sanitize(collection);
-        const attr = this.sanitize(attribute);
-
-        const sqlMax = max ? ` AND \`${attr}\` <= ${max}` : '';
-        const sqlMin = min ? ` AND \`${attr}\` >= ${min}` : '';
-
-        let sql = `
-            UPDATE ${this.getSQLTable(name)} 
-            SET 
-                \`${attr}\` = \`${attr}\` + ?,
-                \`_updatedAt\` = ?
-            WHERE _uid = ?
-            ${this.getTenantQuery(collection)}
-        `;
-
-        sql += sqlMax + sqlMin;
-
-        sql = this.trigger(EventsEnum.DocumentUpdate, sql);
-
-        const params: any[] = [value, updatedAt, id];
-        if (this.$sharedTables) {
-            params.push(this.$tenantId);
-        }
-
-        try {
-            await this.client.query(sql, params);
-            return true;
-        } catch (e: any) {
-            throw this.processException(e, 'Failed to increase document attribute');
-        }
-    }
-
-
-
     public getLikeOperator(): string {
         return 'LIKE';
     }
@@ -818,7 +775,7 @@ export class MariaDB extends BaseAdapter implements IAdapter {
             case QueryType.IsNull:
             case QueryType.IsNotNull:
                 return `${alias}.${attribute} ${this.getSQLOperator(method)}`;
-
+            // @ts-expect-error
             case QueryType.Contains:
                 if (this.$supportForJSONOverlaps && query.onArray()) {
                     binds.push(JSON.stringify(query.getValues()));
@@ -868,6 +825,9 @@ export class MariaDB extends BaseAdapter implements IAdapter {
     }
 
     readonly $supportForTimeouts = true;
+    public get $internalIndexesKeys() {
+        return ['primary', '_created_at', '_updated_at', '_tenant_id'];
+    }
 
     public setTimeout(milliseconds: number, event: EventsEnum = EventsEnum.All): void {
         if (!this.$supportForTimeouts) {

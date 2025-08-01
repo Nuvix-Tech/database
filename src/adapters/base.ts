@@ -2,7 +2,7 @@ import { DatabaseException } from "@errors/base.js";
 import { EventEmitter } from "stream";
 import { IAdapter, IClient } from "./interface.js";
 import { AttributeEnum, CursorEnum, EventsEnum, IndexEnum, OrderEnum, PermissionEnum } from "@core/enums.js";
-import { CreateAttribute, Find } from "./types.js";
+import { CreateAttribute, Find, IncreaseDocumentAttribute } from "./types.js";
 import { Doc } from "@core/doc.js";
 import { Database } from "@core/database.js";
 import { QueryBuilder } from "@utils/query-builder.js";
@@ -388,6 +388,50 @@ export abstract class BaseAdapter extends EventEmitter {
             return result.affectedRows > 0; // TODO: #type
         } catch (error) {
             this.processException(error, 'Failed to delete document');
+        }
+    }
+
+    public async increaseDocumentAttribute({
+        collection,
+        id,
+        attribute,
+        updatedAt,
+        value,
+        min,
+        max
+    }: IncreaseDocumentAttribute): Promise<boolean> {
+        const name = this.$.quote(collection);
+        const attr = this.$.quote(attribute);
+        const params: any[] = [value, updatedAt, id];
+
+        let sql = `
+            UPDATE ${this.getSQLTable(name)} 
+            SET 
+                ${attr} = ${attr} + ?,
+                ${this.$.quote('_updatedAt')} = ?
+            WHERE _uid = ?
+            ${this.getTenantQuery(collection)}
+        `;
+
+        if (this.$sharedTables) {
+            params.push(this.$tenantId);
+        }
+        if (max !== undefined && max !== null) {
+            sql += ` AND ${attr} <= ?`;
+            params.push(max);
+        }
+        if (min !== undefined && max !== null) {
+            sql += ` AND ${attr} >= ?`;
+            params.push(min);
+        }
+
+        sql = this.trigger(EventsEnum.DocumentUpdate, sql);
+
+        try {
+            await this.client.query(sql, params);
+            return true;
+        } catch (e: any) {
+            throw this.processException(e, 'Failed to increase document attribute');
         }
     }
 
