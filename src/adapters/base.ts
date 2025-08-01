@@ -5,11 +5,16 @@ import { AttributeEnum, EventsEnum, IndexEnum, PermissionEnum } from "@core/enum
 import { CreateAttribute } from "./types.js";
 import { Doc } from "@core/doc.js";
 import { Database } from "@core/database.js";
+import { QueryBuilder } from "@utils/query-builder.js";
+import { Query, QueryType } from "@core/query.js";
+import { IEntity } from "types.js";
+import { Logger } from "@utils/logger.js";
 
 export abstract class BaseAdapter extends EventEmitter {
     public readonly type: string = 'base';
     protected _meta: Partial<Meta> = {};
     protected abstract client: IClient;
+    protected $logger = new Logger();
 
     readonly $limitForString: number = 4294967295;
     readonly $limitForInt: number = 4294967295;
@@ -56,7 +61,11 @@ export abstract class BaseAdapter extends EventEmitter {
     }
 
     public get $sharedTables(): boolean {
-        return !!this._meta.sharedTables;
+        const sharedTables = this._meta.sharedTables;
+        if (sharedTables && !this._meta.tenantId) {
+            throw new DatabaseException('Shared tables are enabled but tenantId is not defined in adapter metadata.');
+        }
+        return !!sharedTables;
     }
 
     public get $tenantId(): number | undefined {
@@ -250,6 +259,82 @@ export abstract class BaseAdapter extends EventEmitter {
         await this.client.query(sql);
     }
 
+    public async getDocument(
+        collection: string,
+        id: string,
+        queries: ((b: QueryBuilder) => QueryBuilder) | Array<Query> = [],
+        forUpdate: boolean = false
+    ): Promise<Doc<IEntity>> {
+        if (!collection || !id) {
+            throw new DatabaseException("Failed to get document: collection and id are required");
+        }
+        queries = Array.isArray(queries) ? queries : queries(new QueryBuilder()).build();
+
+        const table = this.getSQLTable(collection);
+        const selections = this.getAttributeSelections(queries);
+        const alias = Query.DEFAULT_ALIAS;
+        const params: any[] = [id];
+
+        let sql = `
+            SELECT ${this.getAttributeProjection(selections, alias)}
+            FROM ${table} AS ${alias}
+            WHERE ${this.$.quote(alias)}.${this.$.quote('_uid')} = ?
+            ${this.getTenantQuery(collection, alias)}
+        `;
+
+        if (forUpdate && this.$supportForUpdateLock) {
+            sql += ' FOR UPDATE';
+        }
+
+        if (this.$sharedTables) {
+            params.push(this.$tenantId);
+        }
+
+        const [rows] = await this.client.query<any>(sql, params);
+
+        let document = rows[0];
+
+        if ('_id' in document) {
+            document['$sequence'] = document['_id'];
+            delete document['_id'];
+        }
+        if ('_uid' in document) {
+            document['$id'] = document['_uid'];
+            delete document['_uid'];
+        }
+        if ('_tenant' in document) {
+            document['$tenant'] = document['_tenant'];
+            delete document['_tenant'];
+        }
+        if ('_createdAt' in document) {
+            document['$createdAt'] = document['_createdAt'];
+            delete document['_createdAt'];
+        }
+        if ('_updatedAt' in document) {
+            document['$updatedAt'] = document['_updatedAt'];
+            delete document['_updatedAt'];
+        }
+        if ('_permissions' in document) {
+            const _permissions = document['_permissions'];
+            try {
+                if (typeof _permissions === 'string') {
+                    document['$permissions'] = JSON.parse(document['_permissions'] ?? '[]');
+                } else if (Array.isArray(_permissions)) {
+                    document['$permissions'] = _permissions;
+                } else {
+                    this.$logger.warn(`Unexpected type for _permissions: ${typeof _permissions}. Expected string or array.`);
+                    document['$permissions'] = [];
+                }
+            } catch {
+                document['$permissions'] = [];
+            }
+            delete document['_permissions'];
+        }
+
+        return new Doc(document);
+    }
+
+
     protected abstract getSQLType(type: AttributeEnum, size: number, signed?: boolean, array?: boolean): string;
 
     protected getSQLTable(name: string): string {
@@ -356,6 +441,19 @@ export abstract class BaseAdapter extends EventEmitter {
         );
 
         return projected.join(',');
+    }
+
+    protected getAttributeSelections(queries: QueryBuilder | Array<Query>): string[] {
+        const selections: string[] = [];
+        queries = Array.isArray(queries) ? queries : queries.build();
+
+        for (const query of queries) {
+            if (query.getMethod() === QueryType.Select) {
+                selections.push(...query.getValues());
+            }
+        }
+
+        return selections;
     }
 
     protected getInternalKeyForAttribute(attribute: string): string {

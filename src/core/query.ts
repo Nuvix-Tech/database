@@ -28,6 +28,7 @@ export enum QueryType {
 export class Query {
 
     public static readonly TYPES = Object.values(QueryType);
+    public static readonly DEFAULT_ALIAS = 'main';
 
     protected static readonly LOGICAL_TYPES = [
         QueryType.And,

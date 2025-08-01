@@ -1,6 +1,6 @@
 
 export interface NuvixEntities {
-
+    [collection: string]: IEntity[];
 };
 
 export interface IEntity {
