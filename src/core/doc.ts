@@ -10,7 +10,7 @@ type IsReferenceObject<T> =
 
 type TransformField<T> =
     IsReferenceObject<T> extends true
-    ? Entity<T extends Partial<IEntity> ? T : Partial<IEntity>>
+    ? Doc<T extends Partial<IEntity> ? T : Partial<IEntity>>
     : T extends Array<infer U>
     ? Array<TransformField<U>>
     : T extends object
@@ -29,7 +29,7 @@ function isEntityLike(value: unknown): value is Record<string, unknown> {
     );
 }
 
-export class Entity<T extends Partial<IEntity> = IEntity> {
+export class Doc<T extends Partial<IEntity> = IEntity> {
     private static readonly __methods_keys: string[] = [
         "__methods_keys",
         "get",
@@ -75,15 +75,19 @@ export class Entity<T extends Partial<IEntity> = IEntity> {
             for (const [key, value] of Object.entries(data)) {
                 if (Array.isArray(value)) {
                     (this as any)[key] = value.map((item) =>
-                        isEntityLike(item) ? new Entity(item as any) : item
+                        isEntityLike(item) ? new Doc(item as any) : item
                     );
                 } else if (isEntityLike(value)) {
-                    (this as any)[key] = new Entity(value as any);
+                    (this as any)[key] = new Doc(value as any);
                 } else {
                     (this as any)[key] = value ?? null;
                 }
             }
         }
+    }
+
+    static from<D extends Partial<IEntity>>(data: D): Doc<D> {
+        return new Doc(data);
     }
 
     public get<K extends keyof T, D extends unknown = null>(name: K, _default?: D): TransformEntity<T>[K] extends undefined ? D : TransformEntity<T>[K];
@@ -102,10 +106,10 @@ export class Entity<T extends Partial<IEntity> = IEntity> {
     }
 
     public set<K extends keyof T>(name: K, value: TransformField<T[K]>): this;
-    public set<K extends string, V extends unknown>(name: K, value: V): Entity<T & Record<K, TransformField<V>>>;
-    public set<K extends keyof T>(name: K, value: TransformField<T[K]>): this | Entity<T & Record<K, TransformField<T[K]>>> {
+    public set<K extends string, V extends unknown>(name: K, value: V): Doc<T & Record<K, TransformField<V>>>;
+    public set<K extends keyof T>(name: K, value: TransformField<T[K]>): this | Doc<T & Record<K, TransformField<T[K]>>> {
         if (isEntityLike(value)) {
-            (this as any)[name] = value instanceof Entity ? value : new Entity(value);
+            (this as any)[name] = value instanceof Doc ? value : new Doc(value);
         } else {
             (this as any)[name] = value;
         }
@@ -117,7 +121,7 @@ export class Entity<T extends Partial<IEntity> = IEntity> {
             throw new StructureException(`Cannot append to ${String(name)}, it is not an array`);
         }
         if (isEntityLike(value)) {
-            (this as any)[name].push(value instanceof Entity ? value : new Entity(value));
+            (this as any)[name].push(value instanceof Doc ? value : new Doc(value));
         } else {
             (this as any)[name].push(value);
         }
@@ -129,7 +133,7 @@ export class Entity<T extends Partial<IEntity> = IEntity> {
             throw new StructureException(`Cannot prepend to ${String(name)}, it is not an array`);
         }
         if (isEntityLike(value)) {
-            (this as any)[name].unshift(value instanceof Entity ? value : new Entity(value));
+            (this as any)[name].unshift(value instanceof Doc ? value : new Doc(value));
         } else {
             (this as any)[name].unshift(value);
         }
@@ -236,7 +240,7 @@ export class Entity<T extends Partial<IEntity> = IEntity> {
     public keys(): (keyof T)[] {
         const keys = Object.keys(this);
         return keys.filter(
-            (key) => !Entity.__methods_keys.includes(key),
+            (key) => !Doc.__methods_keys.includes(key),
         ) as (keyof T)[];
     }
 
@@ -248,7 +252,7 @@ export class Entity<T extends Partial<IEntity> = IEntity> {
         const value = this.get(key);
         if (Array.isArray(value)) {
             for (const item of value) {
-                if (item instanceof Entity) {
+                if (item instanceof Doc) {
                     const found = item.findWhere(key, predicate);
                     if (found !== null) {
                         return found;
@@ -257,7 +261,7 @@ export class Entity<T extends Partial<IEntity> = IEntity> {
                     return item as V;
                 }
             }
-        } else if (value instanceof Entity) {
+        } else if (value instanceof Doc) {
             const found = value.findWhere(key, predicate);
             if (found !== null) {
                 return found;
@@ -270,14 +274,14 @@ export class Entity<T extends Partial<IEntity> = IEntity> {
         for (const k of this.keys()) {
             if (k === key) continue;
             const field = (this as any)[k];
-            if (field instanceof Entity) {
+            if (field instanceof Doc) {
                 const found = field.findWhere(key, predicate);
                 if (found !== null) {
                     return found;
                 }
             } else if (Array.isArray(field)) {
                 for (const item of field) {
-                    if (item instanceof Entity) {
+                    if (item instanceof Doc) {
                         const found = item.findWhere(key, predicate);
                         if (found !== null) {
                             return found;
@@ -298,13 +302,13 @@ export class Entity<T extends Partial<IEntity> = IEntity> {
         const value = this.get(key);
         if (Array.isArray(value)) {
             for (let i = 0; i < value.length; i++) {
-                if (value[i] instanceof Entity) {
+                if (value[i] instanceof Doc) {
                     value[i].replaceWhere(key, predicate, replacement);
                 } else if (value[i] !== undefined && predicate(value[i] as V)) {
                     value[i] = replacement;
                 }
             }
-        } else if (value instanceof Entity) {
+        } else if (value instanceof Doc) {
             value.replaceWhere(key, predicate, replacement);
         } else if (value !== undefined && predicate(value as V)) {
             (this as any)[key] = replacement;
@@ -314,11 +318,11 @@ export class Entity<T extends Partial<IEntity> = IEntity> {
         for (const k of this.keys()) {
             if (k === key) continue;
             const field = (this as any)[k];
-            if (field instanceof Entity) {
+            if (field instanceof Doc) {
                 field.replaceWhere(key, predicate, replacement);
             } else if (Array.isArray(field)) {
                 for (const item of field) {
-                    if (item instanceof Entity) {
+                    if (item instanceof Doc) {
                         item.replaceWhere(key, predicate, replacement);
                     }
                 }
@@ -334,13 +338,13 @@ export class Entity<T extends Partial<IEntity> = IEntity> {
         const value = this.get(key);
         if (Array.isArray(value)) {
             for (let i = value.length - 1; i >= 0; i--) {
-                if (value[i] instanceof Entity) {
+                if (value[i] instanceof Doc) {
                     value[i].deleteWhere(key, predicate);
                 } else if (value[i] !== undefined && predicate(value[i] as V)) {
                     value.splice(i, 1);
                 }
             }
-        } else if (value instanceof Entity) {
+        } else if (value instanceof Doc) {
             value.deleteWhere(key, predicate);
         } else if (value !== undefined && predicate(value as V)) {
             this.delete(key);
@@ -350,11 +354,11 @@ export class Entity<T extends Partial<IEntity> = IEntity> {
         for (const k of this.keys()) {
             if (k === key) continue;
             const field = (this as any)[k];
-            if (field instanceof Entity) {
+            if (field instanceof Doc) {
                 field.deleteWhere(key, predicate);
             } else if (Array.isArray(field)) {
                 for (const item of field) {
-                    if (item instanceof Entity) {
+                    if (item instanceof Doc) {
                         item.deleteWhere(key, predicate);
                     }
                 }
@@ -382,11 +386,11 @@ export class Entity<T extends Partial<IEntity> = IEntity> {
             if (allow.length && !allow.includes(key)) continue;
             if (disallow.includes(key)) continue;
 
-            if (value instanceof Entity) {
+            if (value instanceof Doc) {
                 output[key as string] = value.toObject(allow, disallow);
             } else if (Array.isArray(value)) {
                 output[key as string] = value.map((item) =>
-                    item instanceof Entity
+                    item instanceof Doc
                         ? item.toObject(allow, disallow)
                         : item,
                 );
@@ -402,15 +406,15 @@ export class Entity<T extends Partial<IEntity> = IEntity> {
     }
 
     clone() {
-        const cloned = new Entity<T>();
+        const cloned = new Doc<T>();
         const keys = this.keys();
         for (const key of keys) {
             const value = (this as any)[key];
-            if (value instanceof Entity) {
+            if (value instanceof Doc) {
                 (cloned as any)[key] = value.clone();
             } else if (Array.isArray(value)) {
                 (cloned as any)[key] = value.map((item) =>
-                    item instanceof Entity ? item.clone() : item,
+                    item instanceof Doc ? item.clone() : item,
                 );
             } else {
                 (cloned as any)[key] = value;

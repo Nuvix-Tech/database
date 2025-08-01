@@ -32,6 +32,8 @@ export enum IndexEnum {
 }
 
 export enum EventsEnum {
+    All = "*",
+
     DatabaseList = "database_list",
     DatabaseCreate = "database_create",
     DatabaseDelete = "database_delete",

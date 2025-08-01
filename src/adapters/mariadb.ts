@@ -1,7 +1,8 @@
 import { DatabaseException, TransactionException } from "@errors/index.js";
 import { BaseAdapter } from "./base.js";
-import { IAdapter, IClient } from "./interface.js";
+import { CreateCollectionOptions, IAdapter, IClient } from "./interface.js";
 import { createPool, Pool, Connection, PoolOptions, PoolConnection } from 'mysql2/promise';
+import { AttributeEnum } from "@core/enums.js";
 
 class MariaClient implements IClient {
     private connection: Connection | Pool;
@@ -13,6 +14,10 @@ class MariaClient implements IClient {
 
     get $client() {
         return this.connection;
+    }
+
+    get $type(): 'connection' | 'pool' {
+        return this._type;
     }
 
     constructor(options: PoolOptions | Connection) {
@@ -33,6 +38,14 @@ class MariaClient implements IClient {
 
     get query() {
         return this.connection.query
+    }
+
+    async ping(): Promise<void> {
+        try {
+            await this.$client.ping()
+        } catch (e) {
+            throw new DatabaseException(`Ping failed.`)
+        }
     }
 
     async transaction<T>(callback: (client: Connection | PoolConnection) => Promise<T>): Promise<T> {
@@ -77,22 +90,16 @@ class MariaClient implements IClient {
 }
 
 export class MariaDB extends BaseAdapter implements IAdapter {
-    protected client: MariaClient;
+    protected client: IClient;
 
     constructor(pool: PoolOptions | Connection) {
-        super();
+        super({
+            type: 'mariadb'
+        });
         this.client = new MariaClient(pool);
         this.setMeta({
             database: this.client.$database
         });
-    }
-
-    async ping(): Promise<void> {
-        try {
-            await this.client.$client.ping()
-        } catch (e) {
-            throw new DatabaseException(`Ping failed.`)
-        }
     }
 
     async create(name: string): Promise<void> {
@@ -103,37 +110,69 @@ export class MariaDB extends BaseAdapter implements IAdapter {
         await this.client.query(sql);
     }
 
-    async exists(name: string, collection?: string): Promise<boolean> {
-        const values: string[] = [this.sanitize(name)];
-        let sql: string;
-
-        if (collection) {
-            // Check if collection exists
-            sql = `
-              SELECT COUNT(*) as count 
-              FROM information_schema.tables 
-              WHERE table_schema = ? 
-              AND table_name = ?
-            `;
-            values.push(this.sanitize(collection));
-        } else {
-            // Check if schema exists
-            sql = `
-              SELECT COUNT(*) as count 
-              FROM information_schema.schemata 
-              WHERE schema_name = ?
-            `;
-        }
-
-        const [result] = await this.client.query<any>(sql, values);
-        return result[0].count > 0;
-    }
-
     async delete(name: string): Promise<void> {
         name = this.sanitize(name);
         await this.client.query(`DROP SCHEMA IF EXISTS \`${name}\`;`);
     }
 
+    async createCollection({ name, attributes, indexes, documentSecurity }: CreateCollectionOptions): Promise<void> {
+        name = this.sanitize(name);
+        const attributeSql = [];
+        const indexSql = [];
+        const hash: Record<string, typeof attributes[number]> = {};
+
+        attributes.forEach(attribute => {
+            const id = this.sanitize(attribute.getId());
+            hash[id] = attribute;
+
+        })
+
+        indexes?.forEach(index => {
+
+        })
+    }
+
+    protected getSQLType(type: AttributeEnum, size: number, signed?: boolean, array?: boolean): string {
+        if (array) {
+            return `JSON`;
+        }
+        switch (type) {
+            case AttributeEnum.String:
+                // size = size * 4; // Convert utf8mb4 size to bytes
+                if (size > 16777215) {
+                    return 'LONGTEXT';
+                } else if (size > 65535) {
+                    return `MEDIUMTEXT`;
+                } else if (size > this.$maxVarcharLength) {
+                    return `TEXT`;
+                } else return `VARCHAR(${size})`;
+            case AttributeEnum.Integer:
+                const _signed = signed ? '' : ' UNSIGNED';
+                if (size >= 8) {
+                    return `BIGINT${_signed}`;
+                }
+                return `INT${_signed}`;
+            case AttributeEnum.Float:
+                return signed ? 'DOUBLE' : 'UNSIGNED DOUBLE';
+            case AttributeEnum.Boolean:
+                return 'TINYINT(1)';
+            case AttributeEnum.Date:
+                return 'DATETIME(3)';
+            case AttributeEnum.Relation:
+                return 'VARCHAR(255)';
+            case AttributeEnum.Object:
+                return 'JSON';
+            default:
+                throw new DatabaseException(`Unsupported attribute type: ${type}`);
+        }
+    }
+
+    public quote(name: string): string {
+        if (!name) {
+            throw new DatabaseException("Failed to quote name: name is empty");
+        }
+        return `\`${this.sanitize(name)}\``;
+    }
 
     // Capabilities
     get $supportsCastIndexArray(): boolean {
