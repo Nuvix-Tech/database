@@ -340,6 +340,54 @@ export abstract class BaseAdapter extends EventEmitter {
         return new Doc(document);
     }
 
+    public async deleteDocument(
+        collection: string,
+        id: string
+    ): Promise<boolean> {
+        if (!collection || !id) {
+            throw new DatabaseException("Failed to delete document: collection and id are required");
+        }
+
+        try {
+            const table = this.getSQLTable(collection);
+            const params: any[] = [id];
+
+            let sql = `
+                DELETE FROM ${table}
+                WHERE ${this.$.quote('_uid')} = ?
+                ${this.getTenantQuery(collection)}
+            `;
+
+            sql = this.trigger(EventsEnum.DocumentDelete, sql);
+
+            if (this.$sharedTables) {
+                params.push(this.$tenantId);
+            }
+
+            const [result] = await this.client.query<any>(sql, params);
+
+            // Delete permissions
+            const permParams: any[] = [id];
+            let permSql = `
+                DELETE FROM ${this.getSQLTable(collection + '_perms')}
+                WHERE ${this.$.quote('_document')} = ?
+                ${this.getTenantQuery(collection)}
+            `;
+
+            permSql = this.trigger(EventsEnum.PermissionsDelete, permSql);
+
+            if (this.$sharedTables) {
+                permParams.push(this.$tenantId);
+            }
+
+            await this.client.query(permSql, permParams);
+
+            return result.affectedRows > 0; // TODO: #type
+        } catch (error) {
+            this.processException(error, 'Failed to delete document');
+        }
+    }
+
     protected async updatePermissions(
         collection: string,
         document: Doc,
@@ -455,7 +503,6 @@ export abstract class BaseAdapter extends EventEmitter {
 
         return { addPermissions, removePermissions };
     }
-
 
     protected abstract getSQLType(type: AttributeEnum, size: number, signed?: boolean, array?: boolean): string;
     protected abstract processException(error: any, message?: string): never;

@@ -37,3 +37,13 @@ export interface ColumnInfo {
     columnKey: string;
     extra: string;
 }
+
+export interface IncreaseDocumentAttribute {
+    collection: string;
+    id: string;
+    attribute: string;
+    value: number;
+    updatedAt: Date;
+    min?: number;
+    max?: number;
+}
