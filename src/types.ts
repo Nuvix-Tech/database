@@ -1,3 +1,4 @@
+import { type Database } from "@core/database.js";
 import { Attribute, Index } from "@validators/schema.js";
 
 export interface MetadataEntity {
@@ -11,7 +12,7 @@ export interface MetadataEntity {
 
 export interface Entities {
     [collection: string]: Partial<IEntity>;
-    _metadata: MetadataEntity;
+    [Database.METADATA]: MetadataEntity;
 };
 
 export interface IEntity {

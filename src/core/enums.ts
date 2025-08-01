@@ -84,6 +84,6 @@ export enum CursorEnum {
 }
 
 export enum OrderEnum {
-    Asc = 'asc',
-    Desc = 'desc'
+    Asc = 'ASC',
+    Desc = 'DESC'
 }

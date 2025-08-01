@@ -1106,3 +1106,5 @@ export interface Meta {
     namespace: string;
     metadata: Record<string, string>
 }
+
+export type Adapter = BaseAdapter & IAdapter;

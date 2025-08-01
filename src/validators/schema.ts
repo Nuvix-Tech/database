@@ -8,10 +8,10 @@ export const AttributeSchema = z.object({
     key: z.string().optional(),
     type: AttributeType,
     size: z.number().default(0),
-    required: z.boolean().default(false),
-    signed: z.boolean().default(false),
+    required: z.boolean().default(false).optional(),
+    signed: z.boolean().default(true).optional(),
     array: z.boolean().default(false).optional(),
-    filters: z.array(z.string()).optional().default([]),
+    filters: z.array(z.string()).default([]).optional(),
     default: z.any().optional(),
     options: z.record(z.string(), z.any()).optional(),
 });
@@ -32,7 +32,7 @@ export const CollectionSchema = z.object({
     name: z.string(),
     attributes: z.array(AttributeSchema),
     indexes: z.array(IndexSchema).optional(),
-    documentSecurity: z.boolean().default(false),
+    documentSecurity: z.boolean().default(false).optional(),
 });
 
 export type Collection = z.infer<typeof CollectionSchema>;
