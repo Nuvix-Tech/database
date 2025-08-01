@@ -496,6 +496,214 @@ export class MariaDB extends BaseAdapter implements IAdapter {
         }
     }
 
+    public async createDocument<D extends Doc>(collection: string, document: D): Promise<D> {
+        try {
+            const attributes: Record<string, any> = { ...document.getAll() };
+            attributes['_createdAt'] = document.createdAt();
+            attributes['_updatedAt'] = document.updatedAt();
+            attributes['_permissions'] = JSON.stringify(document.getPermissions());
+
+            if (this.$sharedTables) {
+                attributes['_tenant'] = document.getTenant();
+            }
+
+            const name = this.sanitize(collection);
+            const columns: string[] = [];
+            const placeholders: string[] = [];
+            const values: any[] = [];
+
+            // Insert attributes
+            Object.entries(attributes).forEach(([attribute, value], idx) => {
+                if (Database.INTERNAL_ATTRIBUTES.includes(attribute)) return;
+                const column = this.sanitize(attribute);
+                columns.push(this.$.quote(column));
+                placeholders.push('?');
+                // Convert arrays to JSON, booleans to int
+                if (Array.isArray(value) || (typeof value === "object" && value !== null)) {
+                    value = JSON.stringify(value);
+                }
+                if (typeof value === 'boolean') {
+                    value = value ? 1 : 0;
+                }
+                values.push(value);
+            });
+
+            // Insert internal ID if set
+            if (document.getSequence()) {
+                columns.push('_id');
+                placeholders.push('?');
+                values.push(document.getSequence());
+            }
+
+            columns.push('_uid');
+            placeholders.push('?');
+            values.push(document.getId());
+
+            let sql = `
+                    INSERT INTO ${this.getSQLTable(name)} (${columns.join(', ')})
+                    VALUES (${placeholders.join(', ')})
+                `;
+
+            sql = this.trigger(EventsEnum.DocumentCreate, sql);
+
+            const [result]: any = await this.client.query(sql, values);
+
+            // Set $sequence from insertId
+            document.set('$sequence', result?.insertId);
+
+            if (!result?.insertId) {
+                throw new DatabaseException('Error creating document empty "$sequence"');
+            }
+
+            // Insert permissions
+            const permissions: any[] = [];
+            for (const type of Database.PERMISSIONS || []) {
+                for (const permission of document.getPermissionsByType(type)) {
+                    const row: any[] = [type, String(permission).replace(/"/g, ''), document.getId()];
+                    if (this.$sharedTables) {
+                        row.push(document.getTenant());
+                    }
+                    permissions.push(row);
+                }
+            }
+
+            if (permissions.length) {
+                const columnsPerm = ['_type', '_permission', '_document'];
+                if (this.$sharedTables) columnsPerm.push('_tenant');
+                const placeholdersPerm = '(' + columnsPerm.map(() => '?').join(', ') + ')';
+                const sqlPermissions = `
+                        INSERT INTO ${this.getSQLTable(name + '_perms')} (${columnsPerm.join(', ')})
+                        VALUES ${permissions.map(() => placeholdersPerm).join(', ')}
+                    `;
+                const valuesPerm = permissions.flat();
+                await this.client.query(sqlPermissions, valuesPerm);
+            }
+
+            return document;
+        } catch (e: any) {
+            throw this.processException(e, 'Failed to create document');
+        }
+    }
+
+    public async updateDocument<D extends Doc>(collection: string, document: D, skipPermissions: boolean = false): Promise<D> {
+        try {
+            const attributes: Record<string, any> = { ...document.getAll() };
+            attributes['_createdAt'] = document.createdAt();
+            attributes['_updatedAt'] = document.updatedAt();
+            attributes['_permissions'] = JSON.stringify(document.getPermissions());
+
+            const name = this.sanitize(collection);
+            let columns = '';
+
+            let removePermissions: any = null;
+            let addPermissions: any = null;
+
+            if (!skipPermissions) {
+                const perms = await this.updatePermissions(name, document);
+                perms.addPermissions && (addPermissions = perms.addPermissions);
+                perms.removePermissions && (removePermissions = perms.removePermissions);
+            }
+
+            // Update attributes
+            const updateParams: any[] = [];
+            const columnUpdates: string[] = [];
+
+            for (const [attribute, value] of Object.entries(attributes)) {
+                if (Database.INTERNAL_ATTRIBUTES.includes(attribute)) continue;
+
+                const column = this.sanitize(attribute);
+                columnUpdates.push(`${this.quote(column)} = ?`);
+
+                let processedValue = value;
+                if (Array.isArray(value) || (typeof value === "object" && value !== null)) {
+                    processedValue = JSON.stringify(value);
+                }
+                if (typeof value === 'boolean') {
+                    processedValue = value ? 1 : 0;
+                }
+                updateParams.push(processedValue);
+            }
+
+            columns = columnUpdates.join(', ');
+
+            let sql = `
+                UPDATE ${this.getSQLTable(name)}
+                SET ${columns}, _uid = ?
+                WHERE _id = ?
+                ${this.getTenantQuery(collection)}
+            `;
+
+            sql = this.trigger(EventsEnum.DocumentUpdate, sql);
+
+            updateParams.push(document.getId());
+            updateParams.push(document.getSequence());
+            if (this.$sharedTables) {
+                updateParams.push(this.$tenantId);
+            }
+
+            await this.client.query(sql, updateParams);
+
+            if (removePermissions) {
+                await this.client.query(removePermissions.sql, removePermissions.params);
+            }
+            if (addPermissions) {
+                await this.client.query(addPermissions.sql, addPermissions.params);
+            }
+        } catch (e: any) {
+            throw this.processException(e, 'Failed to update document');
+        }
+
+        return document;
+    }
+
+    /**
+     * Generates an upsert (insert or update) SQL statement for batch operations.
+     * If `attribute` is provided, it will increment that column on duplicate key.
+     */
+    public getUpsertStatement(
+        tableName: string,
+        columns: string,
+        batchKeys: string[],
+        attributes: Record<string, any>,
+        attribute: string = ''
+    ): string {
+        const getUpdateClause = (attribute: string, increment = false): string => {
+            const quotedAttr = this.quote(this.sanitize(attribute));
+            let newValue: string;
+            if (increment) {
+                newValue = `${quotedAttr} + VALUES(${quotedAttr})`;
+            } else {
+                newValue = `VALUES(${quotedAttr})`;
+            }
+            if (this.$sharedTables) {
+                return `${quotedAttr} = IF(_tenant = VALUES(_tenant), ${newValue}, ${quotedAttr})`;
+            }
+            return `${quotedAttr} = ${newValue}`;
+        };
+
+        let updateColumns: string[];
+        if (attribute) {
+            // Increment specific column by its new value in place
+            updateColumns = [
+                getUpdateClause(attribute, true),
+                getUpdateClause('_updatedAt')
+            ];
+        } else {
+            // Update all columns
+            updateColumns = Object.keys(attributes).map(attr => getUpdateClause(this.sanitize(attr)));
+        }
+
+        const sql = `
+            INSERT INTO ${this.getSQLTable(tableName)} ${columns}
+            VALUES ${batchKeys.join(', ')}
+            ON DUPLICATE KEY UPDATE
+                ${updateColumns.join(', ')}
+        `;
+
+        return sql;
+    }
+
+
     protected getSQLType(type: AttributeEnum, size: number, signed?: boolean, array?: boolean): string {
         if (array) {
             return `JSON`;

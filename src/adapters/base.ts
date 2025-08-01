@@ -340,96 +340,121 @@ export abstract class BaseAdapter extends EventEmitter {
         return new Doc(document);
     }
 
-    public async createDocument<D extends Doc>(collection: string, document: D): Promise<D> {
-        try {
-            const attributes: Record<string, any> = { ...document.getAll() };
-            attributes['_createdAt'] = document.createdAt();
-            attributes['_updatedAt'] = document.updatedAt();
-            attributes['_permissions'] = JSON.stringify(document.getPermissions());
+    protected async updatePermissions(
+        collection: string,
+        document: Doc,
+    ) {
+        let removePermissions: { sql: string, params: any[] } = { sql: '', params: [] };
+        let addPermissions: { sql: string, params: any[] } = { sql: '', params: [] };
 
+        const sqlParams: any[] = [document.getId()];
+        let sql = `
+			SELECT _type, _permission
+			FROM ${this.getSQLTable(collection + '_perms')}
+			WHERE _document = ?
+            ${this.getTenantQuery(collection)}
+        `;
+        sql = this.trigger(EventsEnum.PermissionsRead, sql);
+
+        if (this.$sharedTables) {
+            sqlParams.push(this.$tenantId);
+        }
+
+        const [rows] = await this.client.query<any>(sql, sqlParams);
+
+        const initial: Record<string, string[]> = {};
+        for (const type of Database.PERMISSIONS) {
+            initial[type] = [];
+        }
+
+        const permissions = rows.reduce((carry: Record<string, string[]>, item: any) => {
+            const type = item._type;
+            if (!carry[type]) {
+                carry[type] = [];
+            }
+            carry[type].push(item._permission);
+            return carry;
+        }, initial);
+
+        const removals: Record<string, string[]> = {};
+        for (const type of Database.PERMISSIONS) {
+            const diff = permissions[type].filter((perm: string) => !document.getPermissionsByType(type).includes(perm));
+            if (diff.length > 0) {
+                removals[type] = diff;
+            }
+        }
+
+        const additions: Record<string, string[]> = {};
+        for (const type of Database.PERMISSIONS) {
+            const diff = document.getPermissionsByType(type).filter((perm: string) => !permissions[type].includes(perm));
+            if (diff.length > 0) {
+                additions[type] = diff;
+            }
+        }
+
+        if (Object.keys(removals).length > 0) {
+            let removeQuery = ' AND (';
+            const removeParams: any[] = [document.getId()];
             if (this.$sharedTables) {
-                attributes['_tenant'] = document.getTenant();
+                removeParams.push(this.$tenantId);
             }
 
-            const name = this.sanitize(collection);
-            const columns: string[] = [];
-            const placeholders: string[] = [];
-            const values: any[] = [];
+            const typeConditions: string[] = [];
+            for (const [type, perms] of Object.entries(removals)) {
+                const placeholders = perms.map(() => '?').join(', ');
+                typeConditions.push(`(_type = ? AND _permission IN (${placeholders}))`);
+                removeParams.push(type);
+                removeParams.push(...perms);
+            }
+            removeQuery += typeConditions.join(' OR ');
+            removeQuery += ')';
 
-            // Insert attributes
-            Object.entries(attributes).forEach(([attribute, value], idx) => {
-                if (Database.INTERNAL_ATTRIBUTES.includes(attribute)) return;
-                const column = this.sanitize(attribute);
-                columns.push(this.$.quote(column));
-                placeholders.push('?');
-                // Convert arrays to JSON, booleans to int
-                if (Array.isArray(value) || (typeof value === "object" && value !== null)) {
-                    value = JSON.stringify(value);
-                }
-                if (typeof value === 'boolean') {
-                    value = value ? 1 : 0;
-                }
-                values.push(value);
-            });
+            let removeSQL = `
+                        DELETE FROM ${this.getSQLTable(collection + '_perms')}
+                        WHERE _document = ?
+                        ${this.getTenantQuery(collection)}
+                    `;
+            removeSQL += removeQuery;
+            removeSQL = this.trigger(EventsEnum.PermissionsDelete, removeSQL);
 
-            // Insert internal ID if set
-            if (document.getSequence()) {
-                columns.push('_id');
-                placeholders.push('?');
-                values.push(document.getSequence());
+            removePermissions = { sql: removeSQL, params: removeParams };
+        }
+
+        // Query to add permissions
+        if (Object.keys(additions).length > 0) {
+            const values: string[] = [];
+            const addParams: any[] = [];
+
+            for (const [type, perms] of Object.entries(additions)) {
+                for (const permission of perms) {
+                    if (this.$sharedTables) {
+                        values.push('(?, ?, ?, ?)');
+                        addParams.push(document.getId(), type, permission, this.$tenantId);
+                    } else {
+                        values.push('(?, ?, ?)');
+                        addParams.push(document.getId(), type, permission);
+                    }
+                }
             }
 
-            columns.push('_uid');
-            placeholders.push('?');
-            values.push(document.getId());
-
-            let sql = `
-                INSERT INTO ${this.getSQLTable(name)} (${columns.join(', ')})
-                VALUES (${placeholders.join(', ')})
+            let addSQL = `
+                INSERT INTO ${this.getSQLTable(collection + '_perms')} (_document, _type, _permission
             `;
 
-            sql = this.trigger(EventsEnum.DocumentCreate, sql);
-
-            const [result]: any = await this.client.query(sql, values);
-
-            // Set $sequence from insertId
-            document.set('$sequence', result?.insertId);
-
-            if (!result?.insertId) {
-                throw new DatabaseException('Error creating document empty "$sequence"');
+            if (this.$sharedTables) {
+                addSQL += ', _tenant)';
+            } else {
+                addSQL += ')';
             }
 
-            // Insert permissions
-            const permissions: any[] = [];
-            for (const type of Database.PERMISSIONS || []) {
-                for (const permission of document.getPermissionsByType(type)) {
-                    const row: any[] = [type, String(permission).replace(/"/g, ''), document.getId()];
-                    if (this.$sharedTables) {
-                        row.push(document.getTenant());
-                    }
-                    permissions.push(row);
-                }
-            }
+            addSQL += ` VALUES ${values.join(', ')}`;
+            addSQL = this.trigger(EventsEnum.PermissionsCreate, addSQL);
 
-            if (permissions.length) {
-                const tenantColumn = this.$sharedTables ? ', _tenant' : '';
-                const columnsPerm = ['_type', '_permission', '_document'];
-                if (this.$sharedTables) columnsPerm.push('_tenant');
-                const placeholdersPerm = '(' + columnsPerm.map(() => '?').join(', ') + ')';
-                const sqlPermissions = `
-                    INSERT INTO ${this.getSQLTable(name + '_perms')} (${columnsPerm.join(', ')})
-                    VALUES ${permissions.map(() => placeholdersPerm).join(', ')}
-                `;
-                const valuesPerm = permissions.flat();
-                await this.client.query(sqlPermissions, valuesPerm);
-            }
-
-            return document;
-        } catch (e: any) {
-            throw this.processException(e, 'Failed to create document');
+            addPermissions = { sql: addSQL, params: addParams };
         }
-    }
 
+        return { addPermissions, removePermissions };
+    }
 
 
     protected abstract getSQLType(type: AttributeEnum, size: number, signed?: boolean, array?: boolean): string;

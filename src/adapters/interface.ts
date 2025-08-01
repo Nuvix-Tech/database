@@ -44,7 +44,10 @@ export interface IAdapter {
     exists(name: string): Promise<boolean>;
     delete(name: string): Promise<void>;
 
+
     createCollection(options: CreateCollectionOptions): Promise<void>;
+    createDocument<D extends Doc>(collection: string, document: D): Promise<D>;
+    updateDocument<D extends Doc>(collection: string, document: D, skipPermissions?: boolean): Promise<D>;
 
     quote(name: string): string;
 }
