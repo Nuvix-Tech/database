@@ -1,47 +1,72 @@
-import { Base } from "./base.js";
-import { Query } from "../../query";
-import { Document } from "../../Document";
-import { UID } from "../UID";
+import { Query, QueryType } from "@core/query.js";
+import { Base, MethodType } from "./base.js";
+import { Doc } from "@core/doc.js";
+import { UID } from "@validators/uid.js";
 
+/**
+ * Validates Query objects that represent cursor-based pagination (e.g., CursorAfter, CursorBefore).
+ * Ensures the cursor value is a valid UID.
+ */
 export class Cursor extends Base {
+    protected message: string = "Invalid cursor query";
+
     /**
-     * Is valid.
+     * Validates if the given value is a valid cursor Query.
+     * Checks the query method and the validity of the cursor value.
      *
-     * Returns true if method is cursorBefore or cursorAfter and value is not null
-     * Otherwise, returns false
-     *
-     * @param value - The query to validate
-     * @returns {boolean}
+     * @param value - The value to validate, expected to be a Query instance.
+     * @returns {boolean} True if the query is a valid cursor query, false otherwise.
      */
-    public isValid(value: any): boolean {
+    public $valid(value: unknown): boolean {
+        this.message = "Invalid cursor query";
+
         if (!(value instanceof Query)) {
+            this.message = "Value must be a Query object.";
             return false;
         }
 
         const method = value.getMethod();
-
         if (
-            method === Query.TYPE_CURSOR_AFTER ||
-            method === Query.TYPE_CURSOR_BEFORE
+            method !== QueryType.CursorAfter &&
+            method !== QueryType.CursorBefore
         ) {
-            let cursor = value.getValue();
-
-            if (cursor instanceof Document) {
-                cursor = cursor.getId();
-            }
-
-            const validator = new UID();
-            if (validator.isValid(cursor)) {
-                return true;
-            }
-            this.message = "Invalid cursor: " + validator.getDescription();
+            this.message = `Query method "${method}" is not a cursor method.`;
             return false;
         }
 
-        return false;
+        let cursor: unknown = value.getValue();
+        if (cursor instanceof Query) {
+            this.message = "Cursor value cannot be a nested query.";
+            return false;
+        }
+
+        let normalizedCursor: string | number | null = null;
+        if (cursor instanceof Doc) {
+            normalizedCursor = cursor.getId();
+        } else if (typeof cursor === 'string' || typeof cursor === 'number') {
+            normalizedCursor = cursor;
+        } else if (cursor === null) {
+            this.message = "Cursor value cannot be null.";
+            return false;
+        } else {
+            this.message = `Invalid type for cursor value: ${typeof cursor}. Expected string, number, or Doc.`;
+            return false;
+        }
+
+        const uidValidator = new UID();
+        if (!uidValidator.$valid(normalizedCursor)) {
+            this.message = `Invalid cursor value: ${uidValidator.$description}`;
+            return false;
+        }
+
+        return true;
     }
 
-    public getMethodType(): string {
-        return Base.METHOD_TYPE_CURSOR;
+    /**
+     * Returns the method type handled by this validator.
+     * @returns {MethodType.Cursor} The string literal 'cursor'.
+     */
+    public getMethodType(): MethodType {
+        return MethodType.Cursor;
     }
 }

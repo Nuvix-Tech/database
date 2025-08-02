@@ -1,62 +1,74 @@
-import { Validator } from "./Validator";
-import { Query } from "../query";
-import { Base } from "./Query/Base";
+import { Query, QueryType } from "@core/query.js";
+import { Validator } from "./interface.js";
+import { Base, MethodType } from "./query/base.js";
 
-export class Queries extends Validator {
-    protected message: string = "Invalid queries";
+export class Queries implements Validator {
+    protected _message: string = "Invalid queries";
     protected validators: Base[];
-    protected length: number;
+    protected maxLength: number;
 
     /**
      * Queries constructor
      *
-     * @param validators - Array of Base validators
-     * @param length - Maximum number of queries allowed
+     * @param validators - Array of Base validators. Each Base validator defines rules for a specific query method type (e.g., filters, orders).
+     * @param maxLength - Maximum number of queries allowed. 0 means unlimited.
+     * @throws {Error} If maxLength is negative or validators array contains non-Base instances.
      */
-    constructor(validators: Base[] = [], length: number = 0) {
-        super();
+    constructor(validators: Base[] = [], maxLength: number = 0) {
+        if (maxLength < 0) {
+            throw new Error("Maximum length of queries must be a non-negative number.");
+        }
+        this.maxLength = maxLength;
+
+        if (!Array.isArray(validators) || validators.some(v => !(v instanceof Base))) {
+            throw new Error("Validators must be an array containing instances of Base.");
+        }
         this.validators = validators;
-        this.length = length;
     }
 
     /**
      * Get Description.
-     *
      * Returns validator description
-     *
      * @returns {string}
      */
-    public getDescription(): string {
-        return this.message;
+    public get $description(): string {
+        return this._message;
     }
 
     /**
      * Is valid.
-     *
      * Returns true if valid or false if not.
      *
-     * @param value - The value to validate
+     * @param value - The value to validate, expected to be an array of Query objects or JSON strings.
      * @returns {boolean}
      */
-    public isValid(value: any): boolean {
+    public $valid(value: unknown): boolean {
+        this._message = "Invalid queries";
+
         if (!Array.isArray(value)) {
-            this.message = "Queries must be an array";
+            this._message = "Queries must be an array.";
             return false;
         }
 
-        if (this.length && value.length > this.length) {
-            this.message = `Too many queries, maximum allowed is ${this.length}`;
+        const queriesArray: unknown[] = value;
+
+        if (this.maxLength > 0 && queriesArray.length > this.maxLength) {
+            this._message = `Too many queries, maximum allowed is ${this.maxLength}.`;
             return false;
         }
 
-        for (const query of value) {
+        for (const query of queriesArray) {
             let parsedQuery: Query;
 
             if (!(query instanceof Query)) {
+                if (typeof query !== 'string' && typeof query !== 'object' || query === null) {
+                    this._message = "Each query must be a Query object, a JSON string, or a plain object.";
+                    return false;
+                }
                 try {
                     parsedQuery = Query.parse(query);
                 } catch (error) {
-                    this.message = "Invalid query: " + (error as Error).message;
+                    this._message = `Invalid query format or structure: ${(error instanceof Error) ? error.message : "unknown error"}.`;
                     return false;
                 }
             } else {
@@ -64,7 +76,13 @@ export class Queries extends Validator {
             }
 
             if (parsedQuery.isNested()) {
-                if (!this.isValid(parsedQuery.getValues())) {
+                const nestedQueries = parsedQuery.getValues();
+                if (!Array.isArray(nestedQueries) || nestedQueries.some(val => !(val instanceof Query))) {
+                    this._message = `Nested query values for method "${parsedQuery.getMethod()}" must be an array of Query objects.`;
+                    return false;
+                }
+                if (!this.$valid(nestedQueries)) {
+                    // The recursive call would have set the message.
                     return false;
                 }
             }
@@ -72,22 +90,34 @@ export class Queries extends Validator {
             const method = parsedQuery.getMethod();
             const methodType = this.getMethodType(method);
 
+            if (!methodType) {
+                this._message = `Unrecognized query method type for method: "${method}".`;
+                return false;
+            }
+
             let methodIsValid = false;
             for (const validator of this.validators) {
                 if (validator.getMethodType() !== methodType) {
                     continue;
                 }
-                if (!validator.isValid(parsedQuery)) {
-                    this.message =
-                        "Invalid query: " + validator.getDescription();
+
+                if (!validator.$valid(parsedQuery)) {
+                    this._message = `Invalid query for method "${method}": ${validator.$description}`;
                     return false;
                 }
 
                 methodIsValid = true;
+                break;
             }
 
+
             if (!methodIsValid) {
-                this.message = "Invalid query method: " + method;
+                // This message would be set by the failing validator, or if no validator passed.
+                // If it's still 'Invalid queries' it means no validator matched the type,
+                // or a matched validator's message wasn't specific enough.
+                if (this._message === "Invalid queries") {
+                    this._message = `No valid validator found or query failed for method: "${method}".`;
+                }
                 return false;
             }
         }
@@ -96,65 +126,45 @@ export class Queries extends Validator {
     }
 
     /**
-     * Get the method type based on the query method
+     * Get the method type based on the query method.
+     * This mapping helps to categorize query methods for specific validators.
      *
-     * @param method - The query method
-     * @returns {string}
+     * @param method - The query method (e.g., QueryType.Equal, QueryType.Select).
+     * @returns {MethodType | undefined} The corresponding MethodType, or undefined if not recognized.
      */
-    private getMethodType(method: string): string {
+    private getMethodType(method: QueryType): MethodType | undefined {
         switch (method) {
-            case Query.TYPE_SELECT:
-                return Base.METHOD_TYPE_SELECT;
-            case Query.TYPE_LIMIT:
-                return Base.METHOD_TYPE_LIMIT;
-            case Query.TYPE_OFFSET:
-                return Base.METHOD_TYPE_OFFSET;
-            case Query.TYPE_CURSOR_AFTER:
-            case Query.TYPE_CURSOR_BEFORE:
-                return Base.METHOD_TYPE_CURSOR;
-            case Query.TYPE_ORDER_ASC:
-            case Query.TYPE_ORDER_DESC:
-                return Base.METHOD_TYPE_ORDER;
-            case Query.TYPE_EQUAL:
-            case Query.TYPE_NOT_EQUAL:
-            case Query.TYPE_LESSER:
-            case Query.TYPE_LESSER_EQUAL:
-            case Query.TYPE_GREATER:
-            case Query.TYPE_GREATER_EQUAL:
-            case Query.TYPE_SEARCH:
-            case Query.TYPE_IS_NULL:
-            case Query.TYPE_IS_NOT_NULL:
-            case Query.TYPE_BETWEEN:
-            case Query.TYPE_STARTS_WITH:
-            case Query.TYPE_CONTAINS:
-            case Query.TYPE_ENDS_WITH:
-            case Query.TYPE_AND:
-            case Query.TYPE_OR:
-                return Base.METHOD_TYPE_FILTER;
+            case QueryType.Select:
+                return MethodType.Select;
+            case QueryType.Limit:
+                return MethodType.Limit;
+            case QueryType.Offset:
+                return MethodType.Offset;
+            case QueryType.CursorAfter:
+            case QueryType.CursorBefore:
+                return MethodType.Cursor;
+            case QueryType.OrderAsc:
+            case QueryType.OrderDesc:
+                return MethodType.Order;
+            case QueryType.Equal:
+            case QueryType.NotEqual:
+            case QueryType.LessThan:
+            case QueryType.LessThanEqual:
+            case QueryType.GreaterThan:
+            case QueryType.GreaterThanEqual:
+            case QueryType.Search:
+            case QueryType.IsNull:
+            case QueryType.IsNotNull:
+            case QueryType.Between:
+            case QueryType.StartsWith:
+            case QueryType.Contains:
+            case QueryType.EndsWith:
+            case QueryType.And:
+            case QueryType.Or:
+                return MethodType.Filter;
             default:
-                return "";
+                // If a new QueryType is added but not mapped here, it's an unhandled case.
+                return undefined;
         }
-    }
-
-    /**
-     * Is array
-     *
-     * Function will return true if object is array.
-     *
-     * @returns {boolean}
-     */
-    public isArray(): boolean {
-        return true;
-    }
-
-    /**
-     * Get Type
-     *
-     * Returns validator type.
-     *
-     * @returns {string}
-     */
-    public getType(): string {
-        return "object"; // Assuming TYPE_OBJECT is equivalent to 'object'
     }
 }

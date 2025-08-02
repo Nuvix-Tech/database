@@ -1,44 +1,42 @@
-import { Base } from "./base.js";
-import { Query } from "../../query";
-import { Numeric } from "../Numeric";
-import { Range } from "../Range";
+import { Query, QueryType } from "@core/query.js";
+import { Base, MethodType } from "./base.js";
+import { Numeric } from "@validators/numeric.js";
+import { Range } from "@validators/range.js";
 
 export class Limit extends Base {
-    protected maxLimit: number;
-
-    constructor(maxLimit: number = Number.MAX_SAFE_INTEGER) {
+    constructor(private readonly maxLimit: number = Number.MAX_SAFE_INTEGER) {
         super();
-        this.maxLimit = maxLimit;
     }
 
-    public isValid(value: any): boolean {
+    public $valid(value: unknown): boolean {
         if (!(value instanceof Query)) {
+            this.message = "Value is not a Query instance.";
             return false;
         }
 
-        if (value.getMethod() !== Query.TYPE_LIMIT) {
-            this.message = "Invalid query method: " + value.getMethod();
+        if (value.getMethod() !== QueryType.Limit) {
+            this.message = `Invalid query method: ${value.getMethod()}`;
             return false;
         }
 
         const limit = value.getValue();
-        const validator = new Numeric();
+        const numericValidator = new Numeric();
 
-        if (!validator.isValid(limit)) {
-            this.message = "Invalid limit: " + validator.getDescription();
+        if (!numericValidator.$valid(limit)) {
+            this.message = `Invalid limit: ${numericValidator.$description}`;
             return false;
         }
 
         const rangeValidator = new Range(1, this.maxLimit);
-        if (!rangeValidator.isValid(limit)) {
-            this.message = "Invalid limit: " + rangeValidator.getDescription();
+        if (!rangeValidator.$valid(limit)) {
+            this.message = `Limit out of range: ${rangeValidator.$description}`;
             return false;
         }
 
         return true;
     }
 
-    public getMethodType(): string {
-        return Base.METHOD_TYPE_LIMIT;
+    public getMethodType(): MethodType {
+        return MethodType.Limit;
     }
 }

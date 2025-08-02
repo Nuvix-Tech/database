@@ -1,49 +1,54 @@
-import { Base } from "./base.js";
-import { Query } from "../../query";
-import { Document } from "../../Document";
+import { Doc } from "@core/doc.js";
+import { Base, MethodType } from "./base.js";
+import { Query, QueryType } from "@core/query.js";
 
 export class Order extends Base {
-    protected schema: Record<string, any> = {};
+    private readonly schema: Record<string, Doc> = {};
 
-    constructor(attributes: Document[] = []) {
+    constructor(attributes: Doc[] = []) {
         super();
+        this.buildSchema(attributes);
+    }
+
+    private buildSchema(attributes: Doc[]): void {
         for (const attribute of attributes) {
-            this.schema[
-                attribute.getAttribute("key", attribute.getAttribute("$id"))
-            ] = attribute.toObject();
+            const key = attribute.get("key") ?? attribute.get("$id");
+            if (key) {
+                this.schema[key] = attribute;
+            }
         }
     }
 
     protected isValidAttribute(attribute: string): boolean {
         if (!this.schema[attribute]) {
-            this.message = "Attribute not found in schema: " + attribute;
+            this.message = `Attribute not found in schema: ${attribute}`;
             return false;
         }
         return true;
     }
 
-    public isValid(value: any): boolean {
+    public $valid(value: unknown): boolean {
         if (!(value instanceof Query)) {
+            this.message = "Value must be a Query instance";
             return false;
         }
 
         const method = value.getMethod();
         const attribute = value.getAttribute();
 
-        if (
-            method === Query.TYPE_ORDER_ASC ||
-            method === Query.TYPE_ORDER_DESC
-        ) {
-            if (attribute === "") {
-                return true;
-            }
-            return this.isValidAttribute(attribute);
+        if (!this.isValidOrderMethod(method)) {
+            this.message = "Invalid order method";
+            return false;
         }
 
-        return false;
+        return attribute === "" || this.isValidAttribute(attribute);
     }
 
-    public getMethodType(): string {
-        return Base.METHOD_TYPE_ORDER;
+    private isValidOrderMethod(method: string): boolean {
+        return method === QueryType.OrderAsc || method === QueryType.OrderDesc;
+    }
+
+    public getMethodType(): MethodType {
+        return MethodType.Order;
     }
 }

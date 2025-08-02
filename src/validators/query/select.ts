@@ -1,11 +1,11 @@
-import { Base } from "./base.js";
-import { Query } from "../../query";
-import { Constant as Database } from "../../constant";
-import { Document } from "../../Document";
+import { Doc } from "@core/doc.js";
+import { Base, MethodType } from "./base.js";
+import { Query, QueryType } from "@core/query.js";
+import { Database } from "@core/database.js";
 
 export class Select extends Base {
-    protected schema: Record<string, any> = {};
-    protected static INTERNAL_ATTRIBUTES = [
+    protected schema: Record<string, any>;
+    protected static readonly INTERNAL_ATTRIBUTES = [
         "$id",
         "$internalId",
         "$createdAt",
@@ -14,49 +14,39 @@ export class Select extends Base {
         "$collection",
     ];
 
-    constructor(attributes: Document[] = []) {
+    constructor(attributes: Doc[] = []) {
         super();
+        this.schema = {};
         for (const attribute of attributes) {
-            this.schema[
-                attribute.getAttribute("key", attribute.getAttribute("$id"))
-            ] = attribute.toObject();
+            const key = attribute.get("key", attribute.get("$id"));
+            this.schema[key] = attribute.toObject();
         }
     }
 
-    public isValid(value: any): boolean {
-        if (!(value instanceof Query)) {
-            return false;
-        }
+    public $valid(value: unknown): boolean {
+        if (!(value instanceof Query)) return false;
+        if (value.getMethod() !== QueryType.Select) return false;
 
-        if (value.getMethod() !== Query.TYPE_SELECT) {
-            return false;
-        }
+        const internalKeys = Database.INTERNAL_ATTRIBUTES.map(attr => attr.$id);
 
-        const internalKeys = Object.values(Database.INTERNAL_ATTRIBUTES).map(
-            (attr) => attr.$id,
-        );
-
-        for (let attribute of value.getValues()) {
+        for (const rawAttribute of value.getValues()) {
+            let attribute = rawAttribute as string;
             if (attribute.includes(".")) {
-                if (this.schema[attribute]) {
-                    continue;
-                }
-                attribute = attribute.split(".")[0];
+                const [baseAttr] = attribute.split(".");
+                if (this.schema[attribute]) continue;
+                attribute = baseAttr!;
             }
 
-            if (internalKeys.includes(attribute)) {
-                continue;
-            }
-
+            if (internalKeys.includes(attribute)) continue;
             if (!this.schema[attribute] && attribute !== "*") {
-                this.message = "Attribute not found in schema: " + attribute;
+                this.message = `Attribute not found in schema: ${attribute}`;
                 return false;
             }
         }
         return true;
     }
 
-    public getMethodType(): string {
-        return Base.METHOD_TYPE_SELECT;
+    public getMethodType(): MethodType {
+        return MethodType.Select;
     }
 }

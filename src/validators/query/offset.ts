@@ -1,46 +1,42 @@
-import { Base } from "./base.js";
-import { Query } from "../../query";
-import { Numeric } from "../Numeric";
-import { Range } from "../Range";
+import { Query, QueryType } from "@core/query.js";
+import { Base, MethodType } from "./base.js";
+import { Numeric } from "@validators/numeric.js";
+import { Range } from "@validators/range.js";
 
 export class Offset extends Base {
-    protected maxOffset: number;
-
-    constructor(maxOffset: number = Number.MAX_SAFE_INTEGER) {
+    constructor(private readonly maxOffset: number = Number.MAX_SAFE_INTEGER) {
         super();
-        this.maxOffset = maxOffset;
     }
 
-    public isValid(value: any): boolean {
+    public $valid(value: unknown): boolean {
         if (!(value instanceof Query)) {
+            this.message = "Value is not a Query instance.";
             return false;
         }
 
-        const method = value.getMethod();
-
-        if (method !== Query.TYPE_OFFSET) {
-            this.message = "Query method invalid: " + method;
+        if (value.getMethod() !== QueryType.Offset) {
+            this.message = `Invalid query method: ${value.getMethod()}`;
             return false;
         }
 
         const offset = value.getValue();
-        const validator = new Numeric();
+        const numericValidator = new Numeric();
 
-        if (!validator.isValid(offset)) {
-            this.message = "Invalid offset: " + validator.getDescription();
+        if (!numericValidator.$valid(offset)) {
+            this.message = `Invalid offset: ${numericValidator.$description}`;
             return false;
         }
 
         const rangeValidator = new Range(0, this.maxOffset);
-        if (!rangeValidator.isValid(offset)) {
-            this.message = "Invalid offset: " + rangeValidator.getDescription();
+        if (!rangeValidator.$valid(offset)) {
+            this.message = `Offset out of range: ${rangeValidator.$description}`;
             return false;
         }
 
         return true;
     }
 
-    public getMethodType(): string {
-        return Base.METHOD_TYPE_OFFSET;
+    public getMethodType(): MethodType {
+        return MethodType.Offset;
     }
 }

@@ -1,42 +1,58 @@
 import { Doc } from "@core/doc.js";
-import { Query } from "@core/query.js";
+import { Query, ScalarValue } from "@core/query.js";
 
+/**
+ * A fluent builder class for constructing an array of Query objects.
+ * This class provides a chainable API for creating complex queries.
+ */
 export class QueryBuilder {
     private queries: Query[] = [];
 
     /**
-     * Create a new QueryBuilder instance
+     * The constructor is private to enforce using the static `from` factory method.
+     */
+    private constructor() { }
+
+    /**
+     * Creates a new QueryBuilder instance from an existing array of Query objects.
+     * The incoming queries are cloned to ensure the builder is mutable without side effects.
+     *
+     * @param queries - An array of Query objects to start the builder with.
+     * @returns {QueryBuilder} A new QueryBuilder instance.
      */
     static from(queries: Query[]): QueryBuilder {
         const builder = new QueryBuilder();
-        builder.queries = queries;
+        builder.queries = queries.map(query => query.clone());
         return builder;
     }
 
     /**
-     * Add an equality condition
-     * @param attribute Attribute name
-     * @param values Values to match
+     * Adds an equality condition.
+     * @param attribute - The attribute name.
+     * @param values - A variadic list of values to match.
+     * @returns {this} The current QueryBuilder instance for chaining.
      */
-    equal(attribute: string, ...values: (string | number | boolean)[]): this {
+    equal(attribute: string, ...values: ScalarValue[]): this {
         this.queries.push(Query.equal(attribute, values));
         return this;
     }
 
     /**
-     * Add a not equal condition
-     * @param attribute Attribute name
-     * @param value Value to exclude
+     * Adds a not equal condition.
+     * @param attribute - The attribute name.
+     * @param value - The value to exclude.
+     * @returns {this} The current QueryBuilder instance for chaining.
      */
-    notEqual(attribute: string, value: string | number | boolean): this {
+    notEqual(attribute: string, value: ScalarValue): this {
         this.queries.push(Query.notEqual(attribute, value));
         return this;
     }
 
     /**
-     * Add a less than condition
-     * @param attribute Attribute name
-     * @param value Upper bound value
+     * Adds a less than condition.
+     * @param attribute - The attribute name.
+     * @param value - The upper bound value.
+     * @returns {this} The current QueryBuilder instance for chaining.
      */
     lessThan(attribute: string, value: number | string): this {
         this.queries.push(Query.lessThan(attribute, value));
@@ -44,9 +60,10 @@ export class QueryBuilder {
     }
 
     /**
-     * Add a less than or equal condition
-     * @param attribute Attribute name
-     * @param value Upper bound value
+     * Adds a less than or equal condition.
+     * @param attribute - The attribute name.
+     * @param value - The upper bound value.
+     * @returns {this} The current QueryBuilder instance for chaining.
      */
     lessThanEqual(attribute: string, value: number | string): this {
         this.queries.push(Query.lessThanEqual(attribute, value));
@@ -54,9 +71,10 @@ export class QueryBuilder {
     }
 
     /**
-     * Add a greater than condition
-     * @param attribute Attribute name
-     * @param value Lower bound value
+     * Adds a greater than condition.
+     * @param attribute - The attribute name.
+     * @param value - The lower bound value.
+     * @returns {this} The current QueryBuilder instance for chaining.
      */
     greaterThan(attribute: string, value: number | string): this {
         this.queries.push(Query.greaterThan(attribute, value));
@@ -64,9 +82,10 @@ export class QueryBuilder {
     }
 
     /**
-     * Add a greater than or equal condition
-     * @param attribute Attribute name
-     * @param value Lower bound value
+     * Adds a greater than or equal condition.
+     * @param attribute - The attribute name.
+     * @param value - The lower bound value.
+     * @returns {this} The current QueryBuilder instance for chaining.
      */
     greaterThanEqual(attribute: string, value: number | string): this {
         this.queries.push(Query.greaterThanEqual(attribute, value));
@@ -74,30 +93,33 @@ export class QueryBuilder {
     }
 
     /**
-     * Add a contains condition (array contains values)
-     * @param attribute Attribute name
-     * @param values Values to check for
+     * Adds a contains condition (checks if an array attribute contains values).
+     * @param attribute - The attribute name.
+     * @param values - A variadic list of values to check for containment.
+     * @returns {this} The current QueryBuilder instance for chaining.
      */
-    contains(attribute: string, ...values: any[]): this {
+    contains(attribute: string, ...values: ScalarValue[]): this {
         this.queries.push(Query.contains(attribute, values));
         return this;
     }
 
     /**
-     * Add a between condition
-     * @param attribute Attribute name
-     * @param start Start value
-     * @param end End value
+     * Adds a between condition.
+     * @param attribute - The attribute name.
+     * @param start - The start value (inclusive).
+     * @param end - The end value (inclusive).
+     * @returns {this} The current QueryBuilder instance for chaining.
      */
-    between(attribute: string, start: any, end: any): this {
+    between(attribute: string, start: ScalarValue, end: ScalarValue): this {
         this.queries.push(Query.between(attribute, start, end));
         return this;
     }
 
     /**
-     * Add a full-text search condition
-     * @param attribute Attribute name
-     * @param value Search term
+     * Adds a full-text search condition.
+     * @param attribute - The attribute name.
+     * @param value - The search term.
+     * @returns {this} The current QueryBuilder instance for chaining.
      */
     search(attribute: string, value: string): this {
         this.queries.push(Query.search(attribute, value));
@@ -105,8 +127,9 @@ export class QueryBuilder {
     }
 
     /**
-     * Select specific attributes to return
-     * @param attributes Attributes to select
+     * Selects specific attributes to return.
+     * @param attributes - A variadic list of attributes to select.
+     * @returns {this} The current QueryBuilder instance for chaining.
      */
     select(...attributes: string[]): this {
         this.queries.push(Query.select(attributes));
@@ -114,8 +137,9 @@ export class QueryBuilder {
     }
 
     /**
-     * Add descending order
-     * @param attribute Attribute to sort by (default: '$sequence')
+     * Adds a descending order sort condition.
+     * @param attribute - The attribute to sort by. Defaults to '$sequence'.
+     * @returns {this} The current QueryBuilder instance for chaining.
      */
     orderDesc(attribute: string = ""): this {
         this.queries.push(Query.orderDesc(attribute));
@@ -123,8 +147,9 @@ export class QueryBuilder {
     }
 
     /**
-     * Add ascending order
-     * @param attribute Attribute to sort by (default: '$sequence')
+     * Adds an ascending order sort condition.
+     * @param attribute - The attribute to sort by. Defaults to '$sequence'.
+     * @returns {this} The current QueryBuilder instance for chaining.
      */
     orderAsc(attribute: string = ""): this {
         this.queries.push(Query.orderAsc(attribute));
@@ -132,8 +157,9 @@ export class QueryBuilder {
     }
 
     /**
-     * Set result limit
-     * @param value Maximum number of results
+     * Sets a result limit.
+     * @param value - The maximum number of results.
+     * @returns {this} The current QueryBuilder instance for chaining.
      */
     limit(value: number): this {
         this.queries.push(Query.limit(value));
@@ -141,8 +167,9 @@ export class QueryBuilder {
     }
 
     /**
-     * Set result offset
-     * @param value Number of results to skip
+     * Sets a result offset.
+     * @param value - The number of results to skip.
+     * @returns {this} The current QueryBuilder instance for chaining.
      */
     offset(value: number): this {
         this.queries.push(Query.offset(value));
@@ -150,8 +177,9 @@ export class QueryBuilder {
     }
 
     /**
-     * Set cursor position (after)
-     * @param value Cursor document or ID
+     * Sets a cursor position after a given document or ID.
+     * @param value - The cursor document or ID.
+     * @returns {this} The current QueryBuilder instance for chaining.
      */
     cursorAfter(value: Doc | string): this {
         const cursorValue = value instanceof Doc ? value.getId() : value;
@@ -160,8 +188,9 @@ export class QueryBuilder {
     }
 
     /**
-     * Set cursor position (before)
-     * @param value Cursor document or ID
+     * Sets a cursor position before a given document or ID.
+     * @param value - The cursor document or ID.
+     * @returns {this} The current QueryBuilder instance for chaining.
      */
     cursorBefore(value: Doc | string): this {
         const cursorValue = value instanceof Doc ? value.getId() : value;
@@ -170,8 +199,9 @@ export class QueryBuilder {
     }
 
     /**
-     * Check if attribute is null
-     * @param attribute Attribute name
+     * Adds a condition to check if an attribute is null.
+     * @param attribute - The attribute name.
+     * @returns {this} The current QueryBuilder instance for chaining.
      */
     isNull(attribute: string): this {
         this.queries.push(Query.isNull(attribute));
@@ -179,8 +209,9 @@ export class QueryBuilder {
     }
 
     /**
-     * Check if attribute is not null
-     * @param attribute Attribute name
+     * Adds a condition to check if an attribute is not null.
+     * @param attribute - The attribute name.
+     * @returns {this} The current QueryBuilder instance for chaining.
      */
     isNotNull(attribute: string): this {
         this.queries.push(Query.isNotNull(attribute));
@@ -188,9 +219,10 @@ export class QueryBuilder {
     }
 
     /**
-     * Check if attribute starts with value
-     * @param attribute Attribute name
-     * @param value String prefix
+     * Adds a condition to check if an attribute value starts with a string.
+     * @param attribute - The attribute name.
+     * @param value - The string prefix.
+     * @returns {this} The current QueryBuilder instance for chaining.
      */
     startsWith(attribute: string, value: string): this {
         this.queries.push(Query.startsWith(attribute, value));
@@ -198,9 +230,10 @@ export class QueryBuilder {
     }
 
     /**
-     * Check if attribute ends with value
-     * @param attribute Attribute name
-     * @param value String suffix
+     * Adds a condition to check if an attribute value ends with a string.
+     * @param attribute - The attribute name.
+     * @param value - The string suffix.
+     * @returns {this} The current QueryBuilder instance for chaining.
      */
     endsWith(attribute: string, value: string): this {
         this.queries.push(Query.endsWith(attribute, value));
@@ -208,8 +241,9 @@ export class QueryBuilder {
     }
 
     /**
-     * Add an OR group of conditions
-     * @param builderFn Builder function for nested conditions
+     * Adds an OR group of conditions.
+     * @param builderFn - A function that receives a new QueryBuilder instance to define nested conditions.
+     * @returns {this} The current QueryBuilder instance for chaining.
      */
     or(builderFn: (builder: QueryBuilder) => void): this {
         const nestedBuilder = new QueryBuilder();
@@ -219,8 +253,9 @@ export class QueryBuilder {
     }
 
     /**
-     * Add an AND group of conditions
-     * @param builderFn Builder function for nested conditions
+     * Adds an AND group of conditions.
+     * @param builderFn - A function that receives a new QueryBuilder instance to define nested conditions.
+     * @returns {this} The current QueryBuilder instance for chaining.
      */
     and(builderFn: (builder: QueryBuilder) => void): this {
         const nestedBuilder = new QueryBuilder();
@@ -230,8 +265,10 @@ export class QueryBuilder {
     }
 
     /**
-     * Mark that the query should operate on arrays
-     * @param enable Whether to enable array mode
+     * Marks the last added query to operate on an array attribute.
+     *
+     * @param enable - Whether to enable array mode. Defaults to `true`.
+     * @returns {this} The current QueryBuilder instance for chaining.
      */
     onArray(enable: boolean = true): this {
         if (this.queries.length > 0) {
@@ -241,34 +278,39 @@ export class QueryBuilder {
     }
 
     /**
-     * Build the final query array
+     * Finalizes the build process and returns the constructed array of queries.
+     *
+     * @returns {Query[]} A new array containing the built Query objects.
      */
     build(): Query[] {
         return [...this.queries];
     }
 
     /**
-     * Clear the current builder state
+     * Clears the current builder state, resetting it for a new query.
+     *
+     * @returns {this} The current QueryBuilder instance for chaining.
      */
     clear(): this {
         this.queries = [];
         return this;
     }
 
-    // Utility methods for common patterns
     /**
-     * Add pagination parameters
-     * @param limit Number of results per page
-     * @param offset Page offset
+     * Adds pagination parameters in a single call.
+     * @param limit - The number of results per page.
+     * @param offset - The page offset.
+     * @returns {this} The current QueryBuilder instance for chaining.
      */
     paginate(limit: number, offset: number): this {
         return this.limit(limit).offset(offset);
     }
 
     /**
-     * Add ID-based cursor pagination
-     * @param cursorId Cursor document ID
-     * @param direction Pagination direction
+     * Adds ID-based cursor pagination.
+     * @param cursorId - The cursor document ID.
+     * @param direction - The pagination direction ('after' or 'before'). Defaults to 'after'.
+     * @returns {this} The current QueryBuilder instance for chaining.
      */
     cursorPaginate(cursorId: string, direction: "after" | "before" = "after"): this {
         return direction === "after"
@@ -277,16 +319,14 @@ export class QueryBuilder {
     }
 
     /**
-     * Add text search across multiple fields
-     * @param fields Fields to search
-     * @param term Search term
+     * Adds a full-text search across multiple fields with an OR condition.
+     * @param fields - The fields to search.
+     * @param term - The search term.
+     * @returns {this} The current QueryBuilder instance for chaining.
      */
     multiSearch(fields: string[], term: string): this {
-        const builder = new QueryBuilder();
-        fields.forEach(field => {
-            builder.search(field, term);
-        });
-        this.queries.push(Query.or(builder.build()));
+        const nestedQueries: Query[] = fields.map(field => Query.search(field, term));
+        this.queries.push(Query.or(nestedQueries));
         return this;
     }
 }

@@ -1,265 +1,308 @@
-import { Base } from "./base.js";
-import { Query } from "../../query";
-import { Document } from "../../Document";
-import { Datetime as DatetimeValidator } from "../Datetime";
-import { BooleanValidator, IntegerValidator, TextValidator } from "..";
-import { FloatValidator } from "../FloatValidator";
-import { Constant } from "../../../core/constant";
+import { Query, QueryType, ScalarValue } from "../../core/query.js";
+import { Base, MethodType } from "./base.js";
+import { Datetime as DatetimeValidator } from "../datetime.js";
+import { Attribute } from "@validators/schema.js";
+import { Doc } from "@core/doc.js";
+import { AttributeEnum, RelationEnum, RelationSideEnum } from "@core/enums.js";
+import { Integer } from "@validators/Integer.js";
+import { FloatValidator } from "@validators/float-validator.js";
+import { Boolean } from "@validators/boolean.js";
+import { Text } from "@validators/text.js";
 
+/**
+ * Validates a Query object to ensure it is a valid filter query
+ * based on a provided schema of attributes.
+ */
 export class Filter extends Base {
-    protected schema: Record<string, any> = {};
+    protected _message: string = "Invalid filter query";
+    protected schema: Record<string, Attribute> = {};
     protected maxValuesCount: number;
     protected minAllowedDate: Date;
     protected maxAllowedDate: Date;
 
+    /**
+     * @param attributes - An array of Document objects representing the attribute schema.
+     * @param maxValuesCount - The maximum number of values allowed in a single query (e.g., for `equal` or `in`).
+     * @param minAllowedDate - The minimum date value allowed for datetime attributes.
+     * @param maxAllowedDate - The maximum date value allowed for datetime attributes.
+     */
     constructor(
-        attributes: Document[] = [],
+        attributes: Doc<Attribute>[] = [],
         maxValuesCount: number = 100,
         minAllowedDate: Date = new Date("0000-01-01"),
         maxAllowedDate: Date = new Date("9999-12-31"),
     ) {
         super();
+        if (maxValuesCount < 1) {
+            throw new Error("maxValuesCount must be a positive integer.");
+        }
         this.maxValuesCount = maxValuesCount;
         this.minAllowedDate = minAllowedDate;
         this.maxAllowedDate = maxAllowedDate;
 
         for (const attribute of attributes) {
-            this.schema[
-                attribute.getAttribute("key", attribute.getAttribute("$id"))
-            ] = attribute.toObject();
+            const attributeKey = attribute.get("$id") as string;
+            if (attributeKey) {
+                this.schema[attributeKey] = attribute.toObject();
+            }
         }
     }
 
-    protected isValidAttribute(attribute: string): boolean {
-        if (attribute.includes(".")) {
-            if (this.schema[attribute]) {
-                return true;
-            }
-            attribute = attribute.split(".")[0]!;
-            if (this.schema[attribute]) {
-                this.message = "Cannot query nested attribute on: " + attribute;
-                return false;
-            }
-        }
+    /**
+     * Check if a Query object is valid according to the filter rules.
+     * This is the main public validation method.
+     *
+     * @param value - The Query object to validate.
+     * @returns {boolean} True if the query is a valid filter, false otherwise.
+     */
+    public $valid(value: unknown): boolean {
+        this._message = "Invalid filter query"; // Reset message at the beginning
 
-        if (!this.schema[attribute]) {
-            this.message = "Attribute not found in schema: " + attribute;
+        if (!(value instanceof Query)) {
+            this._message = "Value must be a Query object.";
             return false;
         }
 
+        const method = value.getMethod();
+        const attribute = value.getAttribute();
+
+        switch (method) {
+            case QueryType.Equal:
+            case QueryType.Contains: {
+                const values = value.getValues() as ScalarValue[];
+                if (this.isEmpty(values)) {
+                    this._message =
+                        `${method} queries require at least one value.`;
+                    return false;
+                }
+                return this.validateAttributeAndValues(attribute, values, method);
+            }
+
+            case QueryType.NotEqual:
+            case QueryType.LessThan:
+            case QueryType.LessThanEqual:
+            case QueryType.GreaterThan:
+            case QueryType.GreaterThanEqual:
+            case QueryType.Search:
+            case QueryType.StartsWith:
+            case QueryType.EndsWith: {
+                const values = value.getValues() as ScalarValue[];
+                if (values.length !== 1) {
+                    this._message =
+                        `${method} queries require exactly one value.`;
+                    return false;
+                }
+                return this.validateAttributeAndValues(attribute, values, method);
+            }
+
+            case QueryType.Between: {
+                const values = value.getValues() as ScalarValue[];
+                if (values.length !== 2) {
+                    this._message =
+                        `${method} queries require exactly two values.`;
+                    return false;
+                }
+                return this.validateAttributeAndValues(attribute, values, method);
+            }
+
+            case QueryType.IsNull:
+            case QueryType.IsNotNull:
+                // These queries don't have values to validate, just the attribute.
+                return this.validateAttributeAndValues(attribute, [], method);
+
+            case QueryType.Or:
+            case QueryType.And: {
+                const values = value.getValues() as Query[];
+                if (!Array.isArray(values) || values.length < 2) {
+                    this._message = `${method} queries require an array of at least two nested queries.`;
+                    return false;
+                }
+
+                const nestedQueries = Query.groupByType(values).filters;
+                if (values.length! === nestedQueries.length) {
+                    this._message = `${method} queries can only contain filter queries.`;
+                    return false;
+                }
+                return true;
+            }
+
+            default:
+                this._message = `Unknown or unsupported filter method: "${method}".`;
+                return false;
+        }
+    }
+
+    /**
+     * Returns the method type handled by this validator.
+     * @returns {MethodType.Filter} The string literal 'filter'.
+     */
+    public getMethodType(): MethodType {
+        return MethodType.Filter;
+    }
+
+    /**
+     * Checks if the attribute exists in the schema and is a valid target for filtering.
+     * @param attribute - The name of the attribute.
+     * @returns {boolean} True if the attribute is valid, false otherwise.
+     */
+    protected validateAttributeSchema(attribute: string): boolean {
+        const [topLevelAttribute] = attribute.split(".");
+        const attributeSchema = this.schema[topLevelAttribute!];
+        if (!attributeSchema) {
+            this._message = `Attribute not found in schema: "${topLevelAttribute}".`;
+            return false;
+        }
+
+        // TODO: recheck 
+        if (attribute.includes(".") && !this.schema[attribute]) {
+            this._message = "Cannot query on nested attributes.";
+            return false;
+        }
+
+        if (attributeSchema.type === AttributeEnum.Relation) {
+            const { relationType, twoWay, side } = attributeSchema.options ?? {};
+
+            if (
+                (relationType === RelationEnum.OneToOne &&
+                    !twoWay &&
+                    side === RelationSideEnum.Child) ||
+                (relationType === RelationEnum.OneToMany &&
+                    side === RelationSideEnum.Parent) ||
+                (relationType === RelationEnum.ManyToOne &&
+                    side === RelationSideEnum.Child) ||
+                relationType === RelationEnum.ManyToMany
+            ) {
+                this._message = "Cannot query on virtual relationship attribute.";
+                return false;
+            }
+        }
+        if (attributeSchema.type === AttributeEnum.Virtual) {
+            this._message = "Cannot query on virtual attribute: " + attribute;
+            return false;
+        }
         return true;
     }
 
-    protected isValidAttributeAndValues(
+    /**
+     * Validates both the attribute's existence and the types/count of its values.
+     * @param attribute - The attribute name from the query.
+     * @param values - The array of values from the query.
+     * @param method - The query method type.
+     * @returns {boolean} True if both attribute and values are valid, false otherwise.
+     */
+    protected validateAttributeAndValues(
         attribute: string,
-        values: any[],
-        method: string,
+        values: ScalarValue[],
+        method: QueryType,
     ): boolean {
-        if (!this.isValidAttribute(attribute)) {
+        if (!this.validateAttributeSchema(attribute)) {
             return false;
         }
 
         if (attribute.includes(".") && !this.schema[attribute]) {
             attribute = attribute.split(".")[0]!;
         }
-
-        const attributeSchema = this.schema[attribute];
+        const attributeSchema = this.schema[attribute]!;
 
         if (values.length > this.maxValuesCount) {
-            this.message =
-                "Query on attribute has greater than " +
-                this.maxValuesCount +
-                " values: " +
-                attribute;
+            this._message =
+                `Query on attribute "${attribute}" has more than ${this.maxValuesCount} values.`;
             return false;
         }
 
-        const attributeType = attributeSchema.type;
-
-        for (const value of values) {
-            let validator: any;
-
-            switch (attributeType) {
-                case Constant.VAR_STRING:
-                    validator = new TextValidator(0, 0);
-                    break;
-                case Constant.VAR_INTEGER:
-                    validator = new IntegerValidator();
-                    break;
-                case Constant.VAR_FLOAT:
-                    validator = new FloatValidator();
-                    break;
-                case Constant.VAR_BOOLEAN:
-                    validator = new BooleanValidator();
-                    break;
-                case Constant.VAR_DATETIME:
-                    validator = new DatetimeValidator(
-                        this.minAllowedDate,
-                        this.maxAllowedDate,
-                    );
-                    break;
-                case Constant.VAR_RELATIONSHIP:
-                    validator = new TextValidator(255, 0);
-                    break;
-                default:
-                    this.message = "Unknown Data type";
-                    return false;
-            }
-
-            if (!validator.isValid(value)) {
-                this.message =
-                    'Query value is invalid for attribute "' + attribute + '"';
-                return false;
-            }
+        if (!this.validateMethodVsAttributeType(attributeSchema, method)) {
+            return false;
         }
 
-        if (attributeSchema.type === Constant.VAR_RELATIONSHIP) {
-            const options = attributeSchema.options;
+        return this.validateValuesAgainstSchema(attribute, attributeSchema, values);
+    }
 
-            if (
-                (options.relationType === Constant.RELATION_ONE_TO_ONE &&
-                    !options.twoWay &&
-                    options.side === Constant.RELATION_SIDE_CHILD) ||
-                (options.relationType === Constant.RELATION_ONE_TO_MANY &&
-                    options.side === Constant.RELATION_SIDE_PARENT) ||
-                (options.relationType === Constant.RELATION_MANY_TO_ONE &&
-                    options.side === Constant.RELATION_SIDE_CHILD) ||
-                options.relationType === Constant.RELATION_MANY_TO_MANY
-            ) {
-                this.message = "Cannot query on virtual relationship attribute";
-                return false;
-            }
-        }
-
+    /**
+     * Checks if the query method is valid for the attribute's type (e.g., `contains` on an array/string).
+     * @param attributeSchema - The schema object for the attribute.
+     * @param method - The query method.
+     * @returns {boolean} True if the method is allowed for the attribute, false otherwise.
+     */
+    protected validateMethodVsAttributeType(attributeSchema: any, method: QueryType): boolean {
         const isArray = attributeSchema.array ?? false;
 
         if (
             !isArray &&
-            method === Query.TYPE_CONTAINS &&
-            attributeSchema.type !== Constant.VAR_STRING
+            method === QueryType.Contains &&
+            attributeSchema.type !== AttributeEnum.String
         ) {
-            this.message =
-                'Cannot query contains on attribute "' +
-                attribute +
-                '" because it is not an array or string.';
+            this._message =
+                `Cannot use "${method}" on attribute "${attributeSchema.key}" because it is not an array or string.`;
             return false;
         }
 
         if (
             isArray &&
-            ![
-                Query.TYPE_CONTAINS,
-                Query.TYPE_IS_NULL,
-                Query.TYPE_IS_NOT_NULL,
-            ].includes(method)
+            ![QueryType.Contains, QueryType.IsNull, QueryType.IsNotNull].includes(method)
         ) {
-            this.message =
-                "Cannot query " +
-                method +
-                ' on attribute "' +
-                attribute +
-                '" because it is an array.';
+            this._message =
+                `Cannot use "${method}" on attribute "${attributeSchema.key}" because it is an array.`;
             return false;
         }
-
         return true;
     }
 
-    protected isEmpty(values: any[]): boolean {
+    /**
+     * Validates an array of values against the attribute's type in the schema.
+     * @param attribute - The attribute key.
+     * @param attributeSchema - The schema object for the attribute.
+     * @param values - An array of values to validate.
+     * @returns {boolean} True if all values are valid, false otherwise.
+     */
+    protected validateValuesAgainstSchema(
+        attribute: string,
+        attributeSchema: Attribute,
+        values: ScalarValue[],
+    ): boolean {
+        const attributeType = attributeSchema.type;
+        let validator: DatetimeValidator | Integer | FloatValidator | Boolean | Text | null = null;
+
+        switch (attributeType) {
+            case AttributeEnum.String:
+            case AttributeEnum.Relation:
+                validator = new Text(attributeSchema.size, 0);
+                break;
+            case AttributeEnum.Integer:
+                validator = new Integer();
+                break;
+            case AttributeEnum.Float:
+                validator = new FloatValidator();
+                break;
+            case AttributeEnum.Boolean:
+                validator = new Boolean();
+                break;
+            case AttributeEnum.Date:
+                validator = new DatetimeValidator(this.minAllowedDate, this.maxAllowedDate);
+                break;
+            default:
+                this._message = `Unknown data type for attribute "${attribute}".`;
+                return false;
+        }
+
+        for (const value of values) {
+            if (!validator?.$valid(value)) {
+                this._message =
+                    `Value "${value}" is invalid for attribute "${attribute}" of type "${attributeType}".`;
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Helper to check if an array of values is empty.
+     * @param values - The array of values.
+     * @returns {boolean} True if the array is empty or contains only an empty array.
+     */
+    protected isEmpty(values: ScalarValue[]): boolean {
         return (
             values.length === 0 ||
             (Array.isArray(values[0]) && values[0].length === 0)
         );
-    }
-
-    public isValid(value: any): boolean {
-        const method = value.getMethod();
-        const attribute = value.getAttribute();
-
-        switch (method) {
-            case Query.TYPE_EQUAL:
-            case Query.TYPE_CONTAINS:
-                if (this.isEmpty(value.getValues())) {
-                    this.message =
-                        method.charAt(0).toUpperCase() +
-                        method.slice(1) +
-                        " queries require at least one value.";
-                    return false;
-                }
-                return this.isValidAttributeAndValues(
-                    attribute,
-                    value.getValues(),
-                    method,
-                );
-
-            case Query.TYPE_NOT_EQUAL:
-            case Query.TYPE_LESSER:
-            case Query.TYPE_LESSER_EQUAL:
-            case Query.TYPE_GREATER:
-            case Query.TYPE_GREATER_EQUAL:
-            case Query.TYPE_SEARCH:
-            case Query.TYPE_STARTS_WITH:
-            case Query.TYPE_ENDS_WITH:
-                if (value.getValues().length !== 1) {
-                    this.message =
-                        method.charAt(0).toUpperCase() +
-                        method.slice(1) +
-                        " queries require exactly one value.";
-                    return false;
-                }
-                return this.isValidAttributeAndValues(
-                    attribute,
-                    value.getValues(),
-                    method,
-                );
-
-            case Query.TYPE_BETWEEN:
-                if (value.getValues().length !== 2) {
-                    this.message =
-                        method.charAt(0).toUpperCase() +
-                        method.slice(1) +
-                        " queries require exactly two values.";
-                    return false;
-                }
-                return this.isValidAttributeAndValues(
-                    attribute,
-                    value.getValues(),
-                    method,
-                );
-
-            case Query.TYPE_IS_NULL:
-            case Query.TYPE_IS_NOT_NULL:
-                return this.isValidAttributeAndValues(
-                    attribute,
-                    value.getValues(),
-                    method,
-                );
-
-            case Query.TYPE_OR:
-            case Query.TYPE_AND:
-                const filters = Query.groupByType(value.getValues()).filters;
-                if (value.getValues().length !== filters.length) {
-                    this.message =
-                        method.charAt(0).toUpperCase() +
-                        method.slice(1) +
-                        " queries can only contain filter queries";
-                    return false;
-                }
-                if (filters.length < 2) {
-                    this.message =
-                        method.charAt(0).toUpperCase() +
-                        method.slice(1) +
-                        " queries require at least two queries";
-                    return false;
-                }
-                return true;
-
-            default:
-                return false;
-        }
-    }
-
-    public getMethodType(): string {
-        return Base.METHOD_TYPE_FILTER;
     }
 }

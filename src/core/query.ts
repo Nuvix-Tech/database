@@ -29,10 +29,10 @@ export enum QueryType {
     Or = "or",
 }
 
-type ScalarValue = string | number | boolean | null; // Null included for IsNull/IsNotNull implicitly
-type QueryValue = ScalarValue | Query; // Query itself can be a value for logical operators
+export type ScalarValue = string | number | boolean | null; // Null included for IsNull/IsNotNull implicitly
+export type QueryValue = ScalarValue | Query; // Query itself can be a value for logical operators
 
-type QueryValues = ScalarValue[] | Query[];
+export type QueryValues = ScalarValue[] | Query[];
 
 interface RawQueryObject {
     method: string;
@@ -196,9 +196,11 @@ export class Query {
      * @returns {Query} The parsed Query object.
      * @throws {QueryException} If the JSON is invalid or the query structure is malformed.
      */
-    public static parse(queryJsonString: string): Query {
+    public static parse(queryJsonString: string | object): Query {
         try {
-            const parsedQuery = JSON.parse(queryJsonString) as RawQueryObject; // Assert type for initial parsing
+            const parsedQuery = typeof queryJsonString === 'string'
+                ? JSON.parse(queryJsonString)
+                : queryJsonString;
             return Query.parseQuery(parsedQuery);
         } catch (e: unknown) {
             const errorMessage = e instanceof Error ? e.message : String(e);

@@ -381,15 +381,15 @@ export class Doc<T extends Partial<IEntity> = IEntity> {
         return this.keys().length === 0;
     }
 
-    toObject(): Record<string, unknown>;
+    public toObject(): T;
     public toObject(
         allow: (keyof T)[],
         disallow?: (keyof T)[],
-    ): Record<string, unknown>;
+    ): T;
     public toObject(
         allow: any[] = [],
         disallow: any[] = [],
-    ): Record<string, unknown> {
+    ): T {
         const output: Record<string, unknown> = {};
         const keys = this.keys();
         for (const key of keys) {
@@ -409,7 +409,7 @@ export class Doc<T extends Partial<IEntity> = IEntity> {
                 output[key as string] = value;
             }
         }
-        return output;
+        return output as T;
     }
 
     toJSON() {
