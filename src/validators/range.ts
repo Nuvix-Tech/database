@@ -1,49 +1,86 @@
-import { Numeric } from "./Numeric";
+import { Validator } from "./interface.js";
+import { Numeric, NumericType } from "./numeric.js";
 
-/**
- * Range
- *
- * Validates that a number is in range.
- */
-export class Range extends Numeric {
-    protected min: number;
-    protected max: number;
+export class Range extends Numeric implements Validator {
+    private min: number;
+    private max: number;
+    private format: NumericType;
 
     /**
-     * @param min - Minimum value
-     * @param max - Maximum value
+     * @param min - The minimum allowed value (inclusive).
+     * @param max - The maximum allowed value (inclusive).
+     * @param format - The expected numeric type (integer or float). Defaults to NumericType.INTEGER.
+     * @throws Error if min is greater than max.
      */
-    constructor(min: number, max: number, format?: string) {
+    constructor(min: number, max: number, format: NumericType = NumericType.INTEGER) {
         super();
+        if (min > max) {
+            throw new Error("Minimum value cannot be greater than maximum value.");
+        }
+
+        if (!Object.values(NumericType).includes(format)) {
+            throw new Error(`Invalid format provided: ${format}. Must be one of ${Object.values(NumericType).join(', ')}.`);
+        }
+
         this.min = min;
         this.max = max;
+        this.format = format;
     }
 
     /**
-     * Get Description
-     *
-     * Returns validator description
-     *
-     * @returns {string}
+     * Get Range Minimum Value
      */
-    public override getDescription(): string {
-        return `Value must be a valid range between ${this.min} and ${this.max}`;
+    public get $min(): number {
+        return this.min;
     }
 
     /**
-     * Is valid
-     *
-     * Validation will pass when $value is within the defined range.
-     *
-     * @param value - The value to validate
-     * @returns {boolean}
+     * Get Range Maximum Value
      */
-    public override isValid(value: any): boolean {
-        if (!super.isValid(value)) {
+    public get $max(): number {
+        return this.max;
+    }
+
+    /**
+     * Get Range Format
+     */
+    public get $format(): NumericType {
+        return this.format;
+    }
+
+    public override get $description(): string {
+        const formatter = new Intl.NumberFormat('en-US', {
+            minimumFractionDigits: this.format === NumericType.FLOAT ? 1 : 0,
+            maximumFractionDigits: this.format === NumericType.FLOAT ? 20 : 0,
+        });
+
+        return `Value must be a valid ${this.format} between ${formatter.format(this.min)} and ${formatter.format(this.max)}.`;
+    }
+
+    public $valid(value: any): boolean {
+        if (!super.$valid(value)) {
             return false;
         }
 
-        const numValue = Number(value);
-        return numValue >= this.min && numValue <= this.max;
+        if (value === Infinity || value === -Infinity) {
+            // If the format is integer, and min/max allow infinity, it's valid.
+            // If the format is float, infinity is always a float value.
+            return (value >= this.min && value <= this.max);
+        }
+
+        switch (this.format) {
+            case NumericType.INTEGER:
+                if (!Number.isInteger(value)) {
+                    return false;
+                }
+                break;
+            case NumericType.FLOAT:
+                // `typeof value === 'number'` already handles basic float check.
+                break;
+            default:
+                return false;
+        }
+
+        return value >= this.min && value <= this.max;
     }
 }

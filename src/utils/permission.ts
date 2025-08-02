@@ -1,197 +1,229 @@
-import { Constant as Database } from "../core/constant";
-import { DatabaseError as Exception } from "../errors/base";
-import Role from "./role.js";
+import { PermissionEnum } from "@core/enums.js";
+import { Role, RoleName } from "./role.js";
+import { StructureException } from "@errors/index.js";
+import { Database } from "@core/database.js";
 
-export default class Permission {
-    private static aggregates: Record<string, string[]> = {
-        write: [
-            Database.PERMISSION_CREATE,
-            Database.PERMISSION_UPDATE,
-            Database.PERMISSION_DELETE,
+/**
+ * Represents a specific permission with an associated Role.
+ * It provides methods for string conversion, parsing, and aggregation.
+ */
+export class Permission {
+    private static aggregates: Record<string, PermissionEnum[]> = {
+        // "write" is an aggregate of create, update, and delete.
+        [PermissionEnum.Write]: [
+            PermissionEnum.Create,
+            PermissionEnum.Update,
+            PermissionEnum.Delete,
         ],
     };
 
-    private role: Role;
+    /**
+     * The permission name (e.g., "read", "write").
+     */
+    public readonly permission: PermissionEnum;
 
-    constructor(
-        private permission: string,
-        role: string,
-        identifier: string = "",
-        dimension: string = "",
-    ) {
-        this.role = new Role(role, identifier, dimension);
+    /**
+     * The role associated with the permission.
+     */
+    public readonly role: Role;
+
+    /**
+     * Permission constructor.
+     *
+     * @param permission - The specific permission (e.g., read, write).
+     * @param role - The Role instance associated with this permission.
+     */
+    constructor(permission: PermissionEnum, role: Role) {
+        this.permission = permission;
+        this.role = role;
     }
 
+    /**
+     * Create a permission string from this Permission instance.
+     * Format: "permission("role:identifier/dimension")".
+     *
+     * @returns {string} The string representation of the permission.
+     */
     public toString(): string {
         return `${this.permission}("${this.role.toString()}")`;
     }
 
-    public getPermission(): string {
+    /**
+     * Get the permission name.
+     * @returns {PermissionEnum}
+     */
+    public getPermission(): PermissionEnum {
         return this.permission;
     }
 
-    public getRole(): string {
-        return this.role.getRole();
+    /**
+     * Get the role name from the associated Role instance.
+     * @returns {RoleName}
+     */
+    public getRole(): RoleName {
+        return this.role.role;
     }
 
-    public getIdentifier(): string {
-        return this.role.getIdentifier();
+    /**
+     * Get the identifier from the associated Role instance.
+     * @returns {string | null}
+     */
+    public getIdentifier(): string | null {
+        return this.role.identifier;
     }
 
-    public getDimension(): string {
-        return this.role.getDimension();
+    /**
+     * Get the dimension from the associated Role instance.
+     * @returns {string | null}
+     */
+    public getDimension(): string | null {
+        return this.role.dimension;
     }
 
-    public static parse(permission: string): Permission {
-        const permissionParts = permission.split('("');
+    /**
+     * Parse a permission string into a Permission object.
+     *
+     * @param permissionString - The permission string to parse.
+     * @returns {Permission} A new Permission instance.
+     * @throws {StructureException} If the permission string is invalid.
+     */
+    public static parse(permissionString: string): Permission {
+        const regex = /^(\w+)\("(.+)"\)$/;
+        const match = permissionString.match(regex);
 
-        if (permissionParts.length !== 2) {
-            throw new Exception(
-                `Invalid permission string format: "${permission}".`,
+        if (!match || match.length !== 3) {
+            throw new StructureException(
+                `Invalid permission string format: "${permissionString}". Expected "permission(\"role:id/dim\")".`
             );
         }
 
-        const perm = permissionParts[0]!;
+        const permissionName = match[1] as PermissionEnum;
+        const roleString = match[2]!;
 
-        if (!this.isValidPermission(perm)) {
-            throw new Exception(`Invalid permission type: "${perm}".`);
+        if (!this.isValidPermission(permissionName)) {
+            throw new StructureException(`Invalid permission type: "${permissionName}".`);
         }
 
-        const fullRole = permissionParts[1]!.replace('")', "");
-        const roleParts = fullRole.split(":");
-        const role = roleParts[0]!;
-
-        const hasIdentifier = roleParts.length > 1;
-        const hasDimension = fullRole.includes("/");
-
-        if (!hasIdentifier && !hasDimension) {
-            return new Permission(perm, role);
-        }
-
-        if (hasIdentifier && !hasDimension) {
-            const identifier = roleParts[1];
-            return new Permission(perm, role, identifier);
-        }
-
-        if (!hasIdentifier) {
-            const dimensionParts = fullRole.split("/");
-            if (dimensionParts.length !== 2) {
-                throw new Exception("Only one dimension can be provided");
+        try {
+            const role = Role.parse(roleString);
+            return new Permission(permissionName, role);
+        } catch (error) {
+            if (error instanceof Error) {
+                throw new StructureException(`Failed to parse role from permission string: ${error.message}`);
             }
-
-            const role = dimensionParts[0]!;
-            const dimension = dimensionParts[1];
-
-            if (!dimension) {
-                throw new Exception("Dimension must not be empty");
-            }
-            return new Permission(perm, role, "", dimension);
+            throw new StructureException("Failed to parse role from permission string.");
         }
-
-        // Has both identifier and dimension
-        const dimensionParts = roleParts[1]!.split("/");
-        if (dimensionParts.length !== 2) {
-            throw new Exception("Only one dimension can be provided");
-        }
-
-        const identifier = dimensionParts[0];
-        const dimension = dimensionParts[1];
-
-        if (!dimension) {
-            throw new Exception("Dimension must not be empty");
-        }
-
-        return new Permission(perm, role, identifier, dimension);
     }
 
+    /**
+     * Checks if a given permission string is a valid, recognized permission.
+     *
+     * @param permission - The permission string to validate.
+     * @returns {boolean} True if the permission is valid, false otherwise.
+     */
     private static isValidPermission(permission: string): boolean {
         return (
-            this.aggregates.hasOwnProperty(permission) ||
-            Database.PERMISSIONS.includes(permission)
+            Object.keys(this.aggregates).includes(permission) ||
+            Database.PERMISSIONS.includes(permission as PermissionEnum)
         );
     }
 
+    /**
+     * Expands an array of permissions, replacing aggregate permissions (like "write")
+     * with their sub-permissions.
+     *
+     * @param permissions - An array of permission strings. Can be null.
+     * @param allowed - The allowed permissions to check against.
+     * @returns {string[] | null} A new array of aggregated permission strings, or null.
+     */
     public static aggregate(
         permissions: string[] | null,
-        allowed: string[] = Database.PERMISSIONS,
+        allowed: PermissionEnum[] = Database.PERMISSIONS,
     ): string[] | null {
         if (permissions === null) {
             return null;
         }
 
-        const mutated: string[] = [];
+        const aggregatedPermissions: string[] = [];
+        const seen = new Set<string>();
+
         for (const permission of permissions) {
-            const parsedPermission = this.parse(permission);
-            for (const [type, subTypes] of Object.entries(this.aggregates)) {
-                if (parsedPermission.getPermission() !== type) {
-                    mutated.push(parsedPermission.toString());
-                    continue;
-                }
-                for (const subType of subTypes) {
-                    if (!allowed.includes(subType)) {
-                        continue;
+            let parsedPermission;
+            try {
+                parsedPermission = this.parse(permission);
+            } catch (e) {
+                // If a permission string can't be parsed, skip it.
+                continue;
+            }
+
+            const permissionName = parsedPermission.getPermission();
+            const role = parsedPermission.role;
+
+            if (Object.keys(this.aggregates).includes(permissionName)) {
+                // If the permission is an aggregate, expand it.
+                for (const subType of this.aggregates[permissionName] as PermissionEnum[]) {
+                    if (allowed.includes(subType)) {
+                        const newPermissionString = new Permission(subType, role).toString();
+                        if (!seen.has(newPermissionString)) {
+                            aggregatedPermissions.push(newPermissionString);
+                            seen.add(newPermissionString);
+                        }
                     }
-                    mutated.push(
-                        new Permission(
-                            subType,
-                            parsedPermission.getRole(),
-                            parsedPermission.getIdentifier(),
-                            parsedPermission.getDimension(),
-                        ).toString(),
-                    );
+                }
+            } else {
+                // If it's a standard permission, just add it.
+                const newPermissionString = parsedPermission.toString();
+                if (!seen.has(newPermissionString)) {
+                    aggregatedPermissions.push(newPermissionString);
+                    seen.add(newPermissionString);
                 }
             }
         }
-        return Array.from(new Set(mutated)); // Remove duplicates
+        return aggregatedPermissions;
     }
 
-    public static read(role: Role): string {
-        const permission = new Permission(
-            "read",
-            role.getRole(),
-            role.getIdentifier(),
-            role.getDimension(),
-        );
-        return permission.toString();
+    /**
+     * Create a "read" permission for a given Role.
+     * @param role - The Role instance.
+     * @returns {Permission} A new Permission instance.
+     */
+    public static read(role: Role): Permission {
+        return new Permission(PermissionEnum.Read, role);
     }
 
-    public static create(role: Role): string {
-        const permission = new Permission(
-            "create",
-            role.getRole(),
-            role.getIdentifier(),
-            role.getDimension(),
-        );
-        return permission.toString();
+    /**
+     * Create a "create" permission for a given Role.
+     * @param role - The Role instance.
+     * @returns {Permission} A new Permission instance.
+     */
+    public static create(role: Role): Permission {
+        return new Permission(PermissionEnum.Create, role);
     }
 
-    public static update(role: Role): string {
-        const permission = new Permission(
-            "update",
-            role.getRole(),
-            role.getIdentifier(),
-            role.getDimension(),
-        );
-        return permission.toString();
+    /**
+     * Create an "update" permission for a given Role.
+     * @param role - The Role instance.
+     * @returns {Permission} A new Permission instance.
+     */
+    public static update(role: Role): Permission {
+        return new Permission(PermissionEnum.Update, role);
     }
 
-    public static delete(role: Role): string {
-        const permission = new Permission(
-            "delete",
-            role.getRole(),
-            role.getIdentifier(),
-            role.getDimension(),
-        );
-        return permission.toString();
+    /**
+     * Create a "delete" permission for a given Role.
+     * @param role - The Role instance.
+     * @returns {Permission} A new Permission instance.
+     */
+    public static delete(role: Role): Permission {
+        return new Permission(PermissionEnum.Delete, role);
     }
 
-    public static write(role: Role): string {
-        const permission = new Permission(
-            "write",
-            role.getRole(),
-            role.getIdentifier(),
-            role.getDimension(),
-        );
-        return permission.toString();
+    /**
+     * Create a "write" permission for a given Role.
+     * @param role - The Role instance.
+     * @returns {Permission} A new Permission instance.
+     */
+    public static write(role: Role): Permission {
+        return new Permission(PermissionEnum.Write, role);
     }
 }

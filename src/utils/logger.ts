@@ -22,4 +22,9 @@ export class Logger {
     debug(message: string, ...args: any[]) {
         this.logger.debug(message, ...args);
     }
+
+    static warn (message: string, ...args: any[]) {
+        const logger = new Logger();
+        logger.warn(message, ...args);
+    }
 }

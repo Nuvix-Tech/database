@@ -1,104 +1,103 @@
 import { Database } from "@core/database.js";
-import { Roles } from "./roles.js";
-import Permission from "@utils/permission.js";
+import { Permission } from "@utils/permission.js";
 import { PermissionEnum } from "@core/enums.js";
+import { Validator } from "./interface.js";
+import { Roles } from "./roles.js";
 
-export class Permissions extends Roles {
-    protected override message: string = "Permissions Error";
-    protected override allowed: string[];
-    protected override length: number;
+/**
+ * Permissions Validator
+ *
+ * Extends the `Roles` validator to specifically handle permission strings,
+ * which may include both a permission action and a role-based target.
+ */
+export class Permissions extends Roles implements Validator {
+    protected override _message: string = "Permissions Error";
+    protected allowedPermissions: PermissionEnum[];
 
     /**
      * Permissions constructor.
      *
-     * @param length - Maximum amount of permissions. 0 means unlimited.
-     * @param allowed - Allowed permissions. Defaults to all available.
+     * @param maxLength - Maximum amount of permissions. 0 means unlimited.
+     * @param allowedPermissions - Allowed permissions. Defaults to a combined list of predefined permissions and all roles.
+     * @throws Error if any allowed permission is not recognized.
      */
     constructor(
-        length: number = 0,
-        allowed: string[] = [
+        maxLength: number = 0,
+        allowedPermissions: PermissionEnum[] = [
             ...Database.PERMISSIONS,
             PermissionEnum.Write,
-        ],
+        ]
     ) {
-        super(length, allowed);
-        this.length = length;
-        this.allowed = allowed;
+        super();
+        this.maxLength = maxLength;
+        this.allowedPermissions = allowedPermissions;
+
+        if (maxLength < 0) {
+            throw new Error("Maximum length of permissions must be a non-negative number.");
+        }
+
+        if (!Array.isArray(allowedPermissions) || allowedPermissions.some(perm => !Object.values(PermissionEnum).includes(perm))) {
+            throw new Error("Allowed permissions must be an array containing valid PermissionName enum values.");
+        }
+        this.allowedPermissions = allowedPermissions;
     }
 
     /**
      * Get Description.
      *
      * Returns validator description
-     *
      * @returns {string}
      */
-    public override getDescription(): string {
-        return this.message;
+    public override get $description(): string {
+        return this._message;
     }
 
     /**
      * Is valid.
      *
      * Returns true if valid or false if not.
-     *
      * @param permissions - Permissions to validate
      * @returns {boolean}
      */
-    public override isValid(permissions: any): boolean {
+    public override $valid(permissions: unknown): boolean {
+        this._message = "Permissions Error";
+
         if (!Array.isArray(permissions)) {
-            this.message = "Permissions must be an array of strings.";
+            this._message = "Permissions must be an array of strings.";
             return false;
         }
 
-        if (this.length && permissions.length > this.length) {
-            this.message =
-                "You can only provide up to " + this.length + " permissions.";
+        if (this.maxLength > 0 && permissions.length > this.maxLength) {
+            this._message = `You can only provide up to ${this.maxLength} permissions.`;
             return false;
         }
 
-        for (const permission of permissions) {
-            if (typeof permission !== "string") {
-                this.message = "Every permission must be of type string.";
+        for (const permissionString of permissions) {
+            if (typeof permissionString !== "string") {
+                this._message = "Every permission must be of type string.";
                 return false;
             }
 
-            if (permission === "*") {
-                this.message =
-                    'Wildcard permission "*" has been replaced. Use "any" instead.';
-                return false;
-            }
-
-            if (permission.startsWith("role:")) {
-                this.message =
-                    'Permissions using the "role:" prefix have been replaced. Use "users", "guests", or "any" instead.';
-                return false;
-            }
-
-            const isAllowed = this.allowed.some((allowed) =>
-                permission.startsWith(allowed),
+            const isAllowed = this.allowedPermissions.some((allowedPerm) =>
+                permissionString.startsWith(allowedPerm)
             );
             if (!isAllowed) {
-                this.message =
-                    'Permission "' +
-                    permission +
-                    '" is not allowed. Must be one of: ' +
-                    this.allowed.join(", ") +
-                    ".";
+                this._message = `Permission "${permissionString}" is not allowed. Must start with one of: ${this.allowedPermissions.join(", ")}.`;
                 return false;
             }
 
             try {
-                const parsedPermission = Permission.parse(permission);
-                const role = parsedPermission.getRole();
+                const parsedPermission = Permission.parse(permissionString);
+                const roleName = parsedPermission.getRole();
                 const identifier = parsedPermission.getIdentifier();
                 const dimension = parsedPermission.getDimension();
 
-                if (!this.isValidRole(role, identifier, dimension)) {
+                if (!this.isValidRoleComponents(roleName, identifier, dimension)) {
+                    // The parent method sets the `_message` for us
                     return false;
                 }
             } catch (error) {
-                this.message = (error as Error).message;
+                this._message = (error instanceof Error) ? error.message : "Failed to parse permission string.";
                 return false;
             }
         }

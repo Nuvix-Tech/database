@@ -1,266 +1,231 @@
-import { Key } from "../core/validator/Key";
-import { Label } from "../core/validator/Label";
-import Role from "./Role";
+import { Role as RoleParser, RoleName, UserDimension } from "../utils/role.js";
+import { Validator } from "./interface.js";
+import { Key } from "./key.js";
+import { Label } from "./label.js";
 
-export class Roles {
-    // Roles
-    public static readonly ROLE_ANY = "any";
-    public static readonly ROLE_GUESTS = "guests";
-    public static readonly ROLE_USERS = "users";
-    public static readonly ROLE_USER = "user";
-    public static readonly ROLE_TEAM = "team";
-    public static readonly ROLE_MEMBER = "member";
-    public static readonly ROLE_LABEL = "label";
+interface RoleConfigDetail {
+    allowed: boolean;
+    required: boolean;
+    options?: string[];
+}
 
-    public static readonly ROLES = [
-        Roles.ROLE_ANY,
-        Roles.ROLE_GUESTS,
-        Roles.ROLE_USERS,
-        Roles.ROLE_USER,
-        Roles.ROLE_TEAM,
-        Roles.ROLE_MEMBER,
-        Roles.ROLE_LABEL,
-    ];
+interface RoleConfiguration {
+    identifier: RoleConfigDetail;
+    dimension: RoleConfigDetail;
+}
 
-    // Dimensions
-    public static readonly DIMENSION_VERIFIED = "verified";
-    public static readonly DIMENSION_UNVERIFIED = "unverified";
+/**
+ * Roles Validator
+ *
+ * Validates an array of role strings based on defined configurations and constraints.
+ */
+export class Roles implements Validator {
+    public static readonly ROLES_LIST: RoleName[] = Object.values(RoleName);
+    public static readonly USER_DIMENSIONS_LIST: UserDimension[] = Object.values(UserDimension);
 
-    public static readonly USER_DIMENSIONS = [
-        Roles.DIMENSION_VERIFIED,
-        Roles.DIMENSION_UNVERIFIED,
-    ];
-
-    protected message: string = "Roles Error";
-    protected allowed: string[];
-    protected length: number;
-
-    public static readonly CONFIG: Record<
-        string,
-        {
-            identifier: { allowed: boolean; required: boolean };
-            dimension: {
-                allowed: boolean;
-                required: boolean;
-                options?: string[];
-            };
-        }
-    > = {
-        [Roles.ROLE_ANY]: {
+    public static readonly CONFIG: Record<RoleName, RoleConfiguration> = {
+        [RoleName.ANY]: {
             identifier: { allowed: false, required: false },
             dimension: { allowed: false, required: false },
         },
-        [Roles.ROLE_GUESTS]: {
+        [RoleName.GUESTS]: {
             identifier: { allowed: false, required: false },
             dimension: { allowed: false, required: false },
         },
-        [Roles.ROLE_USERS]: {
+        [RoleName.USERS]: {
             identifier: { allowed: false, required: false },
             dimension: {
                 allowed: true,
                 required: false,
-                options: Roles.USER_DIMENSIONS,
+                options: Roles.USER_DIMENSIONS_LIST,
             },
         },
-        [Roles.ROLE_USER]: {
+        [RoleName.USER]: {
             identifier: { allowed: true, required: true },
             dimension: {
                 allowed: true,
                 required: false,
-                options: Roles.USER_DIMENSIONS,
+                options: Roles.USER_DIMENSIONS_LIST,
             },
         },
-        [Roles.ROLE_TEAM]: {
+        [RoleName.TEAM]: {
             identifier: { allowed: true, required: true },
             dimension: { allowed: true, required: false },
         },
-        [Roles.ROLE_MEMBER]: {
+        [RoleName.MEMBER]: {
             identifier: { allowed: true, required: true },
             dimension: { allowed: false, required: false },
         },
-        [Roles.ROLE_LABEL]: {
+        [RoleName.LABEL]: {
             identifier: { allowed: true, required: true },
             dimension: { allowed: false, required: false },
         },
     };
 
+    protected _message: string = "Roles Error";
+    protected allowedRoles: RoleName[];
+    protected maxLength: number;
+
     /**
      * Roles constructor.
      *
-     * @param length - Maximum amount of roles. 0 means unlimited.
-     * @param allowed - Allowed roles. Defaults to all available.
+     * @param maxLength - Maximum amount of roles. 0 means unlimited.
+     * @param allowedRoles - Allowed roles. Defaults to all available.
+     * @throws Error if any allowed role is not recognized.
      */
-    constructor(length: number = 0, allowed: string[] = Roles.ROLES) {
-        this.length = length;
-        this.allowed = allowed;
+    constructor(maxLength: number = 0, allowedRoles: RoleName[] = Roles.ROLES_LIST) {
+        if (maxLength < 0) {
+            throw new Error("Maximum length of roles must be a non-negative number.");
+        }
+        this.maxLength = maxLength;
+
+        if (!Array.isArray(allowedRoles) || allowedRoles.some(role => !Object.values(RoleName).includes(role))) {
+            throw new Error("Allowed roles must be an array containing valid RoleName enum values.");
+        }
+        this.allowedRoles = allowedRoles;
     }
 
     /**
      * Get Description.
-     *
      * Returns validator description
-     *
      * @returns {string}
      */
-    public getDescription(): string {
-        return this.message;
+    public get $description(): string {
+        return this._message;
     }
 
     /**
      * Is valid.
-     *
      * Returns true if valid or false if not.
      *
      * @param roles - Roles to validate
      * @returns {boolean}
      */
-    public isValid(roles: any): boolean {
+    public $valid(roles: unknown): boolean {
+        this._message = "Roles Error";
+
         if (!Array.isArray(roles)) {
-            this.message = "Roles must be an array of strings.";
+            this._message = "Roles must be an array of strings.";
             return false;
         }
 
-        if (this.length && roles.length > this.length) {
-            this.message =
-                "You can only provide up to " + this.length + " roles.";
+        if (this.maxLength > 0 && roles.length > this.maxLength) {
+            this._message = `You can only provide up to ${this.maxLength} roles.`;
             return false;
         }
 
-        for (const role of roles) {
-            if (typeof role !== "string") {
-                this.message = "Every role must be of type string.";
+        for (const roleString of roles) {
+            if (typeof roleString !== "string") {
+                this._message = "Every role must be of type string.";
                 return false;
             }
 
-            const isAllowed = this.allowed.some((allowed) =>
-                role.startsWith(allowed),
+            const isBaseRoleAllowed = this.allowedRoles.some((allowedBaseRole) =>
+                roleString.startsWith(allowedBaseRole)
             );
-            if (!isAllowed) {
-                this.message =
-                    'Role "' +
-                    role +
-                    '" is not allowed. Must be one of: ' +
-                    this.allowed.join(", ") +
-                    ".";
+
+            if (!isBaseRoleAllowed) {
+                this._message = `Role "${roleString}" is not allowed. Must start with one of: ${this.allowedRoles.join(", ")}.`;
                 return false;
             }
 
             try {
-                const parsedRole = Role.parse(role);
-                const roleName = parsedRole.getRole();
-                const identifier = parsedRole.getIdentifier();
-                const dimension = parsedRole.getDimension();
+                const parsedRole = RoleParser.parse(roleString);
+                const roleName = parsedRole.role;
+                const identifier = parsedRole.identifier;
+                const dimension = parsedRole.dimension;
 
-                if (!this.isValidRole(roleName, identifier, dimension)) {
+                if (!this.isValidRoleComponents(roleName, identifier, dimension)) {
                     return false;
                 }
             } catch (error) {
-                this.message = (error as Error).message;
+                this._message = (error instanceof Error) ? error.message : "Failed to parse role string.";
                 return false;
             }
         }
+
         return true;
     }
 
-    protected isValidRole(
-        role: string,
-        identifier: string,
-        dimension: string,
+    /**
+     * Internal helper to validate role components (name, identifier, dimension).
+     * This method directly sets the `_message` property on failure.
+     */
+    protected isValidRoleComponents(
+        roleName: RoleName,
+        identifier: string | null,
+        dimension: string | null,
     ): boolean {
-        const key = new Key();
-        const label = new Label();
-        const config = Roles.CONFIG[role as keyof typeof Roles.CONFIG] || null;
+        const keyValidator = new Key();
+        const labelValidator = new Label();
+
+        const config = Roles.CONFIG[roleName];
 
         if (!config) {
-            this.message =
-                'Role "' +
-                role +
-                '" is not allowed. Must be one of: ' +
-                Roles.ROLES.join(", ") +
-                ".";
+            this._message = `Internal error: Configuration not found for role "${roleName}".`;
             return false;
         }
 
-        // Process identifier configuration
-        const { allowed: identifierAllowed, required: identifierRequired } =
-            config.identifier;
+        const { allowed: identifierAllowed, required: identifierRequired } = config.identifier;
 
-        if (!identifierAllowed && identifier) {
-            this.message = 'Role "' + role + '" cannot have an ID value.';
+        if (!identifierAllowed && identifier !== null) {
+            this._message = `Role "${roleName}" cannot have an ID value.`;
             return false;
         }
 
-        if (identifierAllowed && identifierRequired && !identifier) {
-            this.message = 'Role "' + role + '" must have an ID value.';
+        if (identifierAllowed && identifierRequired && identifier === null) {
+            this._message = `Role "${roleName}" must have an ID value.`;
             return false;
         }
 
-        if (
-            identifierAllowed &&
-            identifier &&
-            role === Roles.ROLE_LABEL &&
-            !label.isValid(identifier)
-        ) {
-            this.message =
-                'Role "' +
-                role +
-                '" identifier value is invalid: ' +
-                label.getDescription();
-            return false;
-        } else if (
-            identifierAllowed &&
-            identifier &&
-            role !== Roles.ROLE_LABEL &&
-            !key.isValid(identifier)
-        ) {
-            this.message =
-                'Role "' +
-                role +
-                '" identifier value is invalid: ' +
-                key.getDescription();
-            return false;
+        if (identifierAllowed && identifier !== null) {
+            let isIdentifierValid = true;
+            let identifierErrorMessage = "";
+
+            if (roleName === RoleName.LABEL) {
+                if (!labelValidator.$valid(identifier)) {
+                    isIdentifierValid = false;
+                    identifierErrorMessage = labelValidator.$description;
+                }
+            } else {
+                if (!keyValidator.$valid(identifier)) {
+                    isIdentifierValid = false;
+                    identifierErrorMessage = keyValidator.$description;
+                }
+            }
+
+            if (!isIdentifierValid) {
+                this._message = `Role "${roleName}" identifier value is invalid: ${identifierErrorMessage}`;
+                return false;
+            }
         }
 
-        // Process dimension configuration
         const {
             allowed: dimensionAllowed,
             required: dimensionRequired,
-            options = [],
+            options: dimensionOptions = [],
         } = config.dimension;
 
-        if (!dimensionAllowed && dimension) {
-            this.message = 'Role "' + role + '" cannot have a dimension value.';
+        if (!dimensionAllowed && dimension !== null) {
+            this._message = `Role "${roleName}" cannot have a dimension value.`;
             return false;
         }
 
-        if (dimensionAllowed && dimensionRequired && !dimension) {
-            this.message = 'Role "' + role + '" must have a dimension value.';
+        if (dimensionAllowed && dimensionRequired && dimension === null) {
+            this._message = `Role "${roleName}" must have a dimension value.`;
             return false;
         }
 
-        if (
-            dimensionAllowed &&
-            dimension &&
-            Array.isArray(options) &&
-            options.length > 0 &&
-            !options.includes(dimension)
-        ) {
-            this.message =
-                'Role "' +
-                role +
-                '" dimension value is invalid. Must be one of: ' +
-                options.join(", ") +
-                ".";
-            return false;
-        }
+        if (dimensionAllowed && dimension !== null) {
+            if (dimensionOptions.length > 0 && !dimensionOptions.includes(dimension)) {
+                this._message = `Role "${roleName}" dimension value is invalid. Must be one of: ${dimensionOptions.join(", ")}.`;
+                return false;
+            }
 
-        if (dimensionAllowed && dimension && !key.isValid(dimension)) {
-            this.message =
-                'Role "' +
-                role +
-                '" dimension value is invalid: ' +
-                key.getDescription();
-            return false;
+            if (!keyValidator.$valid(dimension)) {
+                this._message = `Role "${roleName}" dimension value is invalid: ${keyValidator.$description}.`;
+                return false;
+            }
         }
 
         return true;

@@ -1,13 +1,15 @@
-import { Validator } from "../Validator";
+import { Validator } from "@validators/interface.js";
 
-export abstract class Base extends Validator {
-    public static readonly METHOD_TYPE_LIMIT = "limit";
-    public static readonly METHOD_TYPE_OFFSET = "offset";
-    public static readonly METHOD_TYPE_CURSOR = "cursor";
-    public static readonly METHOD_TYPE_ORDER = "order";
-    public static readonly METHOD_TYPE_FILTER = "filter";
-    public static readonly METHOD_TYPE_SELECT = "select";
+export enum MethodType {
+    Limit = "limit",
+    Offset = "offset",
+    Cursor = "cursor",
+    Order = "order",
+    Filter = "filter",
+    Select = "select",
+}
 
+export abstract class Base implements Validator {
     protected message: string = "Invalid query";
 
     /**
@@ -17,31 +19,11 @@ export abstract class Base extends Validator {
      *
      * @returns {string}
      */
-    public getDescription(): string {
+    public get $description(): string {
         return this.message;
     }
 
-    /**
-     * Is array
-     *
-     * Function will return true if object is array.
-     *
-     * @returns {boolean}
-     */
-    public isArray(): boolean {
-        return false;
-    }
-
-    /**
-     * Get Type
-     *
-     * Returns validator type.
-     *
-     * @returns {string}
-     */
-    public getType(): string {
-        return "object"; // Assuming TYPE_OBJECT is equivalent to 'object'
-    }
+    abstract $valid(query: unknown): boolean;
 
     /**
      * Returns what type of query this Validator is for
