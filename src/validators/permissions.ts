@@ -1,6 +1,7 @@
-import { Database } from "../core/database";
-import Permission from "./Permission";
+import { Database } from "@core/database.js";
 import { Roles } from "./roles.js";
+import Permission from "@utils/permission.js";
+import { PermissionEnum } from "@core/enums.js";
 
 export class Permissions extends Roles {
     protected override message: string = "Permissions Error";
@@ -17,7 +18,7 @@ export class Permissions extends Roles {
         length: number = 0,
         allowed: string[] = [
             ...Database.PERMISSIONS,
-            Database.PERMISSION_WRITE,
+            PermissionEnum.Write,
         ],
     ) {
         super(length, allowed);
