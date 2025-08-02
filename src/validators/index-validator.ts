@@ -1,250 +1,82 @@
-import { Validator } from "./Validator";
-import { Document } from "../Document";
-import { Constant as Database } from "../constant";
+import { Doc } from "@core/doc.js";
+import { Validator } from "./interface.js";
+import { Attribute } from "./schema.js";
+import { Database } from "@core/database.js";
+import { type Index as IndexType } from "./schema.js";
+import { AttributeEnum, IndexEnum } from "@core/enums.js";
 
-export class Index extends Validator {
-    protected message: string = "Invalid index";
+/**
+ * Helper function to capitalize the first letter of a string.
+ */
+function capitalize(str: string): string {
+    if (!str) return "";
+    return str.charAt(0).toUpperCase() + str.slice(1);
+}
+
+
+/**
+ * Validates a database index definition.
+ * It checks for attribute existence, duplicates, type compatibility for fulltext indexes,
+ * array attribute rules, index length limits, and reserved names.
+ */
+export class Index implements Validator {
+    protected message: string = "Invalid index.";
     protected maxLength: number;
-    protected attributes: Record<string, Document> = {};
+    protected attributes: Record<string, Doc<Attribute>> = {};
     protected reservedKeys: string[];
 
     /**
      * Index constructor.
      *
-     * @param attributes - Array of Document attributes
-     * @param maxLength - Maximum length for the index
-     * @param reservedKeys - Array of reserved keys
-     * @throws DatabaseException
+     * @param attributes - An array of `Doc<AttributeType>` objects representing the available attributes in the schema.
+     * @param maxLength - The maximum allowed combined length for an index. 0 for unlimited.
+     * @param reservedKeys - An array of string keys that are reserved and cannot be used as index names.
+     * @throws {Error} If `maxLength` is negative.
      */
     constructor(
-        attributes: Document[],
+        attributes: Doc<Attribute>[],
         maxLength: number,
         reservedKeys: string[] = [],
     ) {
-        super();
+        if (maxLength < 0) {
+            throw new Error("Index maximum length must be a non-negative number.");
+        }
         this.maxLength = maxLength;
-        this.reservedKeys = reservedKeys;
+        this.reservedKeys = reservedKeys.map(key => key.toLowerCase());
 
-        for (const attribute of attributes as Document[]) {
-            const key = attribute
-                .getAttribute("key", attribute.getAttribute("$id"))
-                .toLowerCase();
-            this.attributes[key] = attribute;
+        for (const attribute of attributes) {
+            const key = attribute.get("key", attribute.get("$id", "")).toLowerCase();
+            if (key) {
+                this.attributes[key] = attribute;
+            }
         }
 
-        // Assuming Database.INTERNAL_ATTRIBUTES is an array of Document attributes
-        for (const attribute of Database.INTERNAL_ATTRIBUTES) {
-            const key = attribute["$id"].toLowerCase();
-            this.attributes[key] = new Document<typeof attribute>(attribute);
+        for (const attributeData of Database.INTERNAL_ATTRIBUTES) {
+            const key = (attributeData["$id"] ?? '').toLowerCase();
+            if (key) {
+                this.attributes[key] = new Doc<Attribute>(attributeData as Attribute);
+            }
         }
     }
 
     /**
-     * Returns validator description
+     * Returns the validator's description (error message).
      * @returns {string}
      */
-    public getDescription(): string {
+    public get $description(): string {
         return this.message;
     }
 
     /**
-     * Check if attributes are not found in the index.
-     * @param index - The index Document to validate
-     * @returns {boolean}
-     */
-    public checkAttributesNotFound(index: Document): boolean {
-        for (const attribute of index.getAttribute("attributes", [])) {
-            if (!this.attributes.hasOwnProperty(attribute.toLowerCase())) {
-                this.message = `Invalid index attribute "${attribute}" not found`;
-                return false;
-            }
-        }
-        return true;
-    }
-
-    /**
-     * Check if index attributes are empty.
-     * @param index - The index Document to validate
-     * @returns {boolean}
-     */
-    public checkEmptyIndexAttributes(index: Document): boolean {
-        if (index.getAttribute("attributes", []).length === 0) {
-            this.message = "No attributes provided for index";
-            return false;
-        }
-        return true;
-    }
-
-    /**
-     * Check for duplicated attributes in the index.
-     * @param index - The index Document to validate
-     * @returns {boolean}
-     */
-    public checkDuplicatedAttributes(index: Document): boolean {
-        const attributes = index.getAttribute("attributes", []);
-        const stack: string[] = [];
-        for (const attribute of attributes) {
-            const value = attribute.toLowerCase();
-            if (stack.includes(value)) {
-                this.message = "Duplicate attributes provided";
-                return false;
-            }
-            stack.push(value);
-        }
-        return true;
-    }
-
-    /**
-     * Check if fulltext index has non-string attributes.
-     * @param index - The index Document to validate
-     * @returns {boolean}
-     */
-    public checkFulltextIndexNonString(index: Document): boolean {
-        if (index.getAttribute("type") === Database.INDEX_FULLTEXT) {
-            for (const attribute of index.getAttribute("attributes", [])) {
-                const attrDoc =
-                    this.attributes[attribute.toLowerCase()] || new Document();
-                if (attrDoc.getAttribute("type", "") !== Database.VAR_STRING) {
-                    this.message = `Attribute "${attrDoc.getAttribute("key", attrDoc.getAttribute("$id"))}" cannot be part of a FULLTEXT index, must be of type string`;
-                    return false;
-                }
-            }
-        }
-        return true;
-    }
-
-    /**
-     * Check if the index is an array index.
-     * @param index - The index Document to validate
-     * @returns {boolean}
-     */
-    public checkArrayIndex(index: Document): boolean {
-        const attributes = index.getAttribute("attributes", []);
-        const orders = index.getAttribute("orders", []);
-        const lengths = index.getAttribute("lengths", []);
-
-        const arrayAttributes: string[] = [];
-        for (const attributePosition in attributes) {
-            const attributeName = attributes[attributePosition];
-            const attrDoc =
-                this.attributes[attributeName.toLowerCase()] || new Document();
-
-            if (attrDoc.getAttribute("array", false)) {
-                if (index.getAttribute("type") !== Database.INDEX_KEY) {
-                    this.message = `"${capitalize(index.getAttribute("type"))}" index is forbidden on array attributes`;
-                    return false;
-                }
-
-                if (!lengths[attributePosition]) {
-                    this.message = "Index length for array not specified";
-                    return false;
-                }
-
-                arrayAttributes.push(attrDoc.getAttribute("key", ""));
-                if (arrayAttributes.length > 1) {
-                    this.message =
-                        "An index may only contain one array attribute";
-                    return false;
-                }
-
-                const direction = orders[attributePosition] || "";
-                if (direction) {
-                    this.message = `Invalid index order "${direction}" on array attribute "${attrDoc.getAttribute("key", "")}"`;
-                    return false;
-                }
-            } else if (
-                attrDoc.getAttribute("type") !== Database.VAR_STRING &&
-                lengths[attributePosition]
-            ) {
-                this.message = `Cannot set a length on "${attrDoc.getAttribute("type")}" attributes`;
-                return false;
-            }
-        }
-        return true;
-    }
-
-    /**
-     * Check the index length.
-     * @param index - The index Document to validate
-     * @returns {boolean}
-     */
-    public checkIndexLength(index: Document): boolean {
-        if (index.getAttribute("type") === Database.INDEX_FULLTEXT) {
-            return true;
-        }
-
-        let total = 0;
-        const lengths = index.getAttribute("lengths", []);
-
-        for (const attributePosition in index.getAttribute("attributes", [])) {
-            const attributeName =
-                index.getAttribute("attributes")[attributePosition];
-            const attrDoc = this.attributes[attributeName.toLowerCase()]!;
-
-            let indexLength: number;
-            switch (attrDoc.getAttribute("type")) {
-                case Database.VAR_STRING:
-                    const attributeSize = attrDoc.getAttribute("size", 0);
-                    indexLength = lengths[attributePosition] || attributeSize;
-                    break;
-                case Database.VAR_FLOAT:
-                    indexLength = 2; // 8 bytes / 4 mb4
-                    break;
-                default:
-                    indexLength = 1; // 4 bytes / 4 mb4
-                    break;
-            }
-
-            if (attrDoc.getAttribute("array", false)) {
-                indexLength = Database.ARRAY_INDEX_LENGTH;
-            }
-
-            if (
-                attrDoc.getAttribute("size", 0) !== 0 &&
-                indexLength > attrDoc.getAttribute("size", 0)
-            ) {
-                this.message = `Index length ${indexLength} is larger than the size for ${attributeName}: ${attrDoc.getAttribute("size", 0)}`;
-                return false;
-            }
-
-            total += indexLength;
-        }
-
-        if (total > this.maxLength && this.maxLength > 0) {
-            this.message = `Index length is longer than the maximum: ${this.maxLength}`;
-            return false;
-        }
-
-        return true;
-    }
-
-    /**
-     * Check for reserved names in the index.
-     * @param index - The index Document to validate
-     * @returns {boolean}
-     */
-    public checkReservedNames(index: Document): boolean {
-        const key = index.getAttribute("key", index.getAttribute("$id"));
-
-        for (const reserved of this.reservedKeys) {
-            if (key.toLowerCase() === reserved.toLowerCase()) {
-                this.message = "Index key name is reserved";
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    /**
-     * Is valid.
+     * Validates if an index definition is valid.
+     * This method orchestrates all specific validation checks.
      *
-     * Returns true if the index is valid.
-     * @param value - The index Document to validate
-     * @returns {boolean}
-     * @throws DatabaseException
+     * @param value - The `Doc<IndexType>` object representing the index to validate.
+     * @returns {boolean} True if the index is valid, false otherwise.
      */
-    public isValid(value: Document): boolean {
+    public $valid(value: Doc<IndexType>): boolean {
+        this.message = "Invalid index.";
+
         if (!this.checkAttributesNotFound(value)) return false;
         if (!this.checkEmptyIndexAttributes(value)) return false;
         if (!this.checkDuplicatedAttributes(value)) return false;
@@ -257,29 +89,194 @@ export class Index extends Validator {
     }
 
     /**
-     * Is array
-     *
-     * Function will return true if object is array.
-     *
-     * @returns {boolean}
+     * Checks if all attributes specified in the index exist in the schema.
+     * @param index - The index `Doc` to validate.
+     * @returns {boolean} True if all index attributes are found, false otherwise.
      */
-    public isArray(): boolean {
-        return false;
+    protected checkAttributesNotFound(index: Doc<IndexType>): boolean {
+        const indexAttributes = index.get("attributes", []);
+        for (const attributeName of indexAttributes) {
+            if (!this.attributes.hasOwnProperty(attributeName.toLowerCase())) {
+                this.message = `Invalid index attribute "${attributeName}" not found in schema.`;
+                return false;
+            }
+        }
+        return true;
     }
 
     /**
-     * Get Type
-     *
-     * Returns validator type.
-     *
-     * @returns {string}
+     * Checks if the index has at least one attribute defined.
+     * @param index - The index `Doc` to validate.
+     * @returns {boolean} True if index attributes are not empty, false otherwise.
      */
-    public getType(): string {
-        return "object"; // Assuming you want to return a string representation of the type
+    protected checkEmptyIndexAttributes(index: Doc<IndexType>): boolean {
+        if (index.get("attributes", []).length === 0) {
+            this.message = "No attributes provided for index.";
+            return false;
+        }
+        return true;
     }
-}
 
-// Helper function to capitalize the first letter of a string
-function capitalize(str: string): string {
-    return str.charAt(0).toUpperCase() + str.slice(1);
+    /**
+     * Checks for duplicated attributes within the index definition.
+     * @param index - The index `Doc` to validate.
+     * @returns {boolean} True if no duplicated attributes are found, false otherwise.
+     */
+    protected checkDuplicatedAttributes(index: Doc<IndexType>): boolean {
+        const attributes = index.get("attributes", []);
+        const seenAttributes = new Set<string>();
+
+        for (const attributeName of attributes) {
+            const lowercasedAttribute = attributeName.toLowerCase();
+            if (seenAttributes.has(lowercasedAttribute)) {
+                this.message = `Duplicate attribute "${attributeName}" provided in index.`;
+                return false;
+            }
+            seenAttributes.add(lowercasedAttribute);
+        }
+        return true;
+    }
+
+    /**
+     * Checks if a fulltext index contains only string attributes.
+     * @param index - The index `Doc` to validate.
+     * @returns {boolean} True if fulltext index attributes are valid, false otherwise.
+     */
+    protected checkFulltextIndexNonString(index: Doc<IndexType>): boolean {
+        if (index.get("type") === IndexEnum.FullText) {
+            const indexAttributes = index.get("attributes", []);
+            for (const attributeName of indexAttributes) {
+                const attrDoc = this.attributes[attributeName.toLowerCase()]!;
+                if (attrDoc.get("type", "") !== AttributeEnum.String) {
+                    const attrKey = attrDoc.get("key", attrDoc.get("$id", ""));
+                    this.message = `Attribute "${attrKey}" cannot be part of a FULLTEXT index; it must be of type "${AttributeEnum.String}".`;
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Checks rules specific to array attributes within an index.
+     * An index may only contain one array attribute, and specific index types/orders are forbidden.
+     * @param index - The index `Doc` to validate.
+     * @returns {boolean} True if array index rules are followed, false otherwise.
+     */
+    protected checkArrayIndex(index: Doc<IndexType>): boolean {
+        const attributes = index.get("attributes", []);
+        const orders = index.get("orders", []);
+        const lengths = index.get("lengths", []);
+
+        const arrayAttributesInIndex: string[] = [];
+
+        for (let i = 0; i < attributes.length; i++) {
+            const attributeName = attributes[i]!;
+            const attrDoc = this.attributes[attributeName.toLowerCase()]!;
+
+            if (attrDoc.get("array", false) === true) {
+                if (index.get("type") !== IndexEnum.Key) {
+                    this.message = `"${capitalize(index.get("type"))}" index is forbidden on array attributes.`;
+                    return false;
+                }
+
+                if (lengths[i] === undefined || lengths[i] === null) {
+                    this.message = `Index length for array attribute "${attrDoc.get("key", attrDoc.get("$id", ""))}" not specified.`;
+                    return false;
+                }
+
+                arrayAttributesInIndex.push(attrDoc.get("key", ""));
+
+                if (arrayAttributesInIndex.length > 1) {
+                    this.message = "An index may only contain one array attribute.";
+                    return false;
+                }
+
+                const direction = orders[i];
+                if (direction) {
+                    this.message = `Invalid index order "${direction}" on array attribute "${attrDoc.get("key", attrDoc.get("$id", ""))}".`;
+                    return false;
+                }
+            } else if (
+                attrDoc.get("type", "") !== AttributeEnum.String &&
+                lengths[i] !== undefined && lengths[i] !== null
+            ) {
+                // Rule: Cannot set a length on non-string (and non-array) attributes
+                this.message = `Cannot set a length on "${attrDoc.get("type", "")}" attributes.`;
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Checks the total combined length of the index attributes against the `maxLength`.
+     * @param index - The index `Doc` to validate.
+     * @returns {boolean} True if the index length is valid, false otherwise.
+     */
+    protected checkIndexLength(index: Doc<IndexType>): boolean {
+        if (index.get("type") === IndexEnum.FullText) {
+            return true;
+        }
+
+        let totalCombinedLength = 0;
+        const indexAttributes = index.get("attributes", []);
+        const lengths = index.get("lengths", []);
+
+        for (let i = 0; i < indexAttributes.length; i++) {
+            const attributeName = indexAttributes[i]!;
+            const attrDoc = this.attributes[attributeName.toLowerCase()]!;
+
+            let attributeIndexLength: number;
+            const explicitLength = lengths[i];
+
+            if (attrDoc.get("array", false) === true) {
+                attributeIndexLength = Database.ARRAY_INDEX_LENGTH;
+            } else {
+                switch (attrDoc.get("type", "")) {
+                    case AttributeEnum.String:
+                        const attributeSize = attrDoc.get("size", 0);
+                        attributeIndexLength = explicitLength ?? attributeSize;
+                        break;
+                    case AttributeEnum.Float:
+                        attributeIndexLength = 2; // 8 bytes / 4 = 2 (for MySQL index length interpretation)
+                        break;
+                    default:
+                        attributeIndexLength = 1; // 4 bytes / 4 = 1 (for MySQL index length interpretation)
+                        break;
+                }
+            }
+
+            const attributeDefinedSize = attrDoc.get("size", 0);
+            if (attributeDefinedSize > 0 && attributeIndexLength > attributeDefinedSize) {
+                this.message = `Index length ${attributeIndexLength} is larger than the defined size for attribute "${attributeName}": ${attributeDefinedSize}.`;
+                return false;
+            }
+
+            totalCombinedLength += attributeIndexLength;
+        }
+
+        // `this.maxLength > 0` condition implies 0 means unlimited.
+        if (this.maxLength > 0 && totalCombinedLength > this.maxLength) {
+            this.message = `Index length (${totalCombinedLength}) is longer than the maximum allowed (${this.maxLength}).`;
+            return false;
+        }
+
+        return true;
+    }
+
+    /**
+     * Checks if the index's key name is among the reserved keys.
+     * @param index - The index `Doc` to validate.
+     * @returns {boolean} True if the index key is not reserved, false otherwise.
+     */
+    protected checkReservedNames(index: Doc<IndexType>): boolean {
+        const indexKey = (index.get("key", index.get("$id", ""))).toLowerCase();
+
+        if (this.reservedKeys.includes(indexKey)) {
+            this.message = `Index name "${indexKey}" is reserved.`;
+            return false;
+        }
+        return true;
+    }
 }

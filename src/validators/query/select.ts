@@ -2,6 +2,7 @@ import { Doc } from "@core/doc.js";
 import { Base, MethodType } from "./base.js";
 import { Query, QueryType } from "@core/query.js";
 import { Database } from "@core/database.js";
+import { Attribute } from "@validators/schema.js";
 
 export class Select extends Base {
     protected schema: Record<string, any>;
@@ -14,7 +15,7 @@ export class Select extends Base {
         "$collection",
     ];
 
-    constructor(attributes: Doc[] = []) {
+    constructor(attributes: Doc<Attribute>[] = []) {
         super();
         this.schema = {};
         for (const attribute of attributes) {

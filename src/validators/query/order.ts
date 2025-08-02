@@ -1,16 +1,17 @@
 import { Doc } from "@core/doc.js";
 import { Base, MethodType } from "./base.js";
 import { Query, QueryType } from "@core/query.js";
+import { Attribute } from "@validators/schema.js";
 
 export class Order extends Base {
-    private readonly schema: Record<string, Doc> = {};
+    private readonly schema: Record<string, Doc<Attribute>> = {};
 
-    constructor(attributes: Doc[] = []) {
+    constructor(attributes: Doc<Attribute>[] = []) {
         super();
         this.buildSchema(attributes);
     }
 
-    private buildSchema(attributes: Doc[]): void {
+    private buildSchema(attributes: Doc<Attribute>[]): void {
         for (const attribute of attributes) {
             const key = attribute.get("key") ?? attribute.get("$id");
             if (key) {

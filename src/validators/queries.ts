@@ -3,7 +3,7 @@ import { Validator } from "./interface.js";
 import { Base, MethodType } from "./query/base.js";
 
 export class Queries implements Validator {
-    protected _message: string = "Invalid queries";
+    protected message: string = "Invalid queries";
     protected validators: Base[];
     protected maxLength: number;
 
@@ -32,7 +32,7 @@ export class Queries implements Validator {
      * @returns {string}
      */
     public get $description(): string {
-        return this._message;
+        return this.message;
     }
 
     /**
@@ -43,17 +43,17 @@ export class Queries implements Validator {
      * @returns {boolean}
      */
     public $valid(value: unknown): boolean {
-        this._message = "Invalid queries";
+        this.message = "Invalid queries";
 
         if (!Array.isArray(value)) {
-            this._message = "Queries must be an array.";
+            this.message = "Queries must be an array.";
             return false;
         }
 
         const queriesArray: unknown[] = value;
 
         if (this.maxLength > 0 && queriesArray.length > this.maxLength) {
-            this._message = `Too many queries, maximum allowed is ${this.maxLength}.`;
+            this.message = `Too many queries, maximum allowed is ${this.maxLength}.`;
             return false;
         }
 
@@ -62,13 +62,13 @@ export class Queries implements Validator {
 
             if (!(query instanceof Query)) {
                 if (typeof query !== 'string' && typeof query !== 'object' || query === null) {
-                    this._message = "Each query must be a Query object, a JSON string, or a plain object.";
+                    this.message = "Each query must be a Query object, a JSON string, or a plain object.";
                     return false;
                 }
                 try {
                     parsedQuery = Query.parse(query);
                 } catch (error) {
-                    this._message = `Invalid query format or structure: ${(error instanceof Error) ? error.message : "unknown error"}.`;
+                    this.message = `Invalid query format or structure: ${(error instanceof Error) ? error.message : "unknown error"}.`;
                     return false;
                 }
             } else {
@@ -78,7 +78,7 @@ export class Queries implements Validator {
             if (parsedQuery.isNested()) {
                 const nestedQueries = parsedQuery.getValues();
                 if (!Array.isArray(nestedQueries) || nestedQueries.some(val => !(val instanceof Query))) {
-                    this._message = `Nested query values for method "${parsedQuery.getMethod()}" must be an array of Query objects.`;
+                    this.message = `Nested query values for method "${parsedQuery.getMethod()}" must be an array of Query objects.`;
                     return false;
                 }
                 if (!this.$valid(nestedQueries)) {
@@ -91,7 +91,7 @@ export class Queries implements Validator {
             const methodType = this.getMethodType(method);
 
             if (!methodType) {
-                this._message = `Unrecognized query method type for method: "${method}".`;
+                this.message = `Unrecognized query method type for method: "${method}".`;
                 return false;
             }
 
@@ -102,7 +102,7 @@ export class Queries implements Validator {
                 }
 
                 if (!validator.$valid(parsedQuery)) {
-                    this._message = `Invalid query for method "${method}": ${validator.$description}`;
+                    this.message = `Invalid query for method "${method}": ${validator.$description}`;
                     return false;
                 }
 
@@ -115,8 +115,8 @@ export class Queries implements Validator {
                 // This message would be set by the failing validator, or if no validator passed.
                 // If it's still 'Invalid queries' it means no validator matched the type,
                 // or a matched validator's message wasn't specific enough.
-                if (this._message === "Invalid queries") {
-                    this._message = `No valid validator found or query failed for method: "${method}".`;
+                if (this.message === "Invalid queries") {
+                    this.message = `No valid validator found or query failed for method: "${method}".`;
                 }
                 return false;
             }

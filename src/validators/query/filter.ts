@@ -153,6 +153,14 @@ export class Filter extends Base {
             return false;
         }
 
+        if (
+            Array.isArray(attributeSchema.filters) &&
+            attributeSchema.filters.includes("encrypt")
+        ) {
+            this._message = `Cannot query encrypted attribute: ${attribute}`;
+            return false;
+        }
+
         // TODO: recheck 
         if (attribute.includes(".") && !this.schema[attribute]) {
             this._message = "Cannot query on nested attributes.";

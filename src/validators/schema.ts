@@ -7,7 +7,7 @@ export const AttributeSchema = z.object({
     $id: z.string(),
     key: z.string().optional(),
     type: AttributeType,
-    size: z.number().default(0),
+    size: z.number().default(0).optional(),
     required: z.boolean().default(false).optional(),
     signed: z.boolean().default(true).optional(),
     array: z.boolean().default(false).optional(),

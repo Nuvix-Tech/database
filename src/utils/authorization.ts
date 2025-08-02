@@ -1,144 +1,201 @@
+import { Validator } from "@validators/interface.js";
 import { AsyncLocalStorage } from "async_hooks";
 
-export const storage = new AsyncLocalStorage<Map<string, any>>();
+type AuthorizationStore = Map<string, Record<string, boolean> | boolean>;
 
-export class Authorization {
-    private static roles: Record<string, boolean> = { any: true };
+export const storage = new AsyncLocalStorage<AuthorizationStore>();
+
+/**
+ * Manages application authorization roles and status, supporting both
+ * global static state and per-request contextual state using AsyncLocalStorage.
+ */
+export class Authorization implements Validator {
+    private static globalRoles: Record<string, boolean> = { any: true };
+    private static globalStatus: boolean = true;
+    private static useAsyncLocalStorage: boolean = false;
+
     protected action: string;
     protected message: string = "Authorization Error";
 
-    private static statusDefault: boolean = true;
-    private static useStorage: boolean = false; // Determines if AsyncLocalStorage is enabled
-
+    /**
+     * Creates an instance of Authorization for a specific action.
+     * @param action - The action string to check permission for (e.g., "document.create", "user.read").
+     */
     constructor(action: string) {
         this.action = action;
     }
 
-    // ------ STORAGE MANAGEMENT ------
-
     /**
-     * Enables per-request storage (AsyncLocalStorage).
+     * Enables per-request storage using `AsyncLocalStorage`.
+     * When enabled, `setRole`, `getRoles`, `setStatus`, `getStatus`, etc.,
+     * operate on a context-specific store if available.
      */
-    public static enableStorage(): void {
-        this.useStorage = true;
+    public static enableAsyncLocalStorage(): void {
+        this.useAsyncLocalStorage = true;
     }
 
     /**
-     * Disables per-request storage, reverting to default static behavior.
+     * Disables per-request storage, reverting all authorization state management
+     * to global static properties.
      */
-    public static disableStorage(): void {
-        this.useStorage = false;
+    public static disableAsyncLocalStorage(): void {
+        this.useAsyncLocalStorage = false;
     }
 
-    // ------ AUTHORIZATION METHODS ------
-
-    public getDescription(): string {
+    /**
+     * Gets the authorization error message if a check fails.
+     * @returns The error message string.
+     */
+    public get $description(): string {
         return this.message;
     }
 
-    public isValid(permissions: any): boolean {
+    /**
+     * Checks if the provided permissions allow the configured action.
+     * @param permissions - An array of permission strings associated with the current context (e.g., user roles, specific scopes).
+     * @returns `true` if authorization passes, `false` otherwise.
+     */
+    public $valid(permissions: string[]): boolean {
+        // Bypass all authorization checks if the global/contextual status is disabled.
         if (!Authorization.getStatus()) {
             return true;
         }
 
         if (!permissions || permissions.length === 0) {
-            this.message = `No permissions provided for action '${this.action}'`;
+            this.message = `No permissions provided for action '${this.action}'.`;
             return false;
         }
 
+        let lastPermission = "-";
+        const authorizedRoles = Authorization.getRoles();
+
         for (const permission of permissions) {
-            if (Authorization.getRoles().includes(permission)) {
+            lastPermission = permission;
+            if (authorizedRoles.includes(permission)) {
                 return true;
             }
         }
 
-        this.message = `Missing "${this.action}" permission for role "${permissions[0]}". Only "${JSON.stringify(Authorization.getRoles())}" scopes are allowed and "${JSON.stringify(permissions)}" was given.`;
+        this.message = `Missing "${this.action}" permission for role "${lastPermission}". Only "${JSON.stringify(authorizedRoles)}" scopes are allowed and "${JSON.stringify(permissions)}" was given.`;
         return false;
     }
 
-    // ------ ROLES MANAGEMENT ------
+    /**
+     * Gets the current `AuthorizationStore` for the active AsyncLocalStorage context.
+     * If AsyncLocalStorage is not enabled or no store is active, returns `undefined`.
+     * @returns The `AuthorizationStore` map or `undefined`.
+     */
+    private static getStore(): AuthorizationStore | undefined {
+        return this.useAsyncLocalStorage ? storage.getStore() : undefined;
+    }
 
+    /**
+     * Sets a role as authorized.
+     * The role is set either in the current `AsyncLocalStorage` context or globally.
+     * @param role - The role string to set (e.g., "admin", "guest").
+     */
     public static setRole(role: string): void {
-        if (this.useStorage) {
-            const store = storage.getStore();
-            if (store) {
-                const roles = store.get("roles") || {};
-                roles[role] = true;
-                store.set("roles", roles);
-                return;
-            }
-            this.roles[role] = true;
+        const store = this.getStore();
+        if (store) {
+            const roles = (store.get("roles") as Record<string, boolean>) || {};
+            roles[role] = true;
+            store.set("roles", roles);
+        } else {
+            this.globalRoles[role] = true;
         }
-        this.roles[role] = true;
     }
 
+    /**
+     * Unsets (removes) a role from being authorized.
+     * The role is unset either in the current `AsyncLocalStorage` context or globally.
+     * @param role - The role string to unset.
+     */
     public static unsetRole(role: string): void {
-        if (this.useStorage) {
-            const store = storage.getStore();
-            if (store) {
-                const roles = store.get("roles") || {};
-                delete roles[role];
-                store.set("roles", roles);
-                return;
-            }
-            delete this.roles[role];
+        const store = this.getStore();
+        if (store) {
+            const roles = (store.get("roles") as Record<string, boolean>) || {};
+            delete roles[role];
+            store.set("roles", roles);
+        } else {
+            delete this.globalRoles[role];
         }
-        delete this.roles[role];
     }
 
+    /**
+     * Gets all currently authorized roles.
+     * Roles are retrieved from the current `AsyncLocalStorage` context if active, otherwise from global state.
+     * @returns An array of authorized role strings.
+     */
     public static getRoles(): string[] {
-        if (this.useStorage) {
-            const store = storage.getStore();
-            return store
-                ? Object.keys(store.get("roles") || {})
-                : Object.keys(this.roles);
-        }
-        return Object.keys(this.roles);
+        const store = this.getStore();
+        // If store exists, get roles from it, otherwise from globalRoles.
+        return Object.keys((store?.get("roles") as Record<string, boolean>) || this.globalRoles);
     }
 
+    /**
+     * Cleans (removes all) currently authorized roles.
+     * Roles are cleared from the current `AsyncLocalStorage` context if active, otherwise from global state.
+     */
     public static cleanRoles(): void {
-        if (this.useStorage) {
-            const store = storage.getStore();
-            if (store) {
-                store.set("roles", {});
-                return;
-            }
-            this.roles = {};
+        const store = this.getStore();
+        if (store) {
+            store.set("roles", {});
+        } else {
+            this.globalRoles = {};
         }
-        this.roles = {};
     }
 
+    /**
+     * Checks if a specific role is currently authorized.
+     * @param role - The role string to check.
+     * @returns `true` if the role is authorized, `false` otherwise.
+     */
     public static isRole(role: string): boolean {
         return this.getRoles().includes(role);
     }
 
-    // ------ STATUS MANAGEMENT ------
-
+    /**
+     * Sets the default authorization status (applied when no AsyncLocalStorage context is active).
+     * Also sets the current status to this new default.
+     * @param status - The new default status (`true` for enabled, `false` for disabled).
+     */
     public static setDefaultStatus(status: boolean): void {
-        this.statusDefault = status;
+        this.globalStatus = status;
         this.setStatus(status);
     }
 
+    /**
+     * Sets the current authorization status.
+     * The status is set either in the current `AsyncLocalStorage` context or globally.
+     * @param status - The new status (`true` for enabled, `false` for disabled).
+     */
     public static setStatus(status: boolean): void {
-        if (this.useStorage) {
-            const store = storage.getStore();
-            if (store) {
-                store.set("status", status);
-                return;
-            }
-            this.statusDefault = status;
+        const store = this.getStore();
+        if (store) {
+            store.set("status", status);
+        } else {
+            this.globalStatus = status;
         }
-        this.statusDefault = status;
     }
 
+    /**
+     * Gets the current authorization status.
+     * Status is retrieved from the current `AsyncLocalStorage` context if active, otherwise from global state.
+     * @returns The current authorization status.
+     */
     public static getStatus(): boolean {
-        if (this.useStorage) {
-            const store = storage.getStore();
-            return store?.get("status") ?? false;
-        }
-        return this.statusDefault;
+        const store = this.getStore();
+        return store?.get("status") as boolean ?? this.globalStatus;
     }
 
+    /**
+     * Temporarily disables authorization, executes a callback, and then restores the original status.
+     * This is useful for operations that should bypass all authorization checks.
+     *
+     * @template T - The return type of the callback function.
+     * @param callback - An asynchronous function to execute with authorization disabled.
+     * @returns A Promise that resolves with the result of the callback.
+     */
     public static async skip<T>(callback: () => Promise<T>): Promise<T> {
         const initialStatus = this.getStatus();
         this.disable();
@@ -149,15 +206,27 @@ export class Authorization {
         }
     }
 
+    /**
+     * Enables authorization.
+     * This affects the current `AsyncLocalStorage` context or global state.
+     */
     public static enable(): void {
         this.setStatus(true);
     }
 
+    /**
+     * Disables authorization.
+     * This affects the current `AsyncLocalStorage` context or global state.
+     */
     public static disable(): void {
         this.setStatus(false);
     }
 
+    /**
+     * Resets the current authorization status to the `globalStatus`.
+     * This affects the current `AsyncLocalStorage` context or global state.
+     */
     public static reset(): void {
-        this.setStatus(this.statusDefault);
+        this.setStatus(this.globalStatus);
     }
 }

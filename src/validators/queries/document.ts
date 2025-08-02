@@ -1,61 +1,44 @@
-import { Queries } from "./index.js";
-import { Constant as Database } from "../../constant";
-import { Document as DatabaseDocument } from "../../Document";
+import { Queries } from "@validators/queries.js";
 import { Select } from "../query/select.js";
+import { Doc } from "@core/doc.js";
+import { AttributeEnum } from "@core/enums.js";
+import { Attribute } from "@validators/schema.js";
+import { Database } from "@core/database.js";
 
 export class Document extends Queries {
-    protected attributes: DatabaseDocument[];
 
     /**
      * Document constructor.
      *
      * @param attributes - Array of attributes
      */
-    constructor(attributes: DatabaseDocument[] = []) {
-        // Initialize validators first
+    constructor(attributes: Doc<Attribute>[] = []) {
         const workingAttributes = Array.isArray(attributes)
             ? [...attributes]
             : [];
 
-        // Add default attributes
         workingAttributes.push(
-            new DatabaseDocument({
+            new Doc({
                 $id: "$id",
                 key: "$id",
-                type: Database.VAR_STRING,
+                type: AttributeEnum.String,
                 array: false,
+                size: Database.LENGTH_KEY
             }),
-        );
-
-        workingAttributes.push(
-            new DatabaseDocument({
+            new Doc({
                 $id: "$createdAt",
                 key: "$createdAt",
-                type: Database.VAR_DATETIME,
+                type: AttributeEnum.Date,
                 array: false,
             }),
-        );
-
-        workingAttributes.push(
-            new DatabaseDocument({
+            new Doc({
                 $id: "$updatedAt",
                 key: "$updatedAt",
-                type: Database.VAR_DATETIME,
+                type: AttributeEnum.Date,
                 array: false,
             }),
         );
 
-        // Call super with validators
         super([new Select(workingAttributes)]);
-
-        // Initialize class properties after super()
-        this.attributes = workingAttributes;
-    }
-
-    /**
-     * Get document attributes
-     */
-    public getAttributes(): DatabaseDocument[] {
-        return this.attributes;
     }
 }

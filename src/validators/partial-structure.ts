@@ -1,6 +1,7 @@
-import { Structure } from "./Structure";
-import { Document } from "../Document";
-import { Constant as Database } from "../constant";
+import { Doc } from "@core/doc.js";
+import { Structure } from "./structure.js";
+import { Database } from "@core/database.js";
+import { Attribute } from "./schema.js";
 
 export class PartialStructure extends Structure {
     /**
@@ -11,9 +12,9 @@ export class PartialStructure extends Structure {
      * @param document - The document to validate
      * @returns {boolean}
      */
-    public override isValid(document: any): boolean {
-        if (!(document instanceof Document)) {
-            this.message = "Value must be an instance of Document";
+    public override async $valid(document: unknown): Promise<boolean> {
+        if (!(document instanceof Doc)) {
+            this.message = "Value must be an instance of Doc";
             return false;
         }
 
@@ -25,12 +26,12 @@ export class PartialStructure extends Structure {
             return false;
         }
 
-        const structure = document.toObject();
-        const attributes = [
-            ...this.attributes,
+        const structure: Record<string, unknown> = document.toObject();
+        const attributes: Attribute[] = [
+            ...this.systemAttributes,
             ...this.collection
-                .getAttribute("attributes", [])
-                .map((v: any) => (v instanceof Document ? v.toObject() : v)),
+                .get("attributes", [])
+                .map((v: any) => (v instanceof Doc ? v.toObject() : v)),
         ];
 
         for (const attribute of attributes) {
@@ -42,7 +43,7 @@ export class PartialStructure extends Structure {
             return false;
         }
 
-        if (!this.checkForInvalidAttributeValues(structure)) {
+        if (!(await this.checkForInvalidAttributeValues(structure))) {
             return false;
         }
 
