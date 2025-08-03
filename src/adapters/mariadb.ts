@@ -9,15 +9,17 @@ import { ColumnInfo, CreateIndex, UpdateAttribute } from "./types.js";
 import { Attribute } from "@validators/schema.js";
 import { Query, QueryType } from "@core/query.js";
 
-class MariaClient implements IClient {
+export class MariaClient implements IClient {
     private connection: Connection | Pool;
-    private _type: 'connection' | 'pool' = 'connection';
+    private _type: 'connection' | 'pool';
+
+    private readonly isTransactional: boolean = false;
 
     get $database(): string {
         return this.connection.config.database || '';
     }
 
-    get $client() {
+    get $client(): Connection | Pool {
         return this.connection;
     }
 
@@ -25,7 +27,14 @@ class MariaClient implements IClient {
         return this._type;
     }
 
-    constructor(options: PoolOptions | Connection) {
+    constructor(options: PoolOptions | Connection | { _internal_conn_: Connection, _internal_type_: 'connection' }) {
+        if ('_internal_conn_' in options) {
+            this.connection = options._internal_conn_;
+            this._type = options._internal_type_;
+            this.isTransactional = true;
+            return;
+        }
+
         if ('threadId' in options) {
             this.connection = options;
             this._type = 'connection';
@@ -38,61 +47,70 @@ class MariaClient implements IClient {
     async connect(): Promise<void> { }
 
     async disconnect(): Promise<void> {
-        await this.connection.end()
+        if (this.isTransactional) {
+            throw new DatabaseException("Cannot disconnect a client within a transaction.");
+        }
+        await this.connection.end();
     }
 
-    get query() {
-        return this.connection.query
+    public query(sql: string, values?: any): Promise<any> {
+        return this.connection.query(sql, values);
     }
 
-    quote(name: string): string {
-        return `'${name}'`;
+    public quote(value: any): string {
+        return this.connection.escape(value);
+    }
+
+    public quoteId(id: string): string {
+        return this.connection.escapeId(id);
     }
 
     async ping(): Promise<void> {
         try {
-            await this.$client.ping()
+            await this.connection.ping();
         } catch (e) {
-            throw new DatabaseException(`Ping failed.`)
+            throw new DatabaseException(`Ping failed.`);
         }
     }
 
-    async transaction<T>(callback: (client: Connection | PoolConnection) => Promise<T>): Promise<T> {
-        const client = this._type === 'connection' ? this.connection : await (this.connection as Pool).getConnection()
+    async transaction<T>(
+        callback: (client: Omit<IClient, 'transaction' | 'disconnect'>) => Promise<T>,
+        maxRetries = 3
+    ): Promise<T> {
+        if (this.isTransactional) {
+            throw new TransactionException('Cannot start a nested transaction.');
+        }
+
+        const conn = this._type === 'pool'
+            ? await (this.connection as Pool).getConnection()
+            : this.connection as Connection;
+
         try {
-            for (let attempts = 0; attempts < 3; attempts++) {
+            for (let attempt = 1; attempt <= maxRetries; attempt++) {
                 try {
-                    await client.beginTransaction()
-                    const result = await callback(client)
-                    await client.commit();
+                    await conn.beginTransaction();
+
+                    const transactionalClient = new MariaClient({ _internal_conn_: conn, _internal_type_: 'connection' });
+
+                    const result = await callback(transactionalClient);
+                    await conn.commit();
                     return result;
-                } catch (action) {
-                    try {
-                        await client.rollback();
-                    } catch (rollback) {
-                        if (attempts < 2) {
-                            setTimeout(() => { }, 5);
-                            continue;
-                        }
-                        throw rollback;
-                    }
-                    if (attempts < 2) {
-                        setTimeout(() => { }, 5);
+
+                } catch (err: unknown) {
+                    await conn.rollback();
+                    const isDeadlock = err instanceof Error && 'code' in err && err.code === 'ER_LOCK_DEADLOCK';
+
+                    if (isDeadlock && attempt < maxRetries) {
+                        await new Promise(resolve => setTimeout(resolve, 50 * attempt));
                         continue;
                     }
-                    throw action;
+                    throw err;
                 }
             }
-            throw new TransactionException(
-                "Failed to execute transaction after multiple attempts",
-            );
+            throw new TransactionException(`Transaction failed after ${maxRetries} attempts.`);
         } finally {
-            if (this._type === 'pool') {
-                try {
-                    (client as PoolConnection).release();
-                } catch {
-                    console.warn('failed to realese pool client')
-                }
+            if ('release' in conn) {
+                (conn as PoolConnection).release();
             }
         }
     }

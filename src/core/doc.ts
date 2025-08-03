@@ -63,7 +63,7 @@ export class Doc<T extends Partial<IEntity> = IEntity> {
         "toString",
     ];
 
-    constructor(data?: T) {
+    constructor(data?: T & Partial<IEntity>) {
         if (data) {
             if (data.$id && typeof data.$id !== "string") {
                 throw new StructureException("$id must be a string");
@@ -189,7 +189,7 @@ export class Doc<T extends Partial<IEntity> = IEntity> {
         if (typeof value === 'string') {
             return new Date(value);
         }
-        return value as Date;
+        return value as Date | null;
     }
 
     public updatedAt(): Date | null {
@@ -197,7 +197,7 @@ export class Doc<T extends Partial<IEntity> = IEntity> {
         if (typeof value === 'string') {
             return new Date(value);
         }
-        return value as Date;
+        return value as Date | null;
     }
 
     public getPermissions(): string[] {

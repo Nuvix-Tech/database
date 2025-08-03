@@ -87,6 +87,10 @@ export abstract class BaseAdapter extends EventEmitter {
         return this._meta.metadata ?? {};
     }
 
+    public get $client() {
+        return this.client;
+    }
+
     public setMeta(meta: Partial<Meta>) {
         if (this._meta.metadata) {
             this._meta.metadata = { ...this._meta.metadata, ...meta.metadata };

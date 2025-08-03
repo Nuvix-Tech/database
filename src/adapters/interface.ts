@@ -61,10 +61,12 @@ export interface IClient {
     $database: string;
     connect(): Promise<void>;
     disconnect(): Promise<void>;
-    transaction<T>(callback: (client: any) => Promise<T>): Promise<T>;
+    transaction<T>(
+        callback: (client: Omit<IClient, 'transaction' | 'disconnect'>) => Promise<T>
+    ): Promise<T>;
     query<T>(query: string, params?: any[]): Promise<T>;
     ping(): Promise<void>;
-    quote(name: string): string;
+    quote(value: string): string;
 }
 
 export interface CreateCollectionOptions {

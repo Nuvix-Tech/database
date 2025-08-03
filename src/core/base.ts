@@ -5,6 +5,7 @@ import { Cache } from "@nuvix/cache";
 import { Filter, Filters } from "./types.js";
 import { Adapter } from "@adapters/base.js";
 import { filters } from "@utils/filters.js";
+import { Doc } from "./doc.js";
 
 export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends Emitter<T> {
     public static METADATA = '_metadata' as const;
@@ -170,22 +171,22 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
         return this.adapter;
     }
 
-    public enableFilter(): this {
+    public enableFilters(): this {
         this.filter = true;
         return this;
     }
 
-    public disableFilter(): this {
+    public disableFilters(): this {
         this.filter = false;
         return this;
     }
 
-    public enableValidate(): this {
+    public enableValidation(): this {
         this.validate = true;
         return this;
     }
 
-    public disableValidate(): this {
+    public disableValidation(): this {
         this.validate = false;
         return this;
     }
@@ -223,9 +224,147 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
         return this;
     }
 
+    public async withRequestTimestamp<T>(
+        requestTimestamp: Date | null,
+        callback: Callback<T>,
+    ): Promise<T> {
+        const previous = this.timestamp;
+        this.timestamp = requestTimestamp ?? undefined;
+        try {
+            return await callback();
+        } finally {
+            this.timestamp = previous;
+        }
+    }
+
+    public async skipFilters<T>(callback: Callback<T>): Promise<T> {
+        const initial = this.filter;
+        this.disableFilters();
+
+        try {
+            return await callback();
+        } finally {
+            this.filter = initial;
+        }
+    }
+
+    public async skipValidation<T>(callback: Callback<T>): Promise<T> {
+        const initial = this.validate;
+        this.disableValidation();
+
+        try {
+            return await callback();
+        } finally {
+            this.validate = initial;
+        }
+    }
+
+    public async withTenant<T>(
+        tenantId: number | null,
+        callback: Callback<T>,
+    ): Promise<T> {
+        const previous = this.adapter.$tenantId;
+        this.adapter.setMeta({ tenantId: tenantId ?? undefined });
+
+        try {
+            return await callback();
+        } finally {
+            this.adapter.setMeta({ tenantId: previous });
+        }
+    }
+
+    public async withPreserveDates<T>(callback: Callback<T>): Promise<T> {
+        const previous = this.preserveDates;
+        this.preserveDates = true;
+
+        try {
+            return await callback();
+        } finally {
+            this.preserveDates = previous;
+        }
+    }
+
+    public get withTransaction() {
+        return this.adapter.$client.transaction
+    }
+
+    public get ping() {
+        return this.adapter.$client.ping
+    }
+
+    public cast<T extends Record<string, any>>(collection: Doc<Collection>, document: Doc<T>): Doc<T> {
+        if (this.adapter.$supportForCasting) {
+            return document;
+        }
+
+        const attributes: (Attribute | Doc<Attribute>)[] = collection.get('attributes') ?? [];
+        for (const attribute of Base.INTERNAL_ATTRIBUTES) {
+            attributes.push(attribute);
+        }
+
+        for (const attr of attributes) {
+            const attribute = attr instanceof Doc ? attr.toObject() : attr;
+            const key = attribute.$id ?? '';
+            const type = attribute.type ?? '';
+            const array = attribute.array ?? false;
+            const value = document.get(key, null);
+
+            if (value === null || value === undefined) {
+                continue;
+            }
+
+            let processedValue: any;
+            if (array) {
+                processedValue = typeof value === 'string'
+                    ? JSON.parse(value)
+                    : value;
+            } else {
+                processedValue = [value];
+            }
+
+            for (let index = 0; index < processedValue.length; index++) {
+                let node = processedValue[index];
+
+                switch (type) {
+                    case AttributeEnum.Boolean:
+                        node = Boolean(node);
+                        break;
+                    case AttributeEnum.Integer:
+                        node = parseInt(node, 10);
+                        break;
+                    case AttributeEnum.Float:
+                        node = parseFloat(node);
+                        break;
+                    default:
+                        break;
+                }
+
+                processedValue[index] = node;
+            }
+
+            document.set(key, array ? processedValue : processedValue[0]);
+        }
+        return document;
+    }
+
+
+
+    public getInternalAttributes(): Attribute[] {
+        let attributes = Base.INTERNAL_ATTRIBUTES;
+
+        if (!this.sharedTables) {
+            attributes = Base.INTERNAL_ATTRIBUTES.filter(attribute =>
+                attribute.$id !== '$tenant'
+            );
+        }
+
+        return attributes;
+    }
 }
 
 type Options = {
     tenant?: number;
     filters?: Filters;
 };
+
+type Callback<T> = () => Promise<T> | T;
