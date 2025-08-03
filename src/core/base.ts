@@ -204,6 +204,10 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
         return this.adapter.$sharedTables;
     }
 
+    public get migrating(): boolean {
+        return false; // TODO: ----
+    }
+
     public get tenantId(): number | undefined {
         return this.adapter.$tenantId;
     }

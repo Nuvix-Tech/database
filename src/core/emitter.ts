@@ -21,6 +21,7 @@ export type EmitterEventMap = Record<string | symbol, any[]> & {
     [EventsEnum.All]: WildcardListener<any>;
     [EventsEnum.DatabaseCreate]: [string];
     [EventsEnum.CollectionRead]: [Doc<Collection>];
+    [EventsEnum.CollectionCreate]: [Doc<Collection>];
     'error': [Error, string | number | symbol, string];
 };
 

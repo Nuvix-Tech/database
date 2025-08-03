@@ -10,6 +10,7 @@ import { Query, QueryType } from "@core/query.js";
 import { Entities, IEntity } from "types.js";
 import { Logger } from "@utils/logger.js";
 import { Authorization } from "@utils/authorization.js";
+import { Collection, Index } from "@validators/schema.js";
 
 export abstract class BaseAdapter extends EventEmitter {
     public readonly type: string = 'base';
@@ -1082,12 +1083,101 @@ export abstract class BaseAdapter extends EventEmitter {
         return value;
     }
 
-    public getCountOfAttributes(collection: Doc): number {
+    public getAttributeWidth(collection: Doc<Collection>): number {
+        /**
+         * @link https://dev.mysql.com/doc/refman/8.0/en/storage-requirements.html
+         *
+         * `_id` bigint => 8 bytes
+         * `_uid` varchar(255) => 1021 (4 * 255 + 1) bytes
+         * `_tenant` int => 4 bytes
+         * `_createdAt` datetime(3) => 7 bytes
+         * `_updatedAt` datetime(3) => 7 bytes
+         * `_permissions` mediumtext => 20
+         */
+
+        let total = 1067;
+
+        const attributes = collection.get('attributes', []);
+
+        for (const attr of attributes) {
+            const attribute = attr.toObject();
+            /**
+             * Json / Longtext
+             * only the pointer contributes 20 bytes
+             * data is stored externally
+             */
+
+            if (attribute.array ?? false) {
+                total += 20;
+                continue;
+            }
+
+            switch (attribute.type) {
+                case AttributeEnum.String:
+                    /**
+                     * Text / Mediumtext / Longtext
+                     * only the pointer contributes 20 bytes to the row size
+                     * data is stored externally
+                     */
+                    attribute.size = attribute?.size ?? 255;
+                    if (attribute?.size > this.$maxVarcharLength) {
+                        total += 20;
+                    } else if (attribute.size > 255) {
+                        total += attribute.size * 4 + 2; // VARCHAR(>255) + 2 length
+                    } else {
+                        total += attribute.size * 4 + 1; // VARCHAR(<=255) + 1 length
+                    }
+                    break;
+
+                case AttributeEnum.Integer:
+                    attribute.size = attribute?.size ?? 4;
+                    if (attribute.size >= 8) {
+                        total += 8; // BIGINT 8 bytes
+                    } else {
+                        total += 4; // INT 4 bytes
+                    }
+                    break;
+
+                case AttributeEnum.Float:
+                    total += 8; // DOUBLE 8 bytes
+                    break;
+
+                case AttributeEnum.Boolean:
+                    total += 1; // TINYINT(1) 1 bytes
+                    break;
+
+                case AttributeEnum.Relationship:
+                    total += Database.LENGTH_KEY * 4 + 1; // VARCHAR(<=255)
+                    break;
+
+                case AttributeEnum.Datetime:
+                    /**
+                     * 1 byte year + month
+                     * 1 byte for the day
+                     * 3 bytes for the hour, minute, and second
+                     * 2 bytes miliseconds DATETIME(3)
+                     */
+                    total += 7;
+                    break;
+                case AttributeEnum.Object:
+                    total += 20; // JSON / LONGTEXT pointer
+                    break;
+                case AttributeEnum.Virtual:
+                    break; // Virtual attributes do not contribute to the row size
+                default:
+                    throw new DatabaseException('Unknown type: ' + attribute.type);
+            }
+        }
+
+        return total;
+    }
+
+    public getCountOfAttributes(collection: Doc<Collection>): number {
         const attributes = collection.get('attributes', []);
         return attributes.length + this.$countOfDefaultAttributes;
     }
 
-    public getCountOfIndexes(collection: Doc): number {
+    public getCountOfIndexes(collection: Doc<Collection>): number {
         const indexes = collection.get('indexes', []);
         return indexes.length + this.$countOfDefaultIndexes;
     }

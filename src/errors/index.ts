@@ -12,4 +12,13 @@ export { default as StructureException } from "./structure.js";
 export { default as TimeoutException } from "./timeout.js";
 export { default as TransactionException } from "./transaction.js";
 export { default as TruncateException } from "./truncate.js";
-export * from "./base.js";
+import { DatabaseException } from "./base.js";
+
+export class IndexException extends DatabaseException {
+    constructor(message: string) {
+        super(message);
+        this.name = "IndexException";
+    }
+}
+
+export { DatabaseException };

@@ -8,7 +8,7 @@ import { Entities, IEntity } from "types.js";
 import { QueryBuilder } from "@utils/query-builder.js";
 import { Query } from "./query.js";
 import { Doc } from "./doc.js";
-import { DatabaseException, DuplicateException, NotFoundException } from "@errors/index.js";
+import { DatabaseException, DuplicateException, IndexException, LimitException, NotFoundException } from "@errors/index.js";
 import { Permission } from "@utils/permission.js";
 import { Role } from "@utils/role.js";
 import { Permissions } from "@validators/permissions.js";
@@ -28,11 +28,10 @@ export class Database extends Cache {
 
         const attributes = [...Database.COLLECTION.attributes]
             .map((attr) => new Doc(attr));
-        await this.silent(() => this.createCollection(Database.METADATA, attributes));
+        await this.silent(() => this.createCollection({ id: Database.METADATA, attributes }));
 
         this.trigger(EventsEnum.DatabaseCreate, database);
     }
-
 
     /**
      * Creates a new collection in the database.
@@ -53,10 +52,6 @@ export class Database extends Cache {
         let collection = await this.silent(() => this.getCollection(id));
         if (!collection.empty() && id !== Database.METADATA) {
             throw new DuplicateException(`Collection "${id}" already exists.`);
-        }
-
-        if (id === Database.METADATA) {
-            throw new DatabaseException(`Collection "${id}" is reserved for metadata.`);
         }
 
         // Fix metadata index length & orders
@@ -112,14 +107,42 @@ export class Database extends Cache {
                 this.adapter.$supportForIndexArray,
             )
             indexes.forEach((index) => {
-                if (!validator.$valid(index)) throw new Index
+                if (!validator.$valid(index)) throw new IndexException(validator.$description);
             })
         }
 
-        await this.createDocument(Database.METADATA, collection);
-        this.trigger(EventsEnum.CollectionCreate, collection);
+        if (indexes.length && this.adapter.getCountOfIndexes(collection) > this.adapter.$limitForIndexes) {
+            throw new LimitException(`Index limit of ${this.adapter.$limitForIndexes} exceeded. Cannot create collection.`);
+        }
 
-        return collection;
+        if (attributes.length) {
+            if (this.adapter.$limitForAttributes && attributes.length > this.adapter.$limitForAttributes) {
+                throw new LimitException(`Attribute limit of ${this.adapter.$limitForAttributes} exceeded. Cannot create collection.`,);
+            }
+            if (this.adapter.$documentSizeLimit && this.adapter.getAttributeWidth(collection) > this.adapter.$documentSizeLimit) {
+                throw new LimitException(`Document size limit of ${this.adapter.$documentSizeLimit} exceeded. Cannot create collection.`);
+            }
+        }
+
+        try {
+            await this.adapter.createCollection({ name: id, attributes, indexes });
+        } catch (error) {
+            if (error instanceof DuplicateException) {
+                // $HACK: Metadata should still be updated, can be removed when null tenant collections are supported.
+                if (!this.sharedTables || !this.migrating) {
+                    throw error;
+                }
+            } else {
+                throw error;
+            }
+        }
+
+        if (id === Database.METADATA) return new Doc(Database.COLLECTION);
+
+        const createdCollection = await this.silent(() => this.createDocument(Database.METADATA, collection));
+        this.trigger(EventsEnum.CollectionCreate, createdCollection);
+
+        return createdCollection;
     }
 
     /**
