@@ -290,7 +290,7 @@ export class Structure implements Validator {
                 continue;
             }
 
-            if (type === AttributeEnum.Relation || type === AttributeEnum.Virtual) {
+            if (type === AttributeEnum.Relationship || type === AttributeEnum.Virtual) {
                 continue;
             }
 

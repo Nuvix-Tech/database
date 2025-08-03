@@ -227,6 +227,45 @@ export class Database extends Cache {
         throw new Error("Method not implemented.");
     }
 
+    /**
+     * Gets the size of a collection.
+     */
+    public async getSizeOfCollection(collectionId: string): Promise<number> {
+        const collection = await this.silent(() => this.getCollection(collectionId));
+
+        if (collection.empty()) {
+            throw new NotFoundException(`Collection "${collectionId}" not found`);
+        }
+
+        if (this.adapter.$sharedTables && collection.getTenant() !== this.adapter.$tenantId) {
+            throw new NotFoundException(`Collection "${collectionId}" not found`);
+        }
+
+        return this.adapter.getSizeOfCollection(collection.getId());
+    }
+
+    public async getSizeOfCollectionOnDisk(collectionId: string): Promise<number> {
+        if (this.adapter.$sharedTables && !this.adapter.$tenantId) {
+            throw new DatabaseException('Missing tenant. Tenant must be set when table sharing is enabled.');
+        }
+
+        const collection = await this.silent(() => this.getCollection(collectionId));
+
+        if (collection.empty()) {
+            throw new NotFoundException(`Collection "${collectionId}" not found`);
+        }
+
+        if (this.adapter.$sharedTables && collection.getTenant() !== this.adapter.$tenantId) {
+            throw new NotFoundException(`Collection "${collectionId}" not found`);
+        }
+
+        return this.adapter.getSizeOfCollectionOnDisk(collection.getId());
+    }
+
+    public async analyzeCollection(collection: string): Promise<boolean> {
+        return this.adapter.analyzeCollection(collection);
+    }
+
 
     public async getDocument<C extends (string & keyof Entities) | Partial<IEntity> & Record<string, any>>(
         collection: C extends string ? C : string,

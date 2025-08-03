@@ -167,7 +167,7 @@ export class Filter extends Base {
             return false;
         }
 
-        if (attributeSchema.type === AttributeEnum.Relation) {
+        if (attributeSchema.type === AttributeEnum.Relationship) {
             const { relationType, twoWay, side } = attributeSchema.options ?? {};
 
             if (
@@ -272,7 +272,7 @@ export class Filter extends Base {
 
         switch (attributeType) {
             case AttributeEnum.String:
-            case AttributeEnum.Relation:
+            case AttributeEnum.Relationship:
                 validator = new Text(attributeSchema.size, 0);
                 break;
             case AttributeEnum.Integer:

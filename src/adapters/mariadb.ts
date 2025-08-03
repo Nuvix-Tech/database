@@ -165,7 +165,7 @@ export class MariaDB extends BaseAdapter implements IAdapter {
                 return;
             }
 
-            if (attribute.get('type') === AttributeEnum.Relation) {
+            if (attribute.get('type') === AttributeEnum.Relationship) {
                 const options = attribute.get('options', {}) as Record<string, any>;
                 const relationType = options['relationType'] ?? null;
                 const twoWay = options['twoWay'] ?? false;
@@ -185,7 +185,7 @@ export class MariaDB extends BaseAdapter implements IAdapter {
             attributeSql.push(sql);
         })
 
-        indexes?.forEach((index, key) => {
+        indexes?.forEach((index) => {
             const indexId = this.sanitize(index.getId());
             const indexType = index.get('type');
             let indexAttributes = index.get('attributes') as string[];
@@ -752,7 +752,7 @@ export class MariaDB extends BaseAdapter implements IAdapter {
                 return 'TINYINT(1)';
             case AttributeEnum.Datetime:
                 return 'DATETIME(3)';
-            case AttributeEnum.Relation:
+            case AttributeEnum.Relationship:
                 return 'VARCHAR(255)';
             case AttributeEnum.Object:
                 return 'JSON';
