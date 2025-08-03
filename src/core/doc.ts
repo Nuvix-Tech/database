@@ -1,5 +1,5 @@
 import { StructureException } from "errors/index.js";
-import { IEntity } from "types.js";
+import { IEntity, IEntityInput } from "types.js";
 
 type IsReferenceObject<T> =
     T extends { $id: string }
@@ -29,7 +29,7 @@ function isEntityLike(value: unknown): value is Record<string, unknown> {
     );
 }
 
-export class Doc<T extends Partial<IEntity> = IEntity> {
+export class Doc<T extends Record<string, any> & Partial<IEntity> = IEntity> {
     private static readonly __methods_keys: string[] = [
         "__methods_keys",
         "get",
@@ -63,7 +63,7 @@ export class Doc<T extends Partial<IEntity> = IEntity> {
         "toString",
     ];
 
-    constructor(data?: T & Partial<IEntity>) {
+    constructor(data?: (T | TransformEntity<T>) | IEntityInput) {
         if (data) {
             if (data.$id && typeof data.$id !== "string") {
                 throw new StructureException("$id must be a string");
@@ -87,7 +87,7 @@ export class Doc<T extends Partial<IEntity> = IEntity> {
         }
     }
 
-    static from<D extends Partial<IEntity>>(data: D): Doc<D> {
+    static from<D extends Partial<IEntity>>(data: D & IEntityInput): Doc<D> {
         return new Doc(data);
     }
 
@@ -111,7 +111,7 @@ export class Doc<T extends Partial<IEntity> = IEntity> {
     public set<K extends string, V extends unknown>(name: K, value: V): Doc<T & Record<K, TransformField<V>>>;
     public set<K extends keyof T>(name: K, value: TransformField<T[K]>): this | Doc<T & Record<K, TransformField<T[K]>>> {
         if (isEntityLike(value)) {
-            (this as any)[name] = value instanceof Doc ? value : new Doc(value);
+            (this as any)[name] = value instanceof Doc ? value : new Doc(value as any);
         } else {
             (this as any)[name] = value;
         }
@@ -123,7 +123,7 @@ export class Doc<T extends Partial<IEntity> = IEntity> {
             throw new StructureException(`Cannot append to ${String(name)}, it is not an array`);
         }
         if (isEntityLike(value)) {
-            (this as any)[name].push(value instanceof Doc ? value : new Doc(value));
+            (this as any)[name].push(value instanceof Doc ? value : new Doc(value as any));
         } else {
             (this as any)[name].push(value);
         }
@@ -135,7 +135,7 @@ export class Doc<T extends Partial<IEntity> = IEntity> {
             throw new StructureException(`Cannot prepend to ${String(name)}, it is not an array`);
         }
         if (isEntityLike(value)) {
-            (this as any)[name].unshift(value instanceof Doc ? value : new Doc(value));
+            (this as any)[name].unshift(value instanceof Doc ? value : new Doc(value as any));
         } else {
             (this as any)[name].unshift(value);
         }
@@ -262,7 +262,7 @@ export class Doc<T extends Partial<IEntity> = IEntity> {
         // Recursively search for a value matching the predicate at the given key in this entity and all nested entities/arrays
         const value = this.get(key);
         if (Array.isArray(value)) {
-            for (const item of value) {
+            for (const item of value as unknown[]) {
                 if (item instanceof Doc) {
                     const found = item.findWhere(key, predicate);
                     if (found !== null) {

@@ -1,6 +1,8 @@
 import { EventEmitter } from 'events';
 import { EventsEnum } from './enums.js';
 import { Logger } from '@utils/logger.js';
+import { Doc } from './doc.js';
+import { Collection } from '@validators/schema.js';
 
 /**
  * A type for the listener function that handles the wildcard event.
@@ -17,6 +19,8 @@ type WildcardListener<EventsMap extends EmitterEventMap> = (
  */
 export type EmitterEventMap = Record<string | symbol, any[]> & {
     [EventsEnum.All]: WildcardListener<any>;
+    [EventsEnum.DatabaseCreate]: [string];
+    [EventsEnum.CollectionRead]: [Doc<Collection>];
     'error': [Error, string | number | symbol, string];
 };
 

@@ -21,7 +21,7 @@ export const IndexType = z.enum(IndexEnum);
 export const IndexSchema = z.object({
     $id: z.string(),
     type: IndexType,
-    attributes: z.array(z.string()),
+    attributes: z.array(z.string()).optional(),
     lengths: z.array(z.number()).optional(),
     orders: z.array(z.string()).optional(),
 });

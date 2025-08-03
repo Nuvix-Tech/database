@@ -37,6 +37,7 @@ export class Index implements Validator {
         attributes: Doc<Attribute>[],
         maxLength: number,
         reservedKeys: string[] = [],
+        private readonly arrayIndexSupport: boolean = false,
     ) {
         if (maxLength < 0) {
             throw new Error("Index maximum length must be a non-negative number.");
@@ -195,6 +196,11 @@ export class Index implements Validator {
                 const direction = orders[i];
                 if (direction) {
                     this.message = `Invalid index order "${direction}" on array attribute "${attrDoc.get("key", attrDoc.get("$id", ""))}".`;
+                    return false;
+                }
+
+                if (this.arrayIndexSupport === false) {
+                    this.message = 'Indexing an array attribute is not supported';
                     return false;
                 }
             } else if (
