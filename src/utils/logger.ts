@@ -7,6 +7,8 @@ export class Logger {
         this.logger = pino();
     }
 
+    private static logger = pino();
+
     info(message: string, ...args: any[]) {
         this.logger.info(message, ...args);
     }
@@ -23,8 +25,11 @@ export class Logger {
         this.logger.debug(message, ...args);
     }
 
-    static warn (message: string, ...args: any[]) {
-        const logger = new Logger();
-        logger.warn(message, ...args);
+    static warn(message: string, ...args: any[]) {
+        this.logger.warn(message, ...args);
+    }
+
+    static error(message: string, ...args: any[]) {
+        this.logger.error(message, ...args);
     }
 }
