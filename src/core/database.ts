@@ -1,7 +1,7 @@
 import { AttributeEnum, EventsEnum, PermissionEnum } from "./enums.js";
 import { Attribute, Collection } from "@validators/schema.js";
 import { Adapter } from "@adapters/base.js";
-import { CreateCollection, Filters } from "./types.js";
+import { CreateCollection, Filters, UpdateCollection } from "./types.js";
 import { Cache } from "./cache.js";
 import { Cache as NuvixCache } from '@nuvix/cache';
 import { Entities, IEntity } from "types.js";
@@ -31,6 +31,24 @@ export class Database extends Cache {
         await this.silent(() => this.createCollection({ id: Database.METADATA, attributes }));
 
         this.trigger(EventsEnum.DatabaseCreate, database);
+    }
+
+    public async exists(database?: string, collection?: string): Promise<boolean> {
+        database ??= this.adapter.$database;
+        return this.adapter.exists(database, collection);
+    }
+
+    public async list(): Promise<string[]> {
+        this.trigger(EventsEnum.DatabaseList, []);
+        return [] // TODO: -----
+    }
+
+    public async delete(database?: string): Promise<void> {
+        database ??= this.adapter.$database;
+        await this.adapter.delete(database);
+
+        this.trigger(EventsEnum.DatabaseDelete, database);
+        await this.cache.flush();
     }
 
     /**
@@ -143,6 +161,40 @@ export class Database extends Cache {
         this.trigger(EventsEnum.CollectionCreate, createdCollection);
 
         return createdCollection;
+    }
+
+    public async updateCollection(
+        { id, documentSecurity, permissions }
+            : UpdateCollection
+    ) {
+        if (typeof permissions !== undefined) {
+            if (this.validate) {
+                const perms = new Permissions()
+                if (!perms.$valid(permissions))
+                    throw new DatabaseException(perms.$description);
+            }
+        }
+
+        let collection = await this.silent(() => this.getCollection(id));
+
+        if (collection.empty()) {
+            throw new NotFoundException(`Collection "${collection}" not found`);
+        }
+
+        if (
+            this.adapter.$sharedTables
+            && collection.getTenant() !== this.adapter.$tenantId
+        ) {
+            throw new NotFoundException(`Collection "${collection}" not found`);
+        }
+
+        if (typeof permissions !== undefined) collection.set('$permissions', permissions);
+        if (typeof documentSecurity !== undefined) collection.set('documentSecurity', documentSecurity);
+
+        collection = await this.silent(() => this.updateDocument(Database.METADATA, collection.getId(), collection));
+        this.trigger(EventsEnum.CollectionUpdate, collection);
+
+        return collection;
     }
 
     /**

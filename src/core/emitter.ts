@@ -18,10 +18,13 @@ type WildcardListener<EventsMap extends EmitterEventMap> = (
  * This ensures the wildcard event is always an option.
  */
 export type EmitterEventMap = Record<string | symbol, any[]> & {
-    [EventsEnum.All]: WildcardListener<any>;
+    [EventsEnum.All]: WildcardListener<EmitterEventMap>;
     [EventsEnum.DatabaseCreate]: [string];
+    [EventsEnum.DatabaseList]: [string[]];
+    [EventsEnum.DatabaseDelete]: [string];
     [EventsEnum.CollectionRead]: [Doc<Collection>];
     [EventsEnum.CollectionCreate]: [Doc<Collection>];
+    [EventsEnum.CollectionUpdate]: [Doc<Collection>];
     'error': [Error, string | number | symbol, string];
 };
 

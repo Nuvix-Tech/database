@@ -19,3 +19,5 @@ export type CreateCollection = {
     permissions?: (Permission | string)[];
     documentSecurity?: boolean;
 }
+
+export type UpdateCollection = Omit<CreateCollection, 'attributes' | 'indexes'>
