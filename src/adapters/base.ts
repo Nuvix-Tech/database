@@ -20,9 +20,9 @@ export abstract class BaseAdapter extends EventEmitter {
 
     protected $timeout: number = 0;
 
-    readonly $limitForString: number = 4294967295;
-    readonly $limitForInt: number = 4294967295;
-    readonly $limitForAttributes: number = 1017;
+    readonly $limitForString: number = 10485760;
+    readonly $limitForInt: bigint = 9223372036854775807n;
+    readonly $limitForAttributes: number = 1600;
     readonly $limitForIndexes: number = 64;
     readonly $supportForSchemas: boolean = true;
     readonly $supportForIndex: boolean = true;
@@ -32,21 +32,20 @@ export abstract class BaseAdapter extends EventEmitter {
     readonly $supportForUpdateLock: boolean = true;
     readonly $supportForAttributeResizing: boolean = true;
     readonly $supportForBatchOperations: boolean = true;
-    readonly $supportForGetConnectionId: boolean = true;
+    readonly $supportForGetConnectionId: boolean = false;
     readonly $supportForCacheSkipOnFailure: boolean = true;
     readonly $supportForHostname: boolean = true;
-    readonly $documentSizeLimit: number = 65535;
-    readonly $supportForCasting: boolean = false;
-    readonly $supportForNumericCasting: boolean = false;
+    readonly $documentSizeLimit: number = 16777216;
+    readonly $supportForCasting: boolean = true;
+    readonly $supportForNumericCasting: boolean = true;
     readonly $supportForQueryContains: boolean = true;
     readonly $supportForIndexArray: boolean = true;
-    readonly $supportForCastIndexArray: boolean = false;
+    readonly $supportForCastIndexArray: boolean = true;
     readonly $supportForRelationships: boolean = true;
     readonly $supportForReconnection: boolean = true;
     readonly $supportForBatchCreateAttributes: boolean = true;
-    readonly $maxVarcharLength: number = 16381;
-    readonly $maxIndexLength: number = this.$sharedTables ? 767 : 768;
-
+    readonly $maxVarcharLength: number = 10485760;
+    readonly $maxIndexLength: number = 8191;
 
     protected transformations: Partial<Record<EventsEnum, Array<[string, (query: string) => string]>>> = {
         [EventsEnum.All]: [],
@@ -59,9 +58,14 @@ export abstract class BaseAdapter extends EventEmitter {
         }
     }
 
+    /**@deprecated temp */
     public get $database(): string {
         if (!this._meta.database) throw new DatabaseException('Database name is not defined in adapter metadata.');
         return this._meta.database;
+    }
+
+    public get $schema(): string {
+        throw new Error('Not Implemented')
     }
 
     public get $sharedTables(): boolean {
@@ -162,21 +166,19 @@ export abstract class BaseAdapter extends EventEmitter {
         let sql: string;
 
         if (collection) {
-            // Check if collection exists
             sql = `
-                  SELECT COUNT(*) as count 
-                  FROM information_schema.tables 
-                  WHERE table_schema = ? 
-                  AND table_name = ?
-                `;
+                SELECT COUNT(*) as count
+                FROM information_schema.tables
+                WHERE table_schema = $1
+                AND table_name = $2
+            `;
             values.push(this.sanitize(collection));
         } else {
-            // Check if schema exists
             sql = `
-                  SELECT COUNT(*) as count 
-                  FROM information_schema.schemata 
-                  WHERE schema_name = ?
-                `;
+                SELECT COUNT(*) as count
+                FROM information_schema.schemata
+                WHERE schema_name = $1
+            `;
         }
 
         const [result] = await this.client.query<any>(sql, values);
@@ -304,7 +306,7 @@ export abstract class BaseAdapter extends EventEmitter {
             params.push(this.$tenantId);
         }
 
-        const [rows] = await this.client.query<any>(sql, params);
+        const { rows } = await this.client.query<any>(sql, params);
 
         let document = rows[0];
 
@@ -564,7 +566,7 @@ export abstract class BaseAdapter extends EventEmitter {
         sql = this.trigger(EventsEnum.DocumentFind, sql);
 
         try {
-            const [rows]: any = await this.client.query(sql, params);
+            const { rows } = await this.client.query(sql, params);
 
             const results = rows.map((document: any, index: number) => {
                 if ('_uid' in document) {
@@ -669,7 +671,7 @@ export abstract class BaseAdapter extends EventEmitter {
         sql = this.trigger(EventsEnum.DocumentCount, sql);
 
         try {
-            const [rows] = await this.client.query<any>(sql, params);
+            const { rows } = await this.client.query<any>(sql, params);
             const result = rows[0];
             return result?.sum ?? 0;
         } catch (error) {
@@ -730,7 +732,7 @@ export abstract class BaseAdapter extends EventEmitter {
         sql = this.trigger(EventsEnum.DocumentSum, sql);
 
         try {
-            const [rows] = await this.client.query<any>(sql, params);
+            const { rows } = await this.client.query<any>(sql, params);
             const result = rows[0];
             return result?.sum ?? 0;
         } catch (error) {
@@ -758,7 +760,7 @@ export abstract class BaseAdapter extends EventEmitter {
             sqlParams.push(this.$tenantId);
         }
 
-        const [rows] = await this.client.query<any>(sql, sqlParams);
+        const { rows } = await this.client.query<any>(sql, sqlParams);
 
         const initial: Record<string, string[]> = {};
         for (const type of Database.PERMISSIONS) {
@@ -890,7 +892,7 @@ export abstract class BaseAdapter extends EventEmitter {
         if (!name) {
             throw new DatabaseException("Failed to get SQL table: name is empty");
         }
-        return `${this.$.quote(this.$database)}.${this.$.quote(`${this.$namespace}_${name}`)}`;
+        return `${this.$.quote(this.$schema)}.${this.$.quote(`${this.$namespace}_${name}`)}`;
     }
 
     protected getSQLIndexType(type: IndexEnum): string {

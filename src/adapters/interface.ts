@@ -1,7 +1,8 @@
 import { Attribute, Index } from "@validators/schema.js";
 import { Meta } from "./base.js";
 import { Doc } from "@core/doc.js";
-import { ColumnInfo, CreateIndex, Find, UpdateAttribute } from "./types.js";
+import { ColumnInfo, CreateIndex, UpdateAttribute } from "./types.js";
+import { Pool, Client, PoolClient } from 'pg';
 
 export interface IAdapter {
     readonly $limitForString: number;
@@ -50,6 +51,7 @@ export interface IAdapter {
     createCollection(options: CreateCollectionOptions): Promise<void>;
     createDocument<D extends Doc>(collection: string, document: D): Promise<D>;
     updateDocument<D extends Doc>(collection: string, document: D, skipPermissions?: boolean): Promise<D>;
+    deleteCollection(id: string): Promise<void>;
 
     getSizeOfCollection(collectionId: string): Promise<number>;
     getSizeOfCollectionOnDisk(collectionId: string): Promise<number>;
@@ -63,16 +65,14 @@ export interface IAdapter {
     getSchemaAttributes(collection: string): Promise<Doc<ColumnInfo>[]>
 }
 
-export interface IClient {
-    $client: any;
-    $type: 'connection' | 'pool';
-    $database: string;
+export interface IClient extends Pick<Client, 'query'> {
+    $client: Pool | Client | PoolClient;
+    $type: 'connection' | 'pool' | 'transaction';
     connect(): Promise<void>;
     disconnect(): Promise<void>;
     transaction<T>(
         callback: (client: Omit<IClient, 'transaction' | 'disconnect'>) => Promise<T>
     ): Promise<T>;
-    query<T>(query: string, params?: any[]): Promise<T>;
     ping(): Promise<void>;
     quote(value: string): string;
 }

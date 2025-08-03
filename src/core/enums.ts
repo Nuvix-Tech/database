@@ -4,12 +4,14 @@ export enum AttributeEnum {
     Integer = "integer",
     Float = "float",
     Boolean = "boolean",
-    Datetime = "datetime",
-    Object = "object",
-    /**@deprecated use {Relationship} instead */
-    Relation = "relationship",
+    /**@deprecated use timestamptz*/
+    Datetime = "timestamptz",
+    Timestamptz = "timestamptz",
+    Json = "jsonb",
     Relationship = "relationship",
     Virtual = "virtual",
+    /**@deprecated Not Implemented */
+    Uuid = "uuid",
 }
 
 export enum PermissionEnum {
@@ -89,9 +91,4 @@ export enum CursorEnum {
 export enum OrderEnum {
     Asc = 'ASC',
     Desc = 'DESC'
-}
-
-export enum FiltersEnum {
-    Json = 'json',
-    Datetime = 'datetime',
 }

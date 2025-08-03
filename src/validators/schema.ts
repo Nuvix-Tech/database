@@ -9,7 +9,6 @@ export const AttributeSchema = z.object({
     type: AttributeType,
     size: z.number().default(0).optional(),
     required: z.boolean().default(false).optional(),
-    signed: z.boolean().default(true).optional(),
     array: z.boolean().default(false).optional(),
     filters: z.array(z.string()).default([]).optional(),
     default: z.any().optional(),
@@ -22,7 +21,6 @@ export const IndexSchema = z.object({
     $id: z.string(),
     type: IndexType,
     attributes: z.array(z.string()).optional(),
-    lengths: z.array(z.number()).optional(),
     orders: z.array(z.string()).optional(),
 });
 

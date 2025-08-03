@@ -25,6 +25,7 @@ export type EmitterEventMap = Record<string | symbol, any[]> & {
     [EventsEnum.CollectionRead]: [Doc<Collection>];
     [EventsEnum.CollectionCreate]: [Doc<Collection>];
     [EventsEnum.CollectionUpdate]: [Doc<Collection>];
+    [EventsEnum.CollectionDelete]: [Doc<Collection>];
     'error': [Error, string | number | symbol, string];
 };
 

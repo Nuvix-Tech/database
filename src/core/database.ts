@@ -266,6 +266,54 @@ export class Database extends Cache {
         return this.adapter.analyzeCollection(collection);
     }
 
+    public async deleteCollection(id: string): Promise<boolean> {
+        const collection = await this.silent(() => this.getDocument(Database.METADATA, id));
+
+        if (collection.empty()) {
+            throw new NotFoundException(`Collection "${id}" not found`);
+        }
+
+        if (this.adapter.$sharedTables && collection.getTenant() !== this.adapter.$tenantId) {
+            throw new NotFoundException(`Collection "${id}" not found`);
+        }
+
+        const relationships = (collection.get('attributes') ?? []).filter(
+            (attribute) => attribute.get('type') === AttributeEnum.Relationship
+        );
+
+        for (const relationship of relationships) {
+            await this.deleteRelationship(collection.getId(), relationship.get('$id'));
+        }
+
+        try {
+            await this.adapter.deleteCollection(id);
+        } catch (error) {
+            if (error instanceof NotFoundException) {
+                // HACK: Metadata should still be updated, can be removed when null tenant collections are supported.
+                if (!this.adapter.$sharedTables || !this.migrating) {
+                    throw error;
+                }
+            } else {
+                throw error;
+            }
+        }
+
+        let deleted: boolean;
+        if (id === Database.METADATA) {
+            deleted = true;
+        } else {
+            deleted = await this.silent(() => this.deleteDocument(Database.METADATA, id));
+        }
+
+        if (deleted) {
+            this.trigger(EventsEnum.CollectionDelete, collection);
+        }
+
+        await this.purgeCachedCollection(id);
+
+        return deleted;
+    }
+
 
     public async getDocument<C extends (string & keyof Entities) | Partial<IEntity> & Record<string, any>>(
         collection: C extends string ? C : string,

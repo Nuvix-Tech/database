@@ -8,7 +8,6 @@ export type CreateAttribute = {
     name: string;
     type: AttributeEnum;
     size: number;
-    signed?: boolean;
     array?: boolean;
 }
 
