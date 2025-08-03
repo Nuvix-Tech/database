@@ -6,6 +6,7 @@ import { Filter, Filters } from "./types.js";
 import { Adapter } from "@adapters/base.js";
 import { filters } from "@utils/filters.js";
 import { Doc } from "./doc.js";
+import { DatabaseException, NotFoundException } from "@errors/index.js";
 
 export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends Emitter<T> {
     public static METADATA = '_metadata' as const;
@@ -292,7 +293,7 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
         return this.adapter.$client.ping
     }
 
-    public cast<T extends Record<string, any>>(collection: Doc<Collection>, document: Doc<T>): Doc<T> {
+    protected cast<T extends Record<string, any>>(collection: Doc<Collection>, document: Doc<T>): Doc<T> {
         if (this.adapter.$supportForCasting) {
             return document;
         }
@@ -347,7 +348,184 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
         return document;
     }
 
+    protected async encode<T extends Record<string, any>>(collection: Doc<Collection>, document: Doc<T>): Promise<Doc<T>> {
+        const attributes: (Attribute | Doc<Attribute>)[] = collection.get('attributes') ?? [];
+        const internalDateAttributes = ['$createdAt', '$updatedAt'];
 
+        for (const attribute of this.getInternalAttributes()) {
+            attributes.push(attribute);
+        }
+
+        for (const attr of attributes) {
+            const attribute = attr instanceof Doc ? attr.toObject() : attr;
+            const key = attribute.$id ?? '';
+            const array = attribute.array ?? false;
+            const defaultValue = attribute.default ?? null;
+            const attributeFilters = attribute.filters ?? [];
+            let value: any = document.get(key);
+
+            if (attribute.type === AttributeEnum.Virtual) {
+                document.delete(key)
+                continue;
+            }
+
+            if (internalDateAttributes.includes(key) && typeof value === 'string' && value === '') {
+                document.set(key, null);
+                continue;
+            }
+
+            if (key === '$permissions') {
+                if (!value || (Array.isArray(value) && value.length === 0)) {
+                    document.set('$permissions', []);
+                }
+                continue;
+            }
+
+            // Continue on optional param with no default
+            if (value === null && defaultValue === null) {
+                continue;
+            }
+
+            // Assign default only if no value provided
+            if (value === null && defaultValue !== null) {
+                value = array ? defaultValue : [defaultValue];
+            } else {
+                value = array ? value : [value];
+            }
+
+            for (let index = 0; index < value.length; index++) {
+                let node = value[index];
+                if (node !== null) {
+                    for (const filter of attributeFilters) {
+                        node = await this.encodeAttribute(filter, node, document as unknown as Doc);
+                    }
+                    value[index] = node;
+                }
+            }
+
+            if (!array) {
+                value = value[0];
+            }
+            document.set(key, value);
+        }
+
+        return document;
+    }
+
+    protected async decode<T extends Record<string, any>>(
+        collection: Doc<Collection>,
+        document: Doc<T>,
+        selections: string[] = []
+    ): Promise<Doc<T>> {
+        const collectionAttributes: (Attribute | Doc<Attribute>)[] = collection.get('attributes') ?? [];
+        const internalAttributes = this.getInternalAttributes();
+
+        const preparedAttributes: Attribute[] = [
+            ...collectionAttributes.map(attr => attr instanceof Doc ? attr.toObject() : attr),
+            ...internalAttributes.map(attr => attr instanceof Doc ? attr.toObject() : attr)
+        ];
+
+        for (const attribute of preparedAttributes) {
+            const originalKey = attribute.$id;
+            if (!originalKey || attribute.type !== AttributeEnum.Relationship) continue;
+
+            const sanitizedKey = this.adapter.sanitize(originalKey);
+            if (originalKey !== sanitizedKey && document.has(sanitizedKey)) {
+                const valueFromSanitized = document.get(sanitizedKey);
+
+                if (!document.has(originalKey) || document.get(originalKey) === undefined || document.get(originalKey) === null) {
+                    document.set(originalKey, valueFromSanitized);
+                }
+                document.delete(sanitizedKey);
+            }
+        }
+
+        for (const attribute of preparedAttributes) {
+            const key = attribute.$id;
+            if (!key || attribute.type === AttributeEnum.Relationship) continue;
+
+            const isArrayAttribute = attribute.array ?? false;
+            const attributeFilters = attribute.filters ?? [];
+
+            let value: any = document.get(key);
+            let valuesToProcess: any[];
+
+            if (value === null || value === undefined) {
+                valuesToProcess = [];
+            } else if (Array.isArray(value)) {
+                valuesToProcess = value;
+            } else {
+                valuesToProcess = [value];
+            }
+
+            const processedValues: any[] = [];
+            for (let index = 0; index < valuesToProcess.length; index++) {
+                let node = valuesToProcess[index];
+                for (const filter of attributeFilters.slice().reverse()) {
+                    node = await this.decodeAttribute(filter, node, document as unknown as Doc, key);
+                }
+                processedValues[index] = node;
+            }
+
+            const isSelected = selections.length === 0 || selections.includes(key) || selections.includes('*');
+
+            if (isSelected) {
+                document.set(key, isArrayAttribute ? processedValues : (processedValues[0] ?? null));
+            } else {
+                document.delete(key);
+            }
+        }
+        return document;
+    }
+
+    private async encodeAttribute(filter: string, value: any, document: Doc): Promise<any> {
+        const allFilters = this.getFilters();
+
+        if (!allFilters[filter]) {
+            throw new NotFoundException(`Filter: ${filter} not found`);
+        }
+
+        try {
+            if (this.instanceFilters[filter]) {
+                value = this.instanceFilters[filter].encode(value, document, this as any);
+            } else {
+                value = Base.filters[filter]!.encode(value, document, this as any);
+            }
+            if (value instanceof Promise) {
+                value = await value;
+            }
+        } catch (error) {
+            throw new DatabaseException(error instanceof Error ? error.message : String(error));
+        }
+
+        return value;
+    }
+
+    private async decodeAttribute(filter: string, value: any, document: Doc, attribute: string): Promise<any> {
+        if (!this.filter) {
+            return value;
+        }
+
+        const allFilters = this.getFilters();
+        if (!allFilters[filter]) {
+            throw new NotFoundException(`Filter "${filter}" not found for attribute "${attribute}"`);
+        }
+
+        try {
+            if (this.instanceFilters[filter]) {
+                value = this.instanceFilters[filter].decode(value, document, this as any);
+            } else {
+                value = Base.filters[filter]!.decode(value, document, this as any);
+            }
+            if (value instanceof Promise) {
+                value = await value;
+            }
+        } catch (error) {
+            throw new DatabaseException(error instanceof Error ? error.message : String(error));
+        }
+
+        return value;
+    }
 
     public getInternalAttributes(): Attribute[] {
         let attributes = Base.INTERNAL_ATTRIBUTES;

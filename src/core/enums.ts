@@ -5,10 +5,10 @@ export enum AttributeEnum {
     Float = "float",
     Boolean = "boolean",
     Datetime = "datetime",
-    /**@deprecated use {Datetime} instead */
-    Date = "datetime",
     Object = "object",
-    Relation = "relation",
+    /**@deprecated use {Relationship} instead */
+    Relation = "relationship",
+    Relationship = "relationship",
     Virtual = "virtual",
 }
 

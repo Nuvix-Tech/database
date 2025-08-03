@@ -131,7 +131,7 @@ export abstract class BaseAdapter extends EventEmitter {
         return query;
     }
 
-    protected sanitize(value: string): string {
+    public sanitize(value: string): string {
         if (value === null || value === undefined) {
             throw new DatabaseException(
                 "Failed to sanitize key: value is null or undefined",
