@@ -15,7 +15,7 @@ type WildcardListener<EventsMap extends EmitterEventMap> = (
  * A generic type for your event map, extending the base event map.
  * This ensures the wildcard event is always an option.
  */
-type EmitterEventMap = Record<string | number | symbol, any[]> & {
+export type EmitterEventMap = Record<string | symbol, any[]> & {
     [EventsEnum.All]: WildcardListener<any>;
     'error': [Error, string | number | symbol, string];
 };
@@ -50,7 +50,7 @@ type BaseEventEmitterFiltered = {
  *
  * @template EventsMap A map of event names to their argument types, ensuring type safety.
  */
-export class Emitter<EventsMap extends EmitterEventMap>
+export class Emitter<EventsMap extends EmitterEventMap = EmitterEventMap>
     extends (EventEmitter as unknown as {
         new(): BaseEventEmitterFiltered;
         prototype: BaseEventEmitterFiltered;
