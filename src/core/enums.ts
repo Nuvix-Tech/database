@@ -90,3 +90,8 @@ export enum OrderEnum {
     Asc = 'ASC',
     Desc = 'DESC'
 }
+
+export enum FiltersEnum {
+    Json = 'json',
+    Datetime = 'datetime',
+}

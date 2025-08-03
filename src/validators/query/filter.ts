@@ -284,7 +284,7 @@ export class Filter extends Base {
             case AttributeEnum.Boolean:
                 validator = new Boolean();
                 break;
-            case AttributeEnum.Date:
+            case AttributeEnum.Datetime:
                 validator = new DatetimeValidator(this.minAllowedDate, this.maxAllowedDate);
                 break;
             default:

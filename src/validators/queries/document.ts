@@ -28,13 +28,13 @@ export class Document extends Queries {
             new Doc({
                 $id: "$createdAt",
                 key: "$createdAt",
-                type: AttributeEnum.Date,
+                type: AttributeEnum.Datetime,
                 array: false,
             }),
             new Doc({
                 $id: "$updatedAt",
                 key: "$updatedAt",
-                type: AttributeEnum.Date,
+                type: AttributeEnum.Datetime,
                 array: false,
             }),
         );

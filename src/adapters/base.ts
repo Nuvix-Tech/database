@@ -936,7 +936,7 @@ export abstract class BaseAdapter extends EventEmitter {
             }
 
             if (query.isNested()) {
-                conditions.push(this.getSQLConditions(query.getValues(), binds, query.getMethod()));
+                conditions.push(this.getSQLConditions(query.getValues() as Query[], binds, query.getMethod()));
             } else {
                 conditions.push(this.getSQLCondition(query, binds));
             }
@@ -1016,7 +1016,7 @@ export abstract class BaseAdapter extends EventEmitter {
 
         for (const query of queries) {
             if (query.getMethod() === QueryType.Select) {
-                selections.push(...query.getValues());
+                selections.push(...query.getValues() as string[]);
             }
         }
 

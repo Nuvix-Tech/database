@@ -2,8 +2,9 @@ import { Attribute, Collection } from "@validators/schema.js";
 import { Emitter, EmitterEventMap } from "./emitter.js";
 import { AttributeEnum, PermissionEnum } from "./enums.js";
 import { Cache } from "@nuvix/cache";
-import { Filters } from "./types.js";
+import { Filter, Filters } from "./types.js";
 import { Adapter } from "@adapters/base.js";
+import { filters } from "@utils/filters.js";
 
 export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends Emitter<T> {
     public static METADATA = '_metadata' as const;
@@ -44,7 +45,7 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
         },
         {
             $id: "$createdAt",
-            type: AttributeEnum.Date,
+            type: AttributeEnum.Datetime,
             size: 0,
             signed: false,
             default: null,
@@ -52,7 +53,7 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
         },
         {
             $id: "$updatedAt",
-            type: AttributeEnum.Date,
+            type: AttributeEnum.Datetime,
             size: 0,
             signed: false,
             default: null,
@@ -140,7 +141,40 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
         this.adapter = adapter;
         this.cache = cache;
         this.instanceFilters = options.filters || {};
+
+        for (const [filterName, FilterValue] of Object.entries(filters)) {
+            Base.filters[filterName] = FilterValue as Filter;
+        }
     }
+
+    public addFilter(name: string, filter: Filter): this {
+        if (this.instanceFilters[name]) {
+            throw new Error(`Filter with name "${name}" already exists.`);
+        }
+        this.instanceFilters[name] = filter;
+        return this;
+    }
+
+    public static addFilter(name: string, filter: Filter): void {
+        if (Base.filters[name]) {
+            throw new Error(`Filter with name "${name}" already exists.`);
+        }
+        Base.filters[name] = filter;
+    }
+
+    public getFilters(): Filters {
+        return { ...Base.filters, ...this.instanceFilters };
+    }
+
+    public getAdapter(): Adapter {
+        return this.adapter;
+    }
+
+    public getCache(): Cache {
+        return this.cache;
+    }
+
+
 }
 
 type Options = {

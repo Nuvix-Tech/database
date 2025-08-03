@@ -8,10 +8,7 @@ import { Query, ScalarValue } from "@core/query.js";
 export class QueryBuilder {
     private queries: Query[] = [];
 
-    /**
-     * The constructor is private to enforce using the static `from` factory method.
-     */
-    private constructor() { }
+    constructor() { }
 
     /**
      * Creates a new QueryBuilder instance from an existing array of Query objects.

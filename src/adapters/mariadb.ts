@@ -732,7 +732,7 @@ export class MariaDB extends BaseAdapter implements IAdapter {
                 return signed ? 'DOUBLE' : 'UNSIGNED DOUBLE';
             case AttributeEnum.Boolean:
                 return 'TINYINT(1)';
-            case AttributeEnum.Date:
+            case AttributeEnum.Datetime:
                 return 'DATETIME(3)';
             case AttributeEnum.Relation:
                 return 'VARCHAR(255)';
@@ -756,7 +756,7 @@ export class MariaDB extends BaseAdapter implements IAdapter {
             case QueryType.Or:
             case QueryType.And:
                 const conditions: string[] = [];
-                for (const q of query.getValue() as Query[]) {
+                for (const q of query.getValues() as Query[]) {
                     conditions.push(this.getSQLCondition(q, binds));
                 }
 
@@ -764,7 +764,7 @@ export class MariaDB extends BaseAdapter implements IAdapter {
                 return conditions.length === 0 ? '' : ` ${methodStr} (` + conditions.join(' AND ') + ')';
 
             case QueryType.Search:
-                binds.push(this.getFulltextValue(query.getValue()));
+                binds.push(this.getFulltextValue(query.getValue() as string));
                 return `MATCH(${alias}.${attribute}) AGAINST (? IN BOOLEAN MODE)`;
 
             case QueryType.Between:
@@ -785,7 +785,7 @@ export class MariaDB extends BaseAdapter implements IAdapter {
 
             default:
                 const defaultConditions: string[] = [];
-                for (const value of query.getValues()) {
+                for (const value of query.getValues() as string[]) {
                     let processedValue = value;
                     switch (method) {
                         case QueryType.StartsWith:

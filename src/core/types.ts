@@ -1,9 +1,9 @@
 
-export type Filters<T = any, V = any> = Record<string, {
-    encode: (value: T) => string | Promise<V>;
-    decode: (value: V) => string | Promise<T>;
-}>
+export type FilterValue = string | number | boolean | Date | null | undefined | object | any[] | Record<string, any> | FilterValue[];
 
-export type FilteredValue<T, V> = {
-    [K in keyof T]: K extends keyof Filters<T[K], V> ? V : T[K];
+export type Filter<T = FilterValue, U = FilterValue> = {
+    encode: (value: T) => U | Promise<U>;
+    decode: (value: U) => T | Promise<T>;
 };
+
+export type Filters = Record<string, Filter>;
