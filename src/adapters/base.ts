@@ -66,7 +66,7 @@ export abstract class BaseAdapter extends EventEmitter {
     public get $sharedTables(): boolean {
         const sharedTables = this._meta.sharedTables;
         if (sharedTables && !this._meta.tenantId) {
-            throw new DatabaseException('Shared tables are enabled but tenantId is not defined in adapter metadata.');
+            Logger.warn('Shared tables are enabled but tenantId is not defined in adapter metadata. This may lead to unexpected behavior.');
         }
         return !!sharedTables;
     }

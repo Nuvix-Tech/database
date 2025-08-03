@@ -1,6 +1,6 @@
 import { Attribute, Collection } from "@validators/schema.js";
 import { Emitter, EmitterEventMap } from "./emitter.js";
-import { AttributeEnum, PermissionEnum } from "./enums.js";
+import { AttributeEnum, EventsEnum, PermissionEnum } from "./enums.js";
 import { Cache } from "@nuvix/cache";
 import { Filter, Filters } from "./types.js";
 import { Adapter } from "@adapters/base.js";
@@ -170,10 +170,58 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
         return this.adapter;
     }
 
-    public getCache(): Cache {
-        return this.cache;
+    public enableFilter(): this {
+        this.filter = true;
+        return this;
     }
 
+    public disableFilter(): this {
+        this.filter = false;
+        return this;
+    }
+
+    public enableValidate(): this {
+        this.validate = true;
+        return this;
+    }
+
+    public disableValidate(): this {
+        this.validate = false;
+        return this;
+    }
+
+    public get setMeta() {
+        return this.adapter.setMeta;
+    }
+
+    public get database() {
+        return this.adapter.$database;
+    }
+
+    public get sharedTables(): boolean {
+        return this.adapter.$sharedTables;
+    }
+
+    public get tenantId(): number | undefined {
+        return this.adapter.$tenantId;
+    }
+
+    public get tenantPerDocument(): boolean {
+        return this.adapter.$tenantPerDocument;
+    }
+
+    public get namespace(): string {
+        return this.adapter.$namespace;
+    }
+
+    public get metadata() {
+        return this.adapter.$metadata;
+    }
+
+    public before(event: EventsEnum, name: string, callback?: (query: string) => string) {
+        this.adapter.before(event, name, callback);
+        return this;
+    }
 
 }
 
