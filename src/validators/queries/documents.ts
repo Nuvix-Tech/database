@@ -31,25 +31,22 @@ export class Documents extends IndexedQueries {
                 $id: "$id",
                 key: "$id",
                 type: AttributeEnum.String,
-                array: false,
             }),
             new Doc({
                 $id: "$sequence",
                 key: "$sequence",
                 type: AttributeEnum.Integer,
-                array: false,
+                size: 8,
             }),
             new Doc({
                 $id: "$createdAt",
                 key: "$createdAt",
-                type: AttributeEnum.Datetime,
-                array: false,
+                type: AttributeEnum.Timestamptz,
             }),
             new Doc({
                 $id: "$updatedAt",
                 key: "$updatedAt",
-                type: AttributeEnum.Datetime,
-                array: false,
+                type: AttributeEnum.Timestamptz,
             }),
         );
 

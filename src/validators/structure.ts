@@ -11,6 +11,8 @@ import { NumericType } from "./numeric.js";
 import { FloatValidator } from "./float-validator.js";
 import { Boolean } from "./boolean.js";
 import { Datetime } from "./datetime.js";
+import { Json } from "./json.js";
+import { UUID } from "./uuid.js";
 
 /**
  * Validates the structure and data types of a document against a collection's schema.
@@ -38,24 +40,21 @@ export class Structure implements Validator {
             $id: "$tenant",
             type: AttributeEnum.Integer,
             default: null,
-            signed: false,
             size: 8,
         },
         {
             $id: "$permissions",
             type: AttributeEnum.String,
-            size: 67000,
+            size: 255,
             array: true,
         },
         {
             $id: "$createdAt",
-            type: AttributeEnum.Datetime,
-            signed: false,
+            type: AttributeEnum.Timestamptz,
         },
         {
             $id: "$updatedAt",
-            type: AttributeEnum.Datetime,
-            signed: false,
+            type: AttributeEnum.Timestamptz,
         },
     ];
 
@@ -274,8 +273,6 @@ export class Structure implements Validator {
             const attribute: Attribute | undefined = this.keys[key];
 
             if (!attribute) {
-                // This case should ideally be caught by checkForUnknownAttributes,
-                // but added as a defensive check.
                 this.message = `Internal error: Attribute "${key}" schema not found.`;
                 return false;
             }
@@ -284,7 +281,6 @@ export class Structure implements Validator {
             const isArray = attribute.array ?? false;
             const required = attribute.required ?? false;
             const size = attribute.size ?? 0;
-            const signed = attribute.signed ?? false;
 
             if (!required && value === null) {
                 continue;
@@ -303,14 +299,13 @@ export class Structure implements Validator {
                 case AttributeEnum.Integer: {
                     attributeValidators.push(new Integer());
                     const max = size && size >= 8 ? Database.BIG_INT_MAX : Database.INT_MAX;
-                    const min = signed ? -max : 0;
-                    attributeValidators.push(new Range(min, max, NumericType.INTEGER));
+                    attributeValidators.push(new Range(-max, max, NumericType.INTEGER));
                     break;
                 }
 
                 case AttributeEnum.Float: {
                     attributeValidators.push(new FloatValidator());
-                    const floatMin = signed ? -Database.DOUBLE_MAX : 0;
+                    const floatMin = -Database.DOUBLE_MAX;
                     attributeValidators.push(
                         new Range(
                             floatMin,
@@ -325,7 +320,7 @@ export class Structure implements Validator {
                     attributeValidators.push(new Boolean());
                     break;
 
-                case AttributeEnum.Datetime:
+                case AttributeEnum.Timestamptz:
                     attributeValidators.push(
                         new Datetime(
                             this.minAllowedDate,
@@ -333,7 +328,16 @@ export class Structure implements Validator {
                         ),
                     );
                     break;
-
+                case AttributeEnum.Json:
+                    attributeValidators.push(
+                        new Json(),
+                    );
+                    break;
+                case AttributeEnum.Uuid:
+                    attributeValidators.push(
+                        new UUID(),
+                    );
+                    break;
                 default:
                     this.message = `Unknown or unsupported attribute type "${type}" for attribute "${key}".`;
                     return false;
@@ -372,7 +376,7 @@ export class Structure implements Validator {
                         valid = await valid.catch(() => false);
                     }
                     if (!valid) {
-                        this.message = `Attribute "${key}" has an invalid value. ${validator.$description}`; // Use $description
+                        this.message = `Attribute "${key}" has an invalid value. ${validator.$description}`;
                         return false;
                     }
                 }

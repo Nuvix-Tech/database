@@ -9,7 +9,7 @@ import { Database } from "@core/database.js";
 import { Doc } from "@core/doc.js";
 import { NotFoundException } from "@errors/index.js";
 import { Attribute } from "@validators/schema.js";
-import { ColumnInfo, CreateIndex, UpdateAttribute } from "./types.js";
+import { ColumnInfo, CreateAttribute, CreateIndex, CreateRelationship, UpdateAttribute } from "./types.js";
 
 export class Adapter extends BaseAdapter {
     protected client: PostgresClient;
@@ -112,7 +112,7 @@ export class Adapter extends BaseAdapter {
             }
         });
 
-        const columns = [
+        const mainTableColumns = [
             `"_id" BIGINT NOT NULL GENERATED ALWAYS AS IDENTITY`,
             `"_uid" VARCHAR(255) NOT NULL`,
             `"_createdAt" TIMESTAMP WITH TIME ZONE DEFAULT NULL`,
@@ -121,58 +121,74 @@ export class Adapter extends BaseAdapter {
             ...attributeSql
         ];
 
+        let primaryKeyDefinition: string;
+        const quotedTableName = this.quote(name);
+        const tenantCol = this.quote('_tenant');
+
+        if (this.$sharedTables) {
+            mainTableColumns.splice(1, 0, `${tenantCol} BIGINT DEFAULT NULL`);
+            primaryKeyDefinition = `PRIMARY KEY ("_id", ${tenantCol})`;
+        } else {
+            primaryKeyDefinition = `PRIMARY KEY ("_id")`;
+        }
+
+        const columnsAndConstraints = mainTableColumns.join(',\n');
         let tableSql = `
-            CREATE TABLE ${this.quote(name)} (
-                ${columns.join(',\n')},
-                PRIMARY KEY ("_id")
+            CREATE TABLE ${quotedTableName} (
+                ${columnsAndConstraints},
+                ${primaryKeyDefinition}
             );
         `;
 
-        let postTableIndexes: string[] = [];
-
+        const postTableIndexes: string[] = [];
         if (this.$sharedTables) {
-            tableSql = tableSql.replace(/PRIMARY KEY \("_id"\)/, `PRIMARY KEY ("_id"), "_tenant" INTEGER DEFAULT NULL`);
-            postTableIndexes.push(`CREATE UNIQUE INDEX "${name}_uid_tenant" ON ${this.quote(name)} ("_uid", "_tenant");`);
-            postTableIndexes.push(`CREATE INDEX "${name}_created_at_tenant" ON ${this.quote(name)} ("_tenant", "_createdAt");`);
-            postTableIndexes.push(`CREATE INDEX "${name}_updated_at_tenant" ON ${this.quote(name)} ("_tenant", "_updatedAt");`);
-            postTableIndexes.push(`CREATE INDEX "${name}_tenant_id" ON ${this.quote(name)} ("_tenant", "_id");`);
+            postTableIndexes.push(`CREATE UNIQUE INDEX "${name}_uid_tenant" ON ${quotedTableName} ("_uid", ${tenantCol});`);
+            postTableIndexes.push(`CREATE INDEX "${name}_created_at_tenant" ON ${quotedTableName} (${tenantCol}, "_createdAt");`);
+            postTableIndexes.push(`CREATE INDEX "${name}_updated_at_tenant" ON ${quotedTableName} (${tenantCol}, "_updatedAt");`);
+            postTableIndexes.push(`CREATE INDEX "${name}_tenant_id" ON ${quotedTableName} (${tenantCol}, "_id");`);
         } else {
-            postTableIndexes.push(`CREATE UNIQUE INDEX "${name}_uid" ON ${this.quote(name)} ("_uid");`);
-            postTableIndexes.push(`CREATE INDEX "${name}_created_at" ON ${this.quote(name)} ("_createdAt");`);
-            postTableIndexes.push(`CREATE INDEX "${name}_updated_at" ON ${this.quote(name)} ("_updatedAt");`);
+            postTableIndexes.push(`CREATE UNIQUE INDEX "${name}_uid" ON ${quotedTableName} ("_uid");`);
+            postTableIndexes.push(`CREATE INDEX "${name}_created_at" ON ${quotedTableName} ("_createdAt");`);
+            postTableIndexes.push(`CREATE INDEX "${name}_updated_at" ON ${quotedTableName} ("_updatedAt");`);
         }
-        postTableIndexes.push(`CREATE INDEX "${name}_permissions_gin_idx" ON ${this.quote(name)} USING GIN ("_permissions");`)
+        postTableIndexes.push(`CREATE INDEX "${name}_permissions_gin_idx" ON ${quotedTableName} USING GIN ("_permissions");`);
 
         tableSql = this.trigger(EventsEnum.CollectionCreate, tableSql);
 
         const permissionsTableName = this.quote(name + '_perms');
         const mainTableName = this.quote(name);
 
-        let permissionsTable = `
-            CREATE TABLE ${permissionsTableName} (
-                "_id" BIGINT NOT NULL GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
-                "_type" VARCHAR(12) NOT NULL,
-                "_permissions" TEXT[] NOT NULL DEFAULT '{}',
-                "_document" BIGINT NOT NULL,
-                FOREIGN KEY ("_document") REFERENCES ${mainTableName}("_id") ON DELETE CASCADE
-            );
-        `;
+        const permissionsTableColumns = [
+            `"_id" BIGINT NOT NULL GENERATED ALWAYS AS IDENTITY`,
+            `"_type" VARCHAR(12) NOT NULL`,
+            `"_permissions" TEXT[] NOT NULL DEFAULT '{}'`,
+            `"_document" BIGINT NOT NULL`,
+            `FOREIGN KEY ("_document") REFERENCES ${mainTableName}("_id") ON DELETE CASCADE`
+        ];
+        const postPermissionsTableIndexes: string[] = [];
+        let permissionsPrimaryKeyDefinition: string;
 
-        let postPermissionsTableIndexes: string[] = [];
         if (this.$sharedTables) {
-            permissionsTable = permissionsTable.replace(/PRIMARY KEY/, `"_tenant" INTEGER DEFAULT NULL, PRIMARY KEY`);
-            // Unique index on document, type, and tenant.
-            postPermissionsTableIndexes.push(`CREATE UNIQUE INDEX "${name}_perms_index1" ON ${permissionsTableName} ("_document", "_tenant", "_type");`);
-            // Index for _tenant for fast filtering by tenant
-            postPermissionsTableIndexes.push(`CREATE INDEX "${name}_perms_tenant" ON ${permissionsTableName} ("_tenant");`);
+            permissionsTableColumns.splice(1, 0, `${tenantCol} BIGINT DEFAULT NULL`);
+            permissionsPrimaryKeyDefinition = `PRIMARY KEY ("_id", ${tenantCol})`;
+
+            postPermissionsTableIndexes.push(`CREATE UNIQUE INDEX "${name}_perms_index1" ON ${permissionsTableName} ("_document", ${tenantCol}, "_type");`);
+            postPermissionsTableIndexes.push(`CREATE INDEX "${name}_perms_tenant" ON ${permissionsTableName} (${tenantCol});`);
         } else {
-            // Unique index on document and type.
+            permissionsPrimaryKeyDefinition = `PRIMARY KEY ("_id")`;
             postPermissionsTableIndexes.push(`CREATE UNIQUE INDEX "${name}_perms_index1" ON ${permissionsTableName} ("_document", "_type");`);
         }
         postPermissionsTableIndexes.push(`CREATE INDEX "${name}_perms_permissions_gin_idx" ON ${permissionsTableName} USING GIN ("_permissions");`);
 
-        permissionsTable = this.trigger(EventsEnum.CollectionCreate, permissionsTable);
+        const permissionsColumnsAndConstraints = permissionsTableColumns.join(',\n');
+        let permissionsTable = `
+            CREATE TABLE ${permissionsTableName} (
+                ${permissionsColumnsAndConstraints},
+                ${permissionsPrimaryKeyDefinition}
+            );
+        `;
 
+        permissionsTable = this.trigger(EventsEnum.PermissionsCreate, permissionsTable);
         await this.$client.transaction(async (client) => {
             await client.query(tableSql);
             for (const sql of postTableIndexes) {
@@ -270,6 +286,111 @@ export class Adapter extends BaseAdapter {
         }
     }
 
+    public async createAttribute(
+        { name, collection, size, array, type }: CreateAttribute
+    ): Promise<void> {
+        if (!name || !collection || !type) {
+            throw new DatabaseException("Failed to create attribute: name, collection, and type are required");
+        }
+
+        const sqlType = this.getSQLType(type, size, array);
+        const table = this.getSQLTable(collection);
+
+        let sql = `
+                ALTER TABLE ${table}
+                ADD COLUMN ${this.$.quote(name)} ${sqlType}
+            `;
+        sql = this.trigger(EventsEnum.AttributeCreate, sql);
+
+        try {
+            await this.client.query(sql);
+        } catch (e: any) {
+            this.processException(e, `Failed to create attribute '${name}' in collection '${collection}'`);
+        }
+    }
+
+    public async createAttributes(
+        collection: string,
+        attributes: Omit<CreateAttribute, 'collection'>[]
+    ): Promise<void> {
+        if (!Array.isArray(attributes) || attributes.length === 0) {
+            throw new DatabaseException("Failed to create attributes: attributes must be a non-empty array");
+        }
+
+        const parts: string[] = [];
+
+        for (const attr of attributes) {
+            if (!attr.name || !attr.type) {
+                throw new DatabaseException("Failed to create attribute: name and type are required");
+            }
+
+            const sqlType = this.getSQLType(attr.type, attr.size, attr.array);
+            parts.push(`${this.quote(attr.name)} ${sqlType}`);
+        }
+
+        const columns = parts.join(', ADD COLUMN ');
+        const table = this.getSQLTable(collection);
+        let sql = `
+                ALTER TABLE ${table}
+                ADD COLUMN ${columns}
+            `;
+
+        sql = this.trigger(EventsEnum.AttributesCreate, sql);
+
+        try {
+            await this.client.query(sql);
+        } catch (e: any) {
+            this.processException(e, `Failed to create attributes in collection '${collection}'`);
+        }
+    }
+
+    public async renameAttribute(
+        collection: string,
+        oldName: string,
+        newName: string
+    ): Promise<void> {
+        if (!oldName || !newName || !collection) {
+            throw new DatabaseException("Failed to rename attribute: oldName, newName, and collection are required");
+        }
+
+        const table = this.getSQLTable(collection);
+        let sql = `
+                ALTER TABLE ${table}
+                RENAME COLUMN ${this.quote(oldName)} TO ${this.quote(newName)}
+            `;
+
+        sql = this.trigger(EventsEnum.AttributeUpdate, sql);
+
+        try {
+            await this.client.query(sql);
+        } catch (e: any) {
+            this.processException(e, `Failed to rename attribute '${oldName}' to '${newName}' in collection '${collection}'`);
+        }
+    }
+
+    public async deleteAttribute(
+        collection: string,
+        name: string
+    ): Promise<void> {
+        if (!name || !collection) {
+            throw new DatabaseException("Failed to delete attribute: name and collection are required");
+        }
+
+        const table = this.getSQLTable(collection);
+        let sql = `
+                ALTER TABLE ${table}
+                DROP COLUMN ${this.quote(name)}
+            `;
+
+        sql = this.trigger(EventsEnum.AttributeDelete, sql);
+
+        try {
+            await this.client.query(sql);
+        } catch (e: any) {
+            this.processException(e, `Failed to delete attribute '${name}' from collection '${collection}'`);
+        }
+    }
+
     public async getSchemaAttributes(collection: string): Promise<Doc<ColumnInfo>[]> {
         const schema = this.$schema;
         const table = `${this.$namespace}_${this.sanitize(collection)}`;
@@ -345,6 +466,102 @@ export class Adapter extends BaseAdapter {
             });
         } catch (e: any) {
             this.processException(e, 'Failed to get schema attributes');
+        }
+    }
+
+    public async createRelationship(
+        relationship: CreateRelationship
+    ): Promise<void> {
+        const {
+            collection, type, twoWay, target,
+            junctionCollection, attribute
+        } = relationship;
+
+        if (!collection || !attribute || !type || !target || !target.collection) {
+            throw new DatabaseException("Failed to create relationship: collection, attribute, type, and target are required");
+        }
+
+        const sanitizedCollection = this.sanitize(collection);
+        const sanitizedRelatedCollection = this.sanitize(target.collection);
+        const fkSqlType = this.getSQLType(AttributeEnum.Relationship, 0, false);
+
+        const parts: string[] = [];
+
+        switch (type) {
+            case RelationEnum.ManyToOne:
+            case RelationEnum.OneToOne: {
+                const tableName = this.getSQLTable(sanitizedCollection);
+                const attributeName = this.quote(this.getInternalKeyForAttribute(attribute));
+
+                parts.push(`
+                    ALTER TABLE ${tableName}
+                    ADD COLUMN ${attributeName} ${fkSqlType} DEFAULT NULL;
+                `);
+
+                if (type === RelationEnum.OneToOne && twoWay) {
+                    if (!target.attribute) {
+                        throw new DatabaseException("Target attribute is required for a two-way, one-to-one relationship");
+                    }
+                    const relatedTableName = this.getSQLTable(sanitizedRelatedCollection);
+                    const targetAttributeName = this.quote(this.getInternalKeyForAttribute(target.attribute));
+
+                    parts.push(`
+                        ALTER TABLE ${relatedTableName}
+                        ADD COLUMN ${targetAttributeName} ${fkSqlType} DEFAULT NULL;
+                    `);
+                }
+                break;
+            }
+
+            case RelationEnum.OneToMany: {
+                if (!target.attribute) {
+                    throw new DatabaseException("Target attribute is required for a one-to-many relationship");
+                }
+
+                const relatedTableName = this.getSQLTable(sanitizedRelatedCollection);
+                const targetAttributeName = this.quote(this.getInternalKeyForAttribute(target.attribute));
+
+                parts.push(`
+                    ALTER TABLE ${relatedTableName}
+                    ADD COLUMN ${targetAttributeName} ${fkSqlType} DEFAULT NULL;
+                `);
+                break;
+            }
+
+            case RelationEnum.ManyToMany: {
+                if (!junctionCollection) {
+                    throw new DatabaseException("Junction collection is required for many-to-many relationships");
+                }
+                if (!target.attribute) {
+                    throw new DatabaseException("Target attribute is required for a many-to-many relationship");
+                }
+
+                const junctionCollectionName = this.getSQLTable(this.sanitize(junctionCollection));
+                const collectionFk = this.quote(this.getInternalKeyForAttribute(sanitizedCollection));
+                const targetFk = this.quote(this.getInternalKeyForAttribute(sanitizedRelatedCollection));
+                const tenantCol = this.quote('_tenant');
+
+                parts.push(`
+                    CREATE TABLE ${junctionCollectionName} (
+                        ${this.$sharedTables ? `${tenantCol} BIGINT DEFAULT NULL,` : ''}
+                        ${collectionFk} ${fkSqlType} NOT NULL,
+                        ${targetFk} ${fkSqlType} NOT NULL,
+                        PRIMARY KEY (${tenantCol ? `${tenantCol}, ` : ''}${collectionFk}, ${targetFk})
+                    );
+                `);
+                break;
+            }
+        }
+
+        try {
+            await this.client.transaction(async (client) => {
+                for (const sql of parts) {
+                    const finalSql = this.trigger(EventsEnum.AttributeCreate, sql);
+                    await client.query(finalSql);
+                }
+            })
+        } catch (e: any) {
+            this.processException(e, `Failed to create relationship '${attribute}' for collection '${collection}'`);
         }
     }
 
@@ -676,153 +893,6 @@ export class Adapter extends BaseAdapter {
         return sql;
     }
 
-    public getLikeOperator(): string {
-        return 'LIKE';
-    }
 
-    protected getSQLType(type: AttributeEnum, size: number, array?: boolean): string {
-        let pgType: string;
 
-        switch (type) {
-            case AttributeEnum.String:
-                if (size > 255) {
-                    pgType = 'TEXT';
-                } else {
-                    pgType = `VARCHAR(${size})`;
-                }
-                break;
-            case AttributeEnum.Integer:
-                if (size <= 2) { // Roughly fits SMALLINT (-32768 to +32767)
-                    pgType = 'SMALLINT';
-                } else if (size <= 4) { // Roughly fits INTEGER (-2147483648 to +2147483647)
-                    pgType = 'INTEGER';
-                } else { // For larger integers, BIGINT is appropriate
-                    pgType = 'BIGINT';
-                }
-                break;
-            case AttributeEnum.Float:
-                pgType = 'DOUBLE PRECISION';
-                break;
-            case AttributeEnum.Boolean:
-                pgType = 'BOOLEAN';
-                break;
-            case AttributeEnum.Timestamptz:
-                pgType = 'TIMESTAMP WITH TIME ZONE';
-                break;
-            case AttributeEnum.Relationship:
-                pgType = 'VARCHAR(255)';
-                break;
-            case AttributeEnum.Json:
-                pgType = 'JSONB';
-                break;
-            case AttributeEnum.Virtual:
-                pgType = '';
-                break;
-            case AttributeEnum.Uuid:
-                pgType = 'UUID';
-                break;
-            default:
-                throw new DatabaseException(`Unsupported attribute type: ${type}`);
-        }
-
-        if (array && pgType) {
-            return `${pgType}[]`;
-        } else {
-            return pgType;
-        }
-    }
-
-    protected getSQLCondition(query: Query, binds: any[]): string {
-        query.setAttribute(this.getInternalKeyForAttribute(query.getAttribute()));
-
-        const attribute = this.quote(this.sanitize(query.getAttribute()));
-        const alias = this.quote(Query.DEFAULT_ALIAS);
-        const method = query.getMethod();
-
-        switch (method) {
-            case QueryType.Or:
-            case QueryType.And:
-                const conditions: string[] = [];
-                for (const q of query.getValues() as Query[]) {
-                    conditions.push(this.getSQLCondition(q, binds));
-                }
-
-                const methodStr = method.toUpperCase();
-                return conditions.length === 0 ? '' : ` ${methodStr} (` + conditions.join(' AND ') + ')';
-
-            case QueryType.Search:
-                binds.push(this.getFulltextValue(query.getValue() as string));
-                return `MATCH(${alias}.${attribute}) AGAINST (? IN BOOLEAN MODE)`;
-
-            case QueryType.Between:
-                const values = query.getValues();
-                binds.push(values[0], values[1]);
-                return `${alias}.${attribute} BETWEEN ? AND ?`;
-
-            case QueryType.IsNull:
-            case QueryType.IsNotNull:
-                return `${alias}.${attribute} ${this.getSQLOperator(method)}`;
-            // @ts-expect-error
-            case QueryType.Contains:
-                if (this.$supportForJSONOverlaps && query.onArray()) {
-                    binds.push(JSON.stringify(query.getValues()));
-                    return `JSON_OVERLAPS(${alias}.${attribute}, ?)`;
-                }
-            // Fall through to default case
-
-            default:
-                const defaultConditions: string[] = [];
-                for (const value of query.getValues() as string[]) {
-                    let processedValue = value;
-                    switch (method) {
-                        case QueryType.StartsWith:
-                            processedValue = this.escapeWildcards(value) + '%';
-                            break;
-                        case QueryType.EndsWith:
-                            processedValue = '%' + this.escapeWildcards(value);
-                            break;
-                        case QueryType.Contains:
-                            processedValue = query.onArray()
-                                ? JSON.stringify(value)
-                                : '%' + this.escapeWildcards(value) + '%';
-                            break;
-                    }
-
-                    binds.push(processedValue);
-                    defaultConditions.push(`${alias}.${attribute} ${this.getSQLOperator(method)} ?`);
-                }
-
-                return defaultConditions.length === 0 ? '' : '(' + defaultConditions.join(' OR ') + ')';
-        }
-    }
-
-    protected processException(error: any, message?: string): never {
-        throw new DatabaseException('Not implemented')
-    }
-
-    public get $supportForJSONOverlaps() {
-        return true;
-    }
-
-    readonly $supportForTimeouts = true;
-    public get $internalIndexesKeys() {
-        return ['primary', '_created_at', '_updated_at', '_tenant_id'];
-    }
-
-    public setTimeout(milliseconds: number, event: EventsEnum = EventsEnum.All): void {
-        if (!this.$supportForTimeouts) {
-            return;
-        }
-        if (milliseconds <= 0) {
-            throw new DatabaseException('Timeout must be greater than 0');
-        }
-
-        this.$timeout = milliseconds;
-
-        const seconds = milliseconds / 1000;
-
-        this.before(event, 'timeout', (sql: string) => {
-            return `SET STATEMENT max_statement_time = ${seconds} FOR ${sql}`;
-        });
-    }
 }

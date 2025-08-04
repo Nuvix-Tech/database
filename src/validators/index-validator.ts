@@ -83,7 +83,6 @@ export class Index implements Validator {
         if (!this.checkDuplicatedAttributes(value)) return false;
         if (!this.checkFulltextIndexNonString(value)) return false;
         if (!this.checkArrayIndex(value)) return false;
-        if (!this.checkIndexLength(value)) return false;
         if (!this.checkReservedNames(value)) return false;
 
         return true;
@@ -167,7 +166,6 @@ export class Index implements Validator {
     protected checkArrayIndex(index: Doc<IndexType>): boolean {
         const attributes = index.get("attributes", []);
         const orders = index.get("orders", []);
-        const lengths = index.get("lengths", []);
 
         const arrayAttributesInIndex: string[] = [];
 
@@ -178,11 +176,6 @@ export class Index implements Validator {
             if (attrDoc.get("array", false) === true) {
                 if (index.get("type") !== IndexEnum.Key) {
                     this.message = `"${capitalize(index.get("type"))}" index is forbidden on array attributes.`;
-                    return false;
-                }
-
-                if (lengths[i] === undefined || lengths[i] === null) {
-                    this.message = `Index length for array attribute "${attrDoc.get("key", attrDoc.get("$id", ""))}" not specified.`;
                     return false;
                 }
 
@@ -203,71 +196,8 @@ export class Index implements Validator {
                     this.message = 'Indexing an array attribute is not supported';
                     return false;
                 }
-            } else if (
-                attrDoc.get("type", "") !== AttributeEnum.String &&
-                lengths[i] !== undefined && lengths[i] !== null
-            ) {
-                // Rule: Cannot set a length on non-string (and non-array) attributes
-                this.message = `Cannot set a length on "${attrDoc.get("type", "")}" attributes.`;
-                return false;
             }
         }
-        return true;
-    }
-
-    /**
-     * Checks the total combined length of the index attributes against the `maxLength`.
-     * @param index - The index `Doc` to validate.
-     * @returns {boolean} True if the index length is valid, false otherwise.
-     */
-    protected checkIndexLength(index: Doc<IndexType>): boolean {
-        if (index.get("type") === IndexEnum.FullText) {
-            return true;
-        }
-
-        let totalCombinedLength = 0;
-        const indexAttributes = index.get("attributes", []);
-        const lengths = index.get("lengths", []);
-
-        for (let i = 0; i < indexAttributes.length; i++) {
-            const attributeName = indexAttributes[i]!;
-            const attrDoc = this.attributes[attributeName.toLowerCase()]!;
-
-            let attributeIndexLength: number;
-            const explicitLength = lengths[i];
-
-            if (attrDoc.get("array", false) === true) {
-                attributeIndexLength = Database.ARRAY_INDEX_LENGTH;
-            } else {
-                switch (attrDoc.get("type", "")) {
-                    case AttributeEnum.String:
-                        const attributeSize = attrDoc.get("size", 0);
-                        attributeIndexLength = explicitLength ?? attributeSize;
-                        break;
-                    case AttributeEnum.Float:
-                        attributeIndexLength = 2; // 8 bytes / 4 = 2 (for MySQL index length interpretation)
-                        break;
-                    default:
-                        attributeIndexLength = 1; // 4 bytes / 4 = 1 (for MySQL index length interpretation)
-                        break;
-                }
-            }
-
-            const attributeDefinedSize = attrDoc.get("size", 0);
-            if (attributeDefinedSize > 0 && attributeIndexLength > attributeDefinedSize) {
-                this.message = `Index length ${attributeIndexLength} is larger than the defined size for attribute "${attributeName}": ${attributeDefinedSize}.`;
-                return false;
-            }
-
-            totalCombinedLength += attributeIndexLength;
-        }
-
-        // `this.maxLength > 0` condition implies 0 means unlimited.
-        if (this.maxLength > 0 && totalCombinedLength > this.maxLength) {
-            this.message = `Index length (${totalCombinedLength}) is longer than the maximum allowed (${this.maxLength}).`;
-            return false;
-        }
-
         return true;
     }
 

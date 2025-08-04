@@ -75,7 +75,6 @@ export class Database extends Cache {
         // Fix metadata index length & orders
         for (let i = 0; i < indexes.length; i++) {
             const index = indexes[i]!;
-            const lengths: (number | null)[] = index.get('lengths', []);
             const orders: (string | null)[] = index.get('orders', []);
 
             const indexAttributes = index.get('attributes', []);
@@ -83,18 +82,8 @@ export class Database extends Cache {
                 const attr = indexAttributes[j];
                 for (const collectionAttribute of attributes) {
                     if (collectionAttribute.get('$id') === attr) {
-                        // mysql does not save length in collection when length = attributes size
-                        if (collectionAttribute.get('type') === AttributeEnum.String) {
-                            if (lengths[j] && lengths[j] === collectionAttribute.get('size') && this.adapter.$maxIndexLength > 0) {
-                                lengths[j] = null;
-                            }
-                        }
-
                         const isArray = collectionAttribute.get('array', false);
                         if (isArray) {
-                            if (this.adapter.$maxIndexLength > 0) {
-                                lengths[j] = Database.ARRAY_INDEX_LENGTH;
-                            }
                             orders[j] = null;
                         }
                         break;
@@ -102,9 +91,7 @@ export class Database extends Cache {
                 }
             }
 
-            index
-                .set('lengths', lengths)
-                .set('orders', orders);
+            index.set('orders', orders);
             indexes[i] = index;
         }
 

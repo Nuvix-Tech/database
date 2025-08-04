@@ -2,7 +2,7 @@ import { DatabaseException } from "@errors/base.js";
 import { EventEmitter } from "stream";
 import { IAdapter, IClient } from "./interface.js";
 import { AttributeEnum, CursorEnum, EventsEnum, IndexEnum, OrderEnum, PermissionEnum } from "@core/enums.js";
-import { CreateAttribute, Find, IncreaseDocumentAttribute } from "./types.js";
+import { Find, IncreaseDocumentAttribute } from "./types.js";
 import { Doc } from "@core/doc.js";
 import { Database } from "@core/database.js";
 import { QueryBuilder } from "@utils/query-builder.js";
@@ -10,7 +10,7 @@ import { Query, QueryType } from "@core/query.js";
 import { Entities, IEntity } from "types.js";
 import { Logger } from "@utils/logger.js";
 import { Authorization } from "@utils/authorization.js";
-import { Collection, Index } from "@validators/schema.js";
+import { Collection } from "@validators/schema.js";
 
 export abstract class BaseAdapter extends EventEmitter {
     public readonly type: string = 'base';
@@ -46,6 +46,7 @@ export abstract class BaseAdapter extends EventEmitter {
     readonly $supportForBatchCreateAttributes: boolean = true;
     readonly $maxVarcharLength: number = 10485760;
     readonly $maxIndexLength: number = 8191;
+    readonly $supportForJSONOverlaps: boolean = true;
 
     protected transformations: Partial<Record<EventsEnum, Array<[string, (query: string) => string]>>> = {
         [EventsEnum.All]: [],
@@ -183,90 +184,6 @@ export abstract class BaseAdapter extends EventEmitter {
 
         const { rows } = await this.client.query<any>(sql, values);
         return rows[0].count > 0;
-    }
-
-    public async createAttribute(
-        { name, collection, size, array, type }: CreateAttribute
-    ): Promise<void> {
-        if (!name || !collection || !type) {
-            throw new DatabaseException("Failed to create attribute: name, collection, and type are required");
-        }
-
-        const sqlType = this.getSQLType(type, size, array);
-        const table = this.getSQLTable(collection);
-
-        let sql = `
-            ALTER TABLE ${table}
-            ADD COLUMN ${this.$.quote(name)} ${sqlType}
-        `;
-        sql = this.trigger(EventsEnum.AttributeCreate, sql);
-
-        await this.client.query(sql);
-    }
-
-    public async createAttributes(
-        collection: string,
-        attributes: Omit<CreateAttribute, 'collection'>[]
-    ): Promise<void> {
-        if (!Array.isArray(attributes) || attributes.length === 0) {
-            throw new DatabaseException("Failed to create attributes: attributes must be a non-empty array");
-        }
-        const parts: string[] = [];
-
-        for (const attr of attributes) {
-            if (!attr.name || !attr.type) {
-                throw new DatabaseException("Failed to create attribute: name and type are required");
-            }
-            const sqlType = this.getSQLType(attr.type, attr.size, attr.array);
-            parts.push(`${this.$.quote(attr.name)} ${sqlType}`);
-        }
-
-        const columns = parts.join(', ADD COLUMN ');
-        const table = this.getSQLTable(collection);
-        let sql = `
-            ALTER TABLE ${table}
-            ADD COLUMN ${columns}
-        `;
-        sql = this.trigger(EventsEnum.AttributesCreate, sql);
-
-        await this.client.query(sql);
-    }
-
-    public async renameAttribute(
-        collection: string,
-        oldName: string,
-        newName: string
-    ): Promise<void> {
-        if (!oldName || !newName || !collection) {
-            throw new DatabaseException("Failed to rename attribute: oldName, newName, and collection are required");
-        }
-
-        const table = this.getSQLTable(collection);
-        let sql = `
-            ALTER TABLE ${table}
-            RENAME COLUMN ${this.$.quote(oldName)} TO ${this.$.quote(newName)}
-        `;
-        sql = this.trigger(EventsEnum.AttributeUpdate, sql);
-
-        await this.client.query(sql);
-    }
-
-    public async deleteAttribute(
-        collection: string,
-        name: string
-    ): Promise<void> {
-        if (!name || !collection) {
-            throw new DatabaseException("Failed to delete attribute: name and collection are required");
-        }
-
-        const table = this.getSQLTable(collection);
-        let sql = `
-            ALTER TABLE ${table}
-            DROP COLUMN ${this.$.quote(name)}
-        `;
-        sql = this.trigger(EventsEnum.AttributeDelete, sql);
-
-        await this.client.query(sql);
     }
 
     public async getDocument<C extends keyof Entities>(
@@ -857,10 +774,147 @@ export abstract class BaseAdapter extends EventEmitter {
         return { addPermissions, removePermissions };
     }
 
-    protected abstract getSQLType(type: AttributeEnum, size: number, signed?: boolean, array?: boolean): string;
-    protected abstract processException(error: any, message?: string): never;
-    protected abstract getLikeOperator(): string;
-    protected abstract getSQLCondition(query: Query, binds: any[]): string;
+    protected getSQLType(type: AttributeEnum, size: number, array?: boolean): string {
+        let pgType: string;
+
+        switch (type) {
+            case AttributeEnum.String:
+                if (size > 255) {
+                    pgType = 'TEXT';
+                } else {
+                    pgType = `VARCHAR(${size})`;
+                }
+                break;
+            case AttributeEnum.Integer:
+                if (size <= 2) { // Roughly fits SMALLINT (-32768 to +32767)
+                    pgType = 'SMALLINT';
+                } else if (size <= 4) { // Roughly fits INTEGER (-2147483648 to +2147483647)
+                    pgType = 'INTEGER';
+                } else { // For larger integers, BIGINT is appropriate
+                    pgType = 'BIGINT';
+                }
+                break;
+            case AttributeEnum.Float:
+                pgType = 'DOUBLE PRECISION';
+                break;
+            case AttributeEnum.Boolean:
+                pgType = 'BOOLEAN';
+                break;
+            case AttributeEnum.Timestamptz:
+                pgType = 'TIMESTAMP WITH TIME ZONE';
+                break;
+            case AttributeEnum.Relationship:
+                pgType = 'VARCHAR(255)';
+                break;
+            case AttributeEnum.Json:
+                pgType = 'JSONB';
+                break;
+            case AttributeEnum.Virtual:
+                pgType = '';
+                break;
+            case AttributeEnum.Uuid:
+                pgType = 'UUID';
+                break;
+            default:
+                throw new DatabaseException(`Unsupported attribute type: ${type}`);
+        }
+
+        if (array && pgType) {
+            return `${pgType}[]`;
+        } else {
+            return pgType;
+        }
+    }
+
+    protected getSQLCondition(query: Query, binds: any[]): string {
+        query.setAttribute(this.getInternalKeyForAttribute(query.getAttribute()));
+
+        const attribute = this.quote(this.sanitize(query.getAttribute()));
+        const alias = this.quote(Query.DEFAULT_ALIAS);
+        const method = query.getMethod();
+
+        switch (method) {
+            case QueryType.Or:
+            case QueryType.And:
+                const conditions: string[] = [];
+                for (const q of query.getValues() as Query[]) {
+                    conditions.push(this.getSQLCondition(q, binds));
+                }
+
+                const methodStr = method.toUpperCase();
+                return conditions.length === 0 ? '' : ` ${methodStr} (` + conditions.join(' AND ') + ')';
+
+            case QueryType.Search:
+                binds.push(this.getFulltextValue(query.getValue() as string));
+                return `MATCH(${alias}.${attribute}) AGAINST (? IN BOOLEAN MODE)`;
+
+            case QueryType.Between:
+                const values = query.getValues();
+                binds.push(values[0], values[1]);
+                return `${alias}.${attribute} BETWEEN ? AND ?`;
+
+            case QueryType.IsNull:
+            case QueryType.IsNotNull:
+                return `${alias}.${attribute} ${this.getSQLOperator(method)}`;
+            // @ts-expect-error
+            case QueryType.Contains:
+                if (this.$supportForJSONOverlaps && query.onArray()) {
+                    binds.push(JSON.stringify(query.getValues()));
+                    return `JSON_OVERLAPS(${alias}.${attribute}, ?)`;
+                }
+            // Fall through to default case
+
+            default:
+                const defaultConditions: string[] = [];
+                for (const value of query.getValues() as string[]) {
+                    let processedValue = value;
+                    switch (method) {
+                        case QueryType.StartsWith:
+                            processedValue = this.escapeWildcards(value) + '%';
+                            break;
+                        case QueryType.EndsWith:
+                            processedValue = '%' + this.escapeWildcards(value);
+                            break;
+                        case QueryType.Contains:
+                            processedValue = query.onArray()
+                                ? JSON.stringify(value)
+                                : '%' + this.escapeWildcards(value) + '%';
+                            break;
+                    }
+
+                    binds.push(processedValue);
+                    defaultConditions.push(`${alias}.${attribute} ${this.getSQLOperator(method)} ?`);
+                }
+
+                return defaultConditions.length === 0 ? '' : '(' + defaultConditions.join(' OR ') + ')';
+        }
+    }
+
+    protected processException(error: any, message?: string): never {
+        throw new DatabaseException('Not implemented')
+    }
+
+    readonly $supportForTimeouts = true;
+    public get $internalIndexesKeys() {
+        return ['primary', '_created_at', '_updated_at', '_tenant_id'];
+    }
+
+    public setTimeout(milliseconds: number, event: EventsEnum = EventsEnum.All): void {
+        if (!this.$supportForTimeouts) {
+            return;
+        }
+        if (milliseconds <= 0) {
+            throw new DatabaseException('Timeout must be greater than 0');
+        }
+
+        this.$timeout = milliseconds;
+
+        const seconds = milliseconds / 1000;
+
+        this.before(event, 'timeout', (sql: string) => {
+            return `SET STATEMENT max_statement_time = ${seconds} FOR ${sql}`;
+        });
+    }
 
     protected getSQLOperator(method: string): string {
         switch (method) {

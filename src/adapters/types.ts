@@ -1,4 +1,4 @@
-import { AttributeEnum, CursorEnum, IndexEnum, OrderEnum, PermissionEnum } from "@core/enums.js";
+import { AttributeEnum, CursorEnum, IndexEnum, OrderEnum, PermissionEnum, RelationEnum, RelationSideEnum } from "@core/enums.js";
 import { Query } from "@core/query.js";
 import { QueryBuilder } from "@utils/query-builder.js";
 import { Attribute } from "@validators/schema.js";
@@ -60,5 +60,21 @@ export interface Find {
         cursor?: Record<string, string | number>
         cursorDirection?: CursorEnum
         permission?: PermissionEnum
+    };
+}
+
+export interface CreateRelationship {
+    collection: string;
+    attribute: string;
+    type: RelationEnum;
+    twoWay?: boolean;
+    target: {
+        collection: string;
+        attribute?: string;
+    },
+    junctionCollection?: string;
+    onDelete?: {
+        action: "cascade" | "set null" | "restrict";
+        side: RelationSideEnum;
     };
 }
