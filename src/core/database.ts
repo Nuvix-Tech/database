@@ -8,11 +8,12 @@ import { Entities, IEntity } from "types.js";
 import { QueryBuilder } from "@utils/query-builder.js";
 import { Query } from "./query.js";
 import { Doc } from "./doc.js";
-import { DatabaseException, DuplicateException, IndexException, LimitException, NotFoundException } from "@errors/index.js";
+import { DatabaseException, DuplicateException, IndexException, LimitException, NotFoundException, QueryException } from "@errors/index.js";
 import { Permission } from "@utils/permission.js";
 import { Role } from "@utils/role.js";
 import { Permissions } from "@validators/permissions.js";
 import { Index } from "@validators/index-validator.js";
+import { Documents } from "@validators/queries/documents.js";
 
 export class Database extends Cache {
     constructor(adapter: Adapter, cache: NuvixCache, options: DatabaseOptions = {}) {
@@ -40,7 +41,7 @@ export class Database extends Cache {
 
     public async list(): Promise<string[]> {
         this.trigger(EventsEnum.DatabaseList, []);
-        return [] // TODO: -----
+        return [];
     }
 
     public async delete(database?: string): Promise<void> {
@@ -63,13 +64,15 @@ export class Database extends Cache {
         ];
 
         if (this.validate) {
-            const perms = new Permissions()
-            if (!perms.$valid(permissions)) throw new DatabaseException(perms.$description);
+            const perms = new Permissions();
+            if (!perms.$valid(permissions)) {
+                throw new DatabaseException(perms.$description);
+            }
         }
 
         let collection = await this.silent(() => this.getCollection(id));
         if (!collection.empty() && id !== Database.METADATA) {
-            throw new DuplicateException(`Collection "${id}" already exists.`);
+            throw new DuplicateException(`Collection '${id}' already exists.`);
         }
 
         // Fix metadata index length & orders
@@ -110,10 +113,12 @@ export class Database extends Cache {
                 this.adapter.$maxIndexLength,
                 this.adapter.$internalIndexesKeys,
                 this.adapter.$supportForIndexArray,
-            )
+            );
             indexes.forEach((index) => {
-                if (!validator.$valid(index)) throw new IndexException(validator.$description);
-            })
+                if (!validator.$valid(index)) {
+                    throw new IndexException(validator.$description);
+                }
+            });
         }
 
         if (indexes.length && this.adapter.getCountOfIndexes(collection) > this.adapter.$limitForIndexes) {
@@ -122,7 +127,7 @@ export class Database extends Cache {
 
         if (attributes.length) {
             if (this.adapter.$limitForAttributes && attributes.length > this.adapter.$limitForAttributes) {
-                throw new LimitException(`Attribute limit of ${this.adapter.$limitForAttributes} exceeded. Cannot create collection.`,);
+                throw new LimitException(`Attribute limit of ${this.adapter.$limitForAttributes} exceeded. Cannot create collection.`);
             }
             if (this.adapter.$documentSizeLimit && this.adapter.getAttributeWidth(collection) > this.adapter.$documentSizeLimit) {
                 throw new LimitException(`Document size limit of ${this.adapter.$documentSizeLimit} exceeded. Cannot create collection.`);
@@ -151,32 +156,32 @@ export class Database extends Cache {
     }
 
     public async updateCollection(
-        { id, documentSecurity, permissions }
-            : UpdateCollection
-    ) {
-        if (typeof permissions !== undefined) {
+        { id, documentSecurity, permissions }: UpdateCollection
+    ): Promise<Doc<Collection>> {
+        if (permissions !== undefined) {
             if (this.validate) {
-                const perms = new Permissions()
-                if (!perms.$valid(permissions))
+                const perms = new Permissions();
+                if (!perms.$valid(permissions)) {
                     throw new DatabaseException(perms.$description);
+                }
             }
         }
 
         let collection = await this.silent(() => this.getCollection(id));
 
         if (collection.empty()) {
-            throw new NotFoundException(`Collection "${collection}" not found`);
+            throw new NotFoundException(`Collection "${id}" not found`);
         }
 
         if (
             this.adapter.$sharedTables
             && collection.getTenant() !== this.adapter.$tenantId
         ) {
-            throw new NotFoundException(`Collection "${collection}" not found`);
+            throw new NotFoundException(`Collection "${id}" not found`);
         }
 
-        if (typeof permissions !== undefined) collection.set('$permissions', permissions);
-        if (typeof documentSecurity !== undefined) collection.set('documentSecurity', documentSecurity);
+        if (permissions !== undefined) collection.set('$permissions', permissions);
+        if (documentSecurity !== undefined) collection.set('documentSecurity', documentSecurity);
 
         collection = await this.silent(() => this.updateDocument(Database.METADATA, collection.getId(), collection));
         this.trigger(EventsEnum.CollectionUpdate, collection);
@@ -188,7 +193,7 @@ export class Database extends Cache {
      * Retrieves a collection by its ID.
      * If the collection is not found or does not match the tenant ID, an empty Doc
      */
-    public async getCollection(id: string): Promise<Doc<Collection>> {
+    public async getCollection(id: string, throwOnNotFound?: boolean): Promise<Doc<Collection>> {
         const collection = await this.silent(() => this.getDocument<Collection>(Database.METADATA, id));
 
         if (id !== Database.METADATA
@@ -196,10 +201,16 @@ export class Database extends Cache {
             && collection.getTenant() !== null
             && collection.getTenant() !== this.adapter.$tenantId
         ) {
+            if (throwOnNotFound) {
+                throw new NotFoundException(`Collection '${id}' not found`);
+            }
             return new Doc<Collection>();
         }
 
         this.trigger(EventsEnum.CollectionRead, collection);
+        if (collection.empty() && throwOnNotFound) {
+            throw new NotFoundException(`Collection '${id}' not found`);
+        }
 
         return collection;
     }
@@ -211,21 +222,22 @@ export class Database extends Cache {
         limit: number = 25,
         offset: number = 0,
     ): Promise<Doc<Collection>[]> {
-        throw new Error("Method not implemented.");
+        const query = [
+            Query.limit(limit),
+            Query.offset(offset)
+        ];
+
+        return this.find<Collection>(Database.METADATA, query);
     }
 
     /**
      * Gets the size of a collection.
      */
     public async getSizeOfCollection(collectionId: string): Promise<number> {
-        const collection = await this.silent(() => this.getCollection(collectionId));
-
-        if (collection.empty()) {
-            throw new NotFoundException(`Collection "${collectionId}" not found`);
-        }
+        const collection = await this.silent(() => this.getCollection(collectionId, true));
 
         if (this.adapter.$sharedTables && collection.getTenant() !== this.adapter.$tenantId) {
-            throw new NotFoundException(`Collection "${collectionId}" not found`);
+            throw new NotFoundException(`Collection '${collectionId}' not found`);
         }
 
         return this.adapter.getSizeOfCollection(collection.getId());
@@ -236,14 +248,10 @@ export class Database extends Cache {
             throw new DatabaseException('Missing tenant. Tenant must be set when table sharing is enabled.');
         }
 
-        const collection = await this.silent(() => this.getCollection(collectionId));
-
-        if (collection.empty()) {
-            throw new NotFoundException(`Collection "${collectionId}" not found`);
-        }
+        const collection = await this.silent(() => this.getCollection(collectionId, true));
 
         if (this.adapter.$sharedTables && collection.getTenant() !== this.adapter.$tenantId) {
-            throw new NotFoundException(`Collection "${collectionId}" not found`);
+            throw new NotFoundException(`Collection '${collectionId}' not found`);
         }
 
         return this.adapter.getSizeOfCollectionOnDisk(collection.getId());
@@ -257,11 +265,11 @@ export class Database extends Cache {
         const collection = await this.silent(() => this.getDocument(Database.METADATA, id));
 
         if (collection.empty()) {
-            throw new NotFoundException(`Collection "${id}" not found`);
+            throw new NotFoundException(`Collection '${id}' not found`);
         }
 
         if (this.adapter.$sharedTables && collection.getTenant() !== this.adapter.$tenantId) {
-            throw new NotFoundException(`Collection "${id}" not found`);
+            throw new NotFoundException(`Collection '${id}' not found`);
         }
 
         const relationships = (collection.get('attributes') ?? []).filter(
@@ -301,26 +309,118 @@ export class Database extends Cache {
         return deleted;
     }
 
-
     public async getDocument<C extends (string & keyof Entities) | Partial<IEntity> & Record<string, any>>(
-        collection: C extends string ? C : string,
+        collectionId: C extends string ? C : string,
         id: string,
-        queries: ((builder: QueryBuilder) => QueryBuilder) | Query[] = [],
+        query: ((builder: QueryBuilder) => QueryBuilder) | Query[] = [],
         forUpdate: boolean = false,
     ): Promise<C extends string ? Doc<Entities[C]> : Doc<C>> {
-        if (collection === Database.METADATA && id === Database.METADATA) {
+        if (collectionId === Database.METADATA && id === Database.METADATA) {
             return new Doc(Database.COLLECTION) as any;
         }
 
-        if (!collection) throw new NotFoundException(`Collection "${collection}" not found.`);
+        if (!collectionId) {
+            throw new NotFoundException(`Collection '${collectionId}' not found.`);
+        }
         if (!id) return new Doc() as any;
 
-        const $collection = await this.silent(() => this.getCollection(collection));
+        const collection = await this.silent(() => this.getCollection(collectionId, true));
+        const attributes = collection.get('attributes', []);
 
+        const processedQuery = await this.processQueries(query, collection);
+
+        // TODO: Implement document retrieval logic
+        throw new Error("Method not implemented.");
     }
 
+    async processQueries(
+        queries: ((builder: QueryBuilder) => QueryBuilder) | Query[],
+        collection: Doc<Collection>,
+    ): Promise<ProcessQuery> {
+        if (!Array.isArray(queries)) {
+            queries = queries(new QueryBuilder()).build();
+        }
+
+        if (this.validate && queries.length) {
+            const validator = new Documents(
+                collection.get('attributes', []),
+                collection.get('indexes', []),
+                this.maxQueryValues,
+            );
+            if (!validator.$valid(queries)) {
+                throw new QueryException(validator.$description);
+            }
+        }
+
+        const { populate: _populate, selections } = Query.groupByType(queries);
+        const attributes = collection.get('attributes', []);
+
+        if (selections.length) {
+            const attributeMap = new Map(attributes.map(attr => [attr.get('$id'), attr]));
+
+            for (const query of selections) {
+                const attributeId = query.getAttribute();
+                const attribute = attributeMap.get(attributeId);
+
+                if (!attribute) {
+                    throw new QueryException(`Attribute '${attributeId}' not found in collection '${collection.getId()}'.`);
+                }
+
+                const attributeType = attribute.get('type');
+                if (attributeType === AttributeEnum.Relationship || attributeType === AttributeEnum.Virtual) {
+                    throw new QueryException(`Attribute '${attributeId}' of type '${attributeType}' cannot be selected directly. Use populate instead.`);
+                }
+            }
+        }
+
+        if (!_populate.size) {
+            return {
+                queries,
+                collection,
+                selections: selections.map(q => q.getAttribute())
+            };
+        }
+
+        const populate: ProcessQuery[] = [];
+
+        for (const [attribute, values] of _populate.entries()) {
+            const attributeDoc = attributes.find(attr => attr.get('$id') === attribute);
+            if (!attributeDoc) {
+                throw new QueryException(`Attribute '${attribute}' not found in collection '${collection.getId()}'.`);
+            }
+
+            if (attributeDoc.get('type') !== AttributeEnum.Relationship) {
+                throw new QueryException(`Attribute '${attribute}' is not a relationship and cannot be populated.`);
+            }
+
+            if (!Array.isArray(values)) {
+                throw new QueryException(`Populate query for attribute '${attribute}' must be an array of queries.`);
+            }
+
+            const relatedCollection = await this.silent(() => this.getCollection(attributeDoc.get('collection')));
+            if (relatedCollection.empty()) {
+                throw new NotFoundException(`Collection '${attributeDoc.get('collection')}' not found for attribute '${attribute}'.`);
+            }
+
+            const processedQueries = await this.processQueries(values, relatedCollection);
+            populate.push(processedQueries);
+        }
+
+        return {
+            queries,
+            collection,
+            selections: selections.map(q => q.getAttribute()),
+            populate
+        };
+    }
 }
 
+interface ProcessQuery {
+    queries: Query[];
+    collection: Doc<Collection>;
+    selections?: string[];
+    populate?: ProcessQuery[]
+}
 
 export type DatabaseOptions = {
     tenant?: number;

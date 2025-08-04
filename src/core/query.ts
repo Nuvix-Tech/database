@@ -1,5 +1,6 @@
 import { QueryException } from "@errors/index.js";
 import { Logger } from "@utils/logger.js";
+import { QueryByType } from "./types.js";
 
 /**
  * Defines the types of operations a query can perform.
@@ -27,6 +28,10 @@ export enum QueryType {
     CursorBefore = "cursorBefore",
     And = "and",
     Or = "or",
+    /**
+     * Populate is used to fetch related documents based on the query.
+     */
+    Populate = "populate",
 }
 
 export type ScalarValue = string | number | boolean | null; // Null included for IsNull/IsNotNull implicitly
@@ -530,6 +535,15 @@ export class Query {
     }
 
     /**
+     * Creates a 'populate' query to fetch related documents.
+     * @param queries - An array of nested Query objects to specify the population criteria.
+     * @returns {Query}
+     */
+    public static populate(attribute: string, queries?: Query[]): Query {
+        return new Query(QueryType.Populate, attribute, queries);
+    }
+
+    /**
      * Filters an array of queries by their method types.
      *
      * @param queries - The array of Query objects to filter.
@@ -549,20 +563,11 @@ export class Query {
      * Groups an array of queries into different categories for easier processing.
      *
      * @param queries - An array of Query objects to group.
-     * @returns {{ filters: Query[]; selections: Query[]; limit: number | null; offset: number | null; orderAttributes: string[]; orderTypes: ('ASC' | 'DESC')[]; cursor: string | number | null; cursorDirection: 'AFTER' | 'BEFORE' | null; }} An object containing grouped queries and parameters.
      */
-    public static groupByType(queries: Query[]): {
-        filters: Query[];
-        selections: Query[];
-        limit: number | null;
-        offset: number | null;
-        orderAttributes: string[];
-        orderTypes: ('ASC' | 'DESC')[];
-        cursor: string | number | null;
-        cursorDirection: 'AFTER' | 'BEFORE' | null;
-    } {
+    public static groupByType(queries: Query[]): QueryByType {
         const filters: Query[] = [];
         const selections: Query[] = [];
+        const populate: Map<string, QueryByType> = new Map();
         let limit: number | null = null;
         let offset: number | null = null;
         const orderAttributes: string[] = [];
@@ -613,6 +618,18 @@ export class Query {
                 case QueryType.IsNotNull:
                     filters.push(query.clone());
                     break;
+                case QueryType.Populate:
+                    if (query.isNested()) {
+                        Logger.debug('Populate in nested query:', query.toString());
+                    }
+                    if (attribute) {
+                        const populateQuery = query.clone();
+                        populateQuery.setAttribute(attribute);
+                        populate.set(attribute, Query.groupByType(values as Query[]));
+                    } else {
+                        Logger.warn(`Populate query without attribute: ${query.toString()}`);
+                    }
+                    break;
                 default:
                     filters.push(query.clone());
                     break;
@@ -628,6 +645,7 @@ export class Query {
             orderTypes,
             cursor,
             cursorDirection,
+            populate
         };
     }
 

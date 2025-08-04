@@ -402,7 +402,7 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
         }
 
         return document;
-    }
+    }this.getLikeOperator()
 
     protected async decode<T extends Record<string, any>>(
         collection: Doc<Collection>,

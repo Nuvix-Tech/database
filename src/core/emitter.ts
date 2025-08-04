@@ -173,7 +173,6 @@ export class Emitter<EventsMap extends EmitterEventMap = EmitterEventMap>
         }
     }
 
-
     /**
      * Checks if a listener is currently silent.
      *
@@ -201,10 +200,8 @@ export class Emitter<EventsMap extends EmitterEventMap = EmitterEventMap>
 
         try {
             if (listeners === null) {
-                // Silence all listeners
                 this._listenerSilenceStatus = null;
             } else {
-                // Silence specific listeners
                 const newSilenceStatus = new Map(previousSilenceStatus);
                 for (const listenerName of listeners) {
                     newSilenceStatus.set(listenerName, true);
@@ -214,7 +211,6 @@ export class Emitter<EventsMap extends EmitterEventMap = EmitterEventMap>
 
             return await callback();
         } finally {
-            // Restore previous silence status
             this._listenerSilenceStatus = previousSilenceStatus;
         }
     }

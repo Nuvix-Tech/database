@@ -162,6 +162,8 @@ export class Queries implements Validator {
             case QueryType.And:
             case QueryType.Or:
                 return MethodType.Filter;
+            case QueryType.Populate:
+                return MethodType.Populate;
             default:
                 // If a new QueryType is added but not mapped here, it's an unhandled case.
                 return undefined;

@@ -262,6 +262,19 @@ export class QueryBuilder {
     }
 
     /**
+     * Adds a nested populate query.
+     * @param attribute - The attribute to populate.
+     * @param builderFn - A function that receives a new QueryBuilder instance to define the nested query.
+     * @returns {this} The current QueryBuilder instance for chaining.
+     */
+    populate(attribute: string, builderFn: (builder: QueryBuilder) => void): this {
+        const nestedBuilder = new QueryBuilder();
+        builderFn(nestedBuilder);
+        this.queries.push(Query.populate(attribute, nestedBuilder.build()));
+        return this;
+    }
+
+    /**
      * Marks the last added query to operate on an array attribute.
      *
      * @param enable - Whether to enable array mode. Defaults to `true`.

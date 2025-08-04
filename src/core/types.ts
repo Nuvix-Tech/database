@@ -2,6 +2,7 @@ import { Attribute, Index } from "@validators/schema.js";
 import type { Database } from "./database.js";
 import type { Doc } from "./doc.js";
 import { Permission } from "@utils/permission.js";
+import { Query } from "./query.js";
 
 export type FilterValue = string | number | boolean | Date | null | undefined | object | any[] | Record<string, any> | FilterValue[];
 
@@ -21,3 +22,15 @@ export type CreateCollection = {
 }
 
 export type UpdateCollection = Omit<CreateCollection, 'attributes' | 'indexes'>
+
+export type QueryByType = {
+    filters: Query[];
+    selections: Query[];
+    limit: number | null;
+    offset: number | null;
+    orderAttributes: string[];
+    orderTypes: ('ASC' | 'DESC')[];
+    cursor: string | number | null;
+    cursorDirection: 'AFTER' | 'BEFORE' | null;
+    populate: Map<string, QueryByType>;
+}

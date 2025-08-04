@@ -70,19 +70,6 @@ export class Adapter extends BaseAdapter {
             );
 
             let sql = `${this.quote(id)} ${type}`;
-            // if (attribute.get('required', false)) {
-            //     sql += ' NOT NULL';
-            // }
-            // if (attribute.get('default') !== undefined && attribute.get('type') !== AttributeEnum.Relationship) {
-            //     const defaultValue = attribute.get('default');
-            //     if (typeof defaultValue === 'string') {
-            //         sql += ` DEFAULT ${this.quote(defaultValue)}`;
-            //     } else if (typeof defaultValue === 'number' || typeof defaultValue === 'boolean') {
-            //         sql += ` DEFAULT ${defaultValue}`;
-            //     } else if (defaultValue === null) {
-            //         sql += ` DEFAULT NULL`;
-            //     }
-            // }
             attributeSql.push(sql);
         });
 

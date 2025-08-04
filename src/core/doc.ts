@@ -21,6 +21,8 @@ type TransformEntity<T> = {
     [K in keyof T]: TransformField<T[K]>;
 };
 
+type Simplify<T> = { [K in keyof T]: T[K] };
+
 function isEntityLike(value: unknown): value is Record<string, unknown> {
     return (
         typeof value === "object" &&
@@ -91,6 +93,8 @@ export class Doc<T extends Record<string, any> & Partial<IEntity> = IEntity> {
         return new Doc(data);
     }
 
+    public get<K extends keyof T>(name: K): Exclude<TransformEntity<T>[K], undefined>;
+    public get<K extends keyof T, D extends T[K]>(name: K, _default?: D): Exclude<TransformEntity<T>[K], undefined>;
     public get<K extends keyof T, D = null>(name: K, _default?: D): Exclude<TransformEntity<T>[K], undefined> | D;
     public get<K extends string, D = null>(name: K, _default?: D): D;
     public get<K extends keyof T, D = null>(name: K, _default: D = null as D): Exclude<TransformEntity<T>[K], undefined> | D {
@@ -108,8 +112,8 @@ export class Doc<T extends Record<string, any> & Partial<IEntity> = IEntity> {
     }
 
     public set<K extends keyof T>(name: K, value: TransformField<T[K]>): this;
-    public set<K extends string, V extends unknown>(name: K, value: V): Doc<T & Record<K, TransformField<V>>>;
-    public set<K extends keyof T>(name: K, value: TransformField<T[K]>): this | Doc<T & Record<K, TransformField<T[K]>>> {
+    public set<K extends string, V extends unknown>(name: K, value: V): Doc<Simplify<T & Record<K, TransformField<V>>>>;
+    public set<K extends string, V extends unknown>(name: K, value: V): any {
         if (isEntityLike(value)) {
             (this as any)[name] = value instanceof Doc ? value : new Doc(value as any);
         } else {

@@ -1,35 +1,52 @@
-import { pino, Logger as PinoLogger } from 'pino';
+import { pino, Logger as PinoLogger, LoggerOptions } from 'pino';
 
 export class Logger {
     private logger: PinoLogger;
+    private static staticLogger: PinoLogger;
 
-    constructor() {
-        this.logger = pino();
+    constructor(options?: LoggerOptions) {
+        this.logger = pino({
+            ...options
+        });
     }
 
-    private static logger = pino();
+    private static getStaticLogger(): PinoLogger {
+        if (!this.staticLogger) {
+            this.staticLogger = pino({
+            });
+        }
+        return this.staticLogger;
+    }
 
-    info(message: string, ...args: any[]) {
+    info(message: string, ...args: any[]): void {
         this.logger.info(message, ...args);
     }
 
-    warn(message: string, ...args: any[]) {
+    warn(message: string, ...args: any[]): void {
         this.logger.warn(message, ...args);
     }
 
-    error(message: string, ...args: any[]) {
+    error(message: string, ...args: any[]): void {
         this.logger.error(message, ...args);
     }
 
-    debug(message: string, ...args: any[]) {
+    debug(message: string, ...args: any[]): void {
         this.logger.debug(message, ...args);
     }
 
-    static warn(message: string, ...args: any[]) {
-        this.logger.warn(message, ...args);
+    static info(message: string, ...args: any[]): void {
+        this.getStaticLogger().info(message, ...args);
     }
 
-    static error(message: string, ...args: any[]) {
-        this.logger.error(message, ...args);
+    static warn(message: string, ...args: any[]): void {
+        this.getStaticLogger().warn(message, ...args);
+    }
+
+    static error(message: string, ...args: any[]): void {
+        this.getStaticLogger().error(message, ...args);
+    }
+
+    static debug(message: string, ...args: any[]): void {
+        this.getStaticLogger().debug(message, ...args);
     }
 }

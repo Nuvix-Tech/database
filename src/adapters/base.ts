@@ -856,7 +856,7 @@ export abstract class BaseAdapter extends EventEmitter {
             case QueryType.IsNull:
             case QueryType.IsNotNull:
                 return `${alias}.${attribute} ${this.getSQLOperator(method)}`;
-            // @ts-expect-error
+
             case QueryType.Contains:
                 if (this.$supportForJSONOverlaps && query.onArray()) {
                     binds.push(JSON.stringify(query.getValues()));

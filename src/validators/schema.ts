@@ -5,7 +5,7 @@ export const AttributeType = z.enum(AttributeEnum);
 
 export const AttributeSchema = z.object({
     $id: z.string(),
-    key: z.string().optional(),
+    key: z.string(),
     type: AttributeType,
     size: z.number().default(0).optional(),
     required: z.boolean().default(false).optional(),

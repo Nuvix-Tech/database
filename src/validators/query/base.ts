@@ -7,6 +7,7 @@ export enum MethodType {
     Order = "order",
     Filter = "filter",
     Select = "select",
+    Populate = "populate",
 }
 
 export abstract class Base implements Validator {
