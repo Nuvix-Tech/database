@@ -937,7 +937,7 @@ export abstract class BaseAdapter extends EventEmitter {
             case QueryType.StartsWith:
             case QueryType.EndsWith:
             case QueryType.Contains:
-                return this.getLikeOperator();
+                return 'LIKE';
             default:
                 throw new DatabaseException('Unknown method: ' + method);
         }

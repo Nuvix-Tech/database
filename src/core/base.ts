@@ -31,7 +31,7 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
         {
             $id: "$sequence",
             type: AttributeEnum.Integer,
-            size: Base.LENGTH_KEY,
+            size: 8,
             required: true,
         },
         {
@@ -43,30 +43,23 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
         {
             $id: "$tenant",
             type: AttributeEnum.Integer,
-            size: 0
+            size: 8
         },
         {
             $id: "$createdAt",
-            type: AttributeEnum.Datetime,
-            size: 0,
-            signed: false,
+            type: AttributeEnum.Timestamptz,
             default: null,
-            filters: ["datetime"],
         },
         {
             $id: "$updatedAt",
-            type: AttributeEnum.Datetime,
-            size: 0,
-            signed: false,
+            type: AttributeEnum.Timestamptz,
             default: null,
-            filters: ["datetime"],
         },
         {
             $id: "$permissions",
             type: AttributeEnum.String,
-            size: 1000000,
-            default: [],
-            filters: ["json"],
+            size: 255,
+            array: true,
         },
     ];
     public static readonly INTERNAL_ATTRIBUTE_KEYS = [
@@ -98,22 +91,17 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
             {
                 $id: "attributes",
                 key: "attributes",
-                type: AttributeEnum.String,
-                size: 1000000,
-                filters: ["json"],
+                type: AttributeEnum.Json,
             },
             {
                 $id: "indexes",
                 key: "indexes",
-                type: AttributeEnum.String,
-                size: 1000000,
-                filters: ["json"],
+                type: AttributeEnum.Json,
             },
             {
                 $id: "documentSecurity",
                 key: "documentSecurity",
                 type: AttributeEnum.Boolean,
-                size: 0,
                 required: true,
             },
         ],
