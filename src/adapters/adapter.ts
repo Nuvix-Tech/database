@@ -796,13 +796,6 @@ export class Adapter extends BaseAdapter {
         }
     }
 
-    public quote(name: string): string {
-        if (!name) {
-            throw new DatabaseException("Failed to quote name: name is empty");
-        }
-        return `"${this.sanitize(name)}"`;
-    }
-
     protected processException(error: any, message?: string): never {
         throw new DatabaseException('Not implemented')
     }

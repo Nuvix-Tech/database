@@ -181,18 +181,18 @@ export abstract class BaseAdapter extends EventEmitter {
             `;
         }
 
-        const [result] = await this.client.query<any>(sql, values);
-        return result[0].count > 0;
+        const { rows } = await this.client.query<any>(sql, values);
+        return rows[0].count > 0;
     }
 
     public async createAttribute(
-        { name, collection, size, signed, array, type }: CreateAttribute
+        { name, collection, size, array, type }: CreateAttribute
     ): Promise<void> {
         if (!name || !collection || !type) {
             throw new DatabaseException("Failed to create attribute: name, collection, and type are required");
         }
 
-        const sqlType = this.getSQLType(type, size, signed, array);
+        const sqlType = this.getSQLType(type, size, array);
         const table = this.getSQLTable(collection);
 
         let sql = `
@@ -217,7 +217,7 @@ export abstract class BaseAdapter extends EventEmitter {
             if (!attr.name || !attr.type) {
                 throw new DatabaseException("Failed to create attribute: name and type are required");
             }
-            const sqlType = this.getSQLType(attr.type, attr.size, attr.signed, attr.array);
+            const sqlType = this.getSQLType(attr.type, attr.size, attr.array);
             parts.push(`${this.$.quote(attr.name)} ${sqlType}`);
         }
 
@@ -374,7 +374,7 @@ export abstract class BaseAdapter extends EventEmitter {
                 params.push(this.$tenantId);
             }
 
-            const [result] = await this.client.query<any>(sql, params);
+            const { rows: result } = await this.client.query<any>(sql, params);
 
             // Delete permissions
             const permParams: any[] = [id];
@@ -382,6 +382,7 @@ export abstract class BaseAdapter extends EventEmitter {
                 DELETE FROM ${this.getSQLTable(collection + '_perms')}
                 WHERE ${this.$.quote('_document')} = ?
                 ${this.getTenantQuery(collection)}
+                RETURNING _id
             `;
 
             permSql = this.trigger(EventsEnum.PermissionsDelete, permSql);
@@ -392,7 +393,7 @@ export abstract class BaseAdapter extends EventEmitter {
 
             await this.client.query(permSql, permParams);
 
-            return result.affectedRows > 0; // TODO: #type
+            return result.length > 0;
         } catch (error) {
             this.processException(error, 'Failed to delete document');
         }
@@ -613,7 +614,7 @@ export abstract class BaseAdapter extends EventEmitter {
                 results.reverse();
             }
 
-            return results;
+            return results as any;
         } catch (e: any) {
             throw this.processException(e, 'Failed to find documents');
         }
@@ -778,7 +779,7 @@ export abstract class BaseAdapter extends EventEmitter {
 
         const removals: Record<string, string[]> = {};
         for (const type of Database.PERMISSIONS) {
-            const diff = permissions[type].filter((perm: string) => !document.getPermissionsByType(type).includes(perm));
+            const diff = permissions[type]!.filter((perm: string) => !document.getPermissionsByType(type).includes(perm));
             if (diff.length > 0) {
                 removals[type] = diff;
             }
@@ -786,7 +787,7 @@ export abstract class BaseAdapter extends EventEmitter {
 
         const additions: Record<string, string[]> = {};
         for (const type of Database.PERMISSIONS) {
-            const diff = document.getPermissionsByType(type).filter((perm: string) => !permissions[type].includes(perm));
+            const diff = document.getPermissionsByType(type).filter((perm: string) => !permissions[type]!.includes(perm));
             if (diff.length > 0) {
                 additions[type] = diff;
             }
@@ -908,10 +909,18 @@ export abstract class BaseAdapter extends EventEmitter {
         }
     }
 
-    protected getSQLPermissionsCondition(
-        { collection, roles, alias, type = PermissionEnum.Read }: { collection: string, roles: string[], alias: string, type?: PermissionEnum }
-    ): string {
-        if (!collection || !roles || !alias) {
+    protected getSQLPermissionsCondition({
+        collection,
+        roles,
+        alias,
+        type = PermissionEnum.Read
+    }: {
+        collection: string;
+        roles: string[];
+        alias: string;
+        type?: PermissionEnum;
+    }): string {
+        if (!collection || !roles?.length || !alias) {
             throw new DatabaseException("Failed to get SQL permission condition: collection, roles, and alias are required");
         }
 
@@ -919,15 +928,17 @@ export abstract class BaseAdapter extends EventEmitter {
             throw new DatabaseException(`Unknown permission type: ${type}`);
         }
 
-        const quotedRoles = roles.map(role => this.client.quote(role)).join(', ');
+        const quotedRolesArray = `ARRAY[${roles.map(role => this.client.quote(role)).join(', ')}]::text[]`;
 
-        return `${this.$.quote(alias)}.${this.$.quote('_uid')} IN (
-            SELECT _document
-            FROM ${this.getSQLTable(collection + '_perms')}
-            WHERE _permission IN (${quotedRoles})
-              AND _type = '${type}'
+        return `
+        ${this.quote(alias)}.${this.quote('_id')} IN (
+            SELECT ${this.quote('_document')}
+            FROM ${this.getSQLTable(`${collection}_perms`)}
+            WHERE ${this.quote('_permissions')} && ${quotedRolesArray}
+              AND ${this.quote('_type')} = ${this.client.quote(type)}
               ${this.getTenantQuery(collection)}
-        )`;
+            )
+        `.trim();
     }
 
     /**
@@ -953,7 +964,7 @@ export abstract class BaseAdapter extends EventEmitter {
         return tmp === '' ? '' : `(${tmp})`;
     }
 
-    public getTenantQuery(
+    protected getTenantQuery(
         collection: string,
         alias: string = '',
         tenantCount: number = 0,
@@ -965,9 +976,10 @@ export abstract class BaseAdapter extends EventEmitter {
 
         let dot = '';
         let quotedAlias = alias;
+
         if (alias !== '') {
             dot = '.';
-            quotedAlias = this.$.quote(alias);
+            quotedAlias = this.quote(alias);
         }
 
         let bindings: string[] = [];
@@ -980,10 +992,10 @@ export abstract class BaseAdapter extends EventEmitter {
 
         let orIsNull = '';
         if (collection === Database.METADATA) {
-            orIsNull = ` OR ${quotedAlias}${dot}_tenant IS NULL`;
+            orIsNull = ` OR ${quotedAlias}${dot}${this.quote('_tenant')} IS NULL`;
         }
 
-        return `${condition} (${quotedAlias}${dot}_tenant IN (${bindingsStr})${orIsNull})`;
+        return `${condition} (${quotedAlias}${dot}${this.quote('_tenant')} IN (${bindingsStr})${orIsNull})`;
     }
 
     protected getAttributeProjection(selections: string[], prefix: string): string {
@@ -1015,6 +1027,13 @@ export abstract class BaseAdapter extends EventEmitter {
         );
 
         return projected.join(',');
+    }
+
+    public quote(name: string): string {
+        if (!name) {
+            throw new DatabaseException("Failed to quote name: name is empty");
+        }
+        return `"${this.sanitize(name)}"`;
     }
 
     protected getAttributeSelections(queries: QueryBuilder | Array<Query>): string[] {
@@ -1085,93 +1104,110 @@ export abstract class BaseAdapter extends EventEmitter {
         return value;
     }
 
-    public getAttributeWidth(collection: Doc<Collection>): number {
-        /**
-         * @link https://dev.mysql.com/doc/refman/8.0/en/storage-requirements.html
-         *
-         * `_id` bigint => 8 bytes
-         * `_uid` varchar(255) => 1021 (4 * 255 + 1) bytes
-         * `_tenant` int => 4 bytes
-         * `_createdAt` datetime(3) => 7 bytes
-         * `_updatedAt` datetime(3) => 7 bytes
-         * `_permissions` mediumtext => 20
-         */
+    protected static POSTGRES_ROW_OVERHEAD_MIN = 24;
+    protected static POSTGRES_TOAST_POINTER_SIZE = 20;
 
-        let total = 1067;
+    public getAttributeWidth(collection: Doc<Collection>): number {
+        let totalEstimatedBytes = BaseAdapter.POSTGRES_ROW_OVERHEAD_MIN;
+
+        // Base columns in the main collection table:
+        // "_id" BIGINT: 8 bytes
+        // "_uid" VARCHAR(255): 255 (actual data) + 1 (length byte for short strings) = 256 bytes *or* 4 (length byte) + 255 if long string.
+        //     For estimating, we often assume max storage. For varchar(255), in-row is often 256.
+        // "_createdAt" TIMESTAMP WITH TIME ZONE: 8 bytes
+        // "_updatedAt" TIMESTAMP WITH TIME ZONE: 8 bytes
+        // "_permissions" TEXT[]: This is an array, so it will be TOASTed if it gets large. 20-byte pointer.
+
+        // Shared table `_tenant` (INTEGER): 4 bytes
+
+        // _id (BIGINT)
+        totalEstimatedBytes += 8;
+        // _uid (VARCHAR(255)) - for in-row storage, it's roughly actual_length + 1 byte for small, 4 bytes for large.
+        // For max length varchar, it will likely be 255 + 1. Let's assume max length for estimation.
+        totalEstimatedBytes += 256; // 255 (data) + 1 (length header for small varlena)
+        // _createdAt (TIMESTAMP WITH TIME ZONE)
+        totalEstimatedBytes += 8;
+        // _updatedAt (TIMESTAMP WITH TIME ZONE)
+        totalEstimatedBytes += 8;
+        totalEstimatedBytes += BaseAdapter.POSTGRES_TOAST_POINTER_SIZE;
+        totalEstimatedBytes += 4;
+
+        // Count of fixed columns for NULL bitmap
+        let numberOfColumns = 6; // _id, _uid, _createdAt, _updatedAt, _permissions, _tenant
 
         const attributes = collection.get('attributes', []);
 
         for (const attr of attributes) {
             const attribute = attr.toObject();
-            /**
-             * Json / Longtext
-             * only the pointer contributes 20 bytes
-             * data is stored externally
-             */
+            numberOfColumns++;
 
             if (attribute.array ?? false) {
-                total += 20;
+                totalEstimatedBytes += BaseAdapter.POSTGRES_TOAST_POINTER_SIZE;
                 continue;
             }
 
             switch (attribute.type) {
                 case AttributeEnum.String:
-                    /**
-                     * Text / Mediumtext / Longtext
-                     * only the pointer contributes 20 bytes to the row size
-                     * data is stored externally
-                     */
                     attribute.size = attribute?.size ?? 255;
-                    if (attribute?.size > this.$maxVarcharLength) {
-                        total += 20;
-                    } else if (attribute.size > 255) {
-                        total += attribute.size * 4 + 2; // VARCHAR(>255) + 2 length
+
+                    if (attribute.size > this.$maxVarcharLength || attribute.size > 255) {
+                        totalEstimatedBytes += BaseAdapter.POSTGRES_TOAST_POINTER_SIZE;
                     } else {
-                        total += attribute.size * 4 + 1; // VARCHAR(<=255) + 1 length
+                        // VARCHAR(<=255). It will be in-row.
+                        // Actual data size + 1 byte for header (if < 128 bytes) or 4 bytes for header (if >= 128 bytes).
+                        totalEstimatedBytes += attribute.size + 1;
                     }
                     break;
 
                 case AttributeEnum.Integer:
                     attribute.size = attribute?.size ?? 4;
-                    if (attribute.size >= 8) {
-                        total += 8; // BIGINT 8 bytes
-                    } else {
-                        total += 4; // INT 4 bytes
+                    if (attribute.size <= 2) {
+                        totalEstimatedBytes += 2; // SMALLINT
+                    } else if (attribute.size <= 4) {
+                        totalEstimatedBytes += 4; // INTEGER
+                    } else { // >= 8
+                        totalEstimatedBytes += 8; // BIGINT
                     }
                     break;
 
                 case AttributeEnum.Float:
-                    total += 8; // DOUBLE 8 bytes
+                    totalEstimatedBytes += 8;
                     break;
 
                 case AttributeEnum.Boolean:
-                    total += 1; // TINYINT(1) 1 bytes
+                    totalEstimatedBytes += 1;
                     break;
 
                 case AttributeEnum.Relationship:
-                    total += Database.LENGTH_KEY * 4 + 1; // VARCHAR(<=255)
+                    totalEstimatedBytes += 256;
                     break;
 
-                case AttributeEnum.Datetime:
-                    /**
-                     * 1 byte year + month
-                     * 1 byte for the day
-                     * 3 bytes for the hour, minute, and second
-                     * 2 bytes miliseconds DATETIME(3)
-                     */
-                    total += 7;
+                case AttributeEnum.Timestamptz:
+                    // TIMESTAMP WITH TIME ZONE (8 bytes)
+                    totalEstimatedBytes += 8;
                     break;
-                case AttributeEnum.Object:
-                    total += 20; // JSON / LONGTEXT pointer
+
+                case AttributeEnum.Json:
+                    totalEstimatedBytes += BaseAdapter.POSTGRES_TOAST_POINTER_SIZE;
                     break;
+
+                case AttributeEnum.Uuid:
+                    // UUID (16 bytes)
+                    totalEstimatedBytes += 16;
+                    break;
+
                 case AttributeEnum.Virtual:
-                    break; // Virtual attributes do not contribute to the row size
+                    numberOfColumns--;
+                    break;
+
                 default:
-                    throw new DatabaseException('Unknown type: ' + attribute.type);
+                    throw new DatabaseException('Unknown attribute type: ' + attribute.type);
             }
         }
 
-        return total;
+        // Add NULL bitmap size: (number_of_columns + 7) / 8, rounded up
+        totalEstimatedBytes += Math.ceil(numberOfColumns / 8);
+        return totalEstimatedBytes;
     }
 
     public getCountOfAttributes(collection: Doc<Collection>): number {
