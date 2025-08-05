@@ -213,20 +213,20 @@ export class Doc<T extends Record<string, any> & Partial<IEntity> = IEntity> {
         );
     }
 
-    public getRead(): `read:${string}`[] {
-        return this.getPermissionsByType("read") as `read:${string}`[];
+    public getRead(): string[] {
+        return this.getPermissionsByType("read");
     }
 
-    public getCreate(): `create:${string}`[] {
-        return this.getPermissionsByType("create") as `create:${string}`[];
+    public getCreate(): string[] {
+        return this.getPermissionsByType("create");
     }
 
-    public getUpdate(): `update:${string}`[] {
-        return this.getPermissionsByType("update") as `update:${string}`[];
+    public getUpdate(): string[] {
+        return this.getPermissionsByType("update");
     }
 
-    public getDelete(): `delete:${string}`[] {
-        return this.getPermissionsByType("delete") as `delete:${string}`[];
+    public getDelete(): string[] {
+        return this.getPermissionsByType("delete");
     }
 
     public getWrite() {

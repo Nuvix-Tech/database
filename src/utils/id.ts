@@ -1,36 +1,48 @@
+/**
+ * Helper class to generate ID strings for resources.
+ */
 export class ID {
     /**
-     * Create a new unique ID
+     * Generate an hex ID based on timestamp.
+     * Recreated from https://www.php.net/manual/en/function.uniqid.php
+     *
+     * @returns {string}
      */
-    public static unique(padding: number = 7): string {
-        const timestamp = Date.now().toString(36);
-        const random = Math.random().toString(36).substring(2);
-        let uniqid = timestamp + random;
+    static #hexTimestamp(): string {
+        const now = new Date();
+        const sec = Math.floor(now.getTime() / 1000);
+        const msec = now.getMilliseconds();
 
-        if (padding > 0) {
-            try {
-                // Generate random bytes for additional padding
-                const bytes = new Uint8Array(Math.max(1, Math.ceil(padding / 2)));
-                crypto.getRandomValues(bytes);
-                
-                // Convert bytes to hex string
-                const hex = Array.from(bytes)
-                    .map(b => b.toString(16).padStart(2, '0'))
-                    .join('');
-                
-                uniqid += hex.substring(0, padding);
-            } catch (error) {
-                throw new Error(`Failed to generate random bytes: ${error instanceof Error ? error.message : 'Unknown error'}`);
-            }
-        }
-
-        return uniqid;
+        // Convert to hexadecimal
+        const hexTimestamp =
+            sec.toString(16) + msec.toString(16).padStart(5, "0");
+        return hexTimestamp;
     }
 
     /**
-     * Create a new ID from a string
+     * Uses the provided ID as the ID for the resource.
+     *
+     * @param {string} id
+     * @returns {string}
      */
     public static custom(id: string): string {
         return id;
+    }
+
+    /**
+     * Have Nuvix generate a unique ID for you.
+     *
+     * @param {number} padding. Default is 7.
+     * @returns {string}
+     */
+    public static unique(padding: number = 7): string {
+        // Generate a unique ID with padding to have a longer ID
+        const baseId = ID.#hexTimestamp();
+        let randomPadding = "";
+        for (let i = 0; i < padding; i++) {
+            const randomHexDigit = Math.floor(Math.random() * 16).toString(16);
+            randomPadding += randomHexDigit;
+        }
+        return baseId + randomPadding;
     }
 }

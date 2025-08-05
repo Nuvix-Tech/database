@@ -329,21 +329,19 @@ export class Database extends Cache {
         }
         if (!id) return new Doc() as any;
 
-        console.log('Getting document:', collectionId, id, query);
-
         const collection = await this.silent(() => this.getCollection(collectionId, true));
         const attributes = collection.get('attributes', []);
         const processedQuery = await this.processQueries(query, collection);
 
-        const results = await this.adapter.getDocument(collection.getId(), id, processedQuery);
-        console.log('IS THEIR ISSUE')
+        const doc = await this.adapter.getDocument(collection.getId(), id, processedQuery);
 
-        return new Doc() as any;
+        this.trigger(EventsEnum.DocumentRead, doc as any)
+        return doc as any;
     }
 
     public async createDocument<C extends (string & keyof Entities) | Partial<IEntity> & Record<string, any>>(
         collectionId: C extends string ? C : string,
-        document: C extends string ? Partial<Entities[C]> | Doc<Partial<Entities[C]>> : C extends Record<string, any> ? Partial<C> | Doc<Partial<C>> : Partial<IEntity>
+        document: C extends string ? Partial<Entities[C]> | Doc<Partial<Entities[C]>> : C extends Record<string, any> ? Partial<C & IEntity> | Doc<Partial<C & IEntity>> : Partial<IEntity> | Doc<IEntity>
     ): Promise<C extends string ? Doc<Entities[C]> : C extends Record<string, any> ? Doc<C> : Doc<IEntity>> {
         if (
             collectionId !== Database.METADATA
@@ -361,7 +359,7 @@ export class Database extends Cache {
             throw new DatabaseException('Shared tables must be enabled if tenant per document is enabled.');
         }
 
-        const collection = await this.silent(() => this.getCollection(collectionId));
+        const collection = await this.silent(() => this.getCollection(collectionId, true));
 
         if (collection.getId() !== Database.METADATA) {
             const authorization = new Authorization(PermissionEnum.Create);
@@ -403,7 +401,7 @@ export class Database extends Cache {
                 throw new DatabaseException(validator.$description);
             }
         }
-
+        console.log({ collection: collection.toObject()})
         const structure = new Structure(
             collection,
             // this.adapter.getIdAttributeType(),
@@ -453,10 +451,10 @@ export class Database extends Cache {
             }
         }
 
-        const { populate: _populate, selections } = Query.groupByType(queries);
+        let { populate: _populate, selections } = Query.groupByType(queries);
         const attributes = collection.get('attributes', []);
 
-        if (selections.length) {
+        if (selections.length > 0) {
             const attributeMap = new Map(attributes.map(attr => [attr.get('$id'), attr]));
 
             for (const query of selections) {
@@ -472,13 +470,15 @@ export class Database extends Cache {
                     throw new QueryException(`Attribute '${attributeId}' of type '${attributeType}' cannot be selected directly. Use populate instead.`);
                 }
             }
+        } else {
+            selections = [Query.select(attributes.map(a => a.get('key', a.getId())))];
         }
 
         if (!_populate.size) {
             return {
                 queries,
                 collection,
-                selections: selections.map(q => q.getAttribute())
+                selections: selections.map(q => q.getValues() as unknown as string[]).flat(),
             };
         }
 
@@ -514,7 +514,7 @@ export class Database extends Cache {
         return {
             queries,
             collection,
-            selections: selections.map(q => q.getAttribute()),
+            selections: selections.map(q => q.getValues() as unknown as string[]).flat(),
             populate
         };
     }
@@ -523,7 +523,7 @@ export class Database extends Cache {
 export interface ProcessQuery {
     queries: Query[];
     collection: Doc<Collection>;
-    selections?: string[];
+    selections: string[];
     populate?: ProcessQuery[]
 }
 

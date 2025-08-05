@@ -197,7 +197,7 @@ export abstract class BaseAdapter extends EventEmitter {
     public async getDocument(
         collection: string,
         id: string,
-        { queries }: ProcessQuery,
+        { queries, selections }: ProcessQuery,
         forUpdate: boolean = false
     ): Promise<Doc<IEntity>> {
         if (!collection || !id) {
@@ -205,14 +205,13 @@ export abstract class BaseAdapter extends EventEmitter {
         }
 
         const table = this.getSQLTable(collection);
-        const selections = this.getAttributeSelections(queries);
         const alias = Query.DEFAULT_ALIAS;
         const params: any[] = [id];
 
         let sql = `
-            SELECT ${this.getAttributeProjection(selections, alias)}
+            SELECT '${collection}' AS "$collection", ${this.getAttributeProjection(selections, alias)}
             FROM ${table} AS ${alias}
-            WHERE ${this.$.quote(alias)}.${this.$.quote('_uid')} = ?
+            WHERE ${this.quote(alias)}.${this.quote('_uid')} = ?
             ${this.getTenantQuery(collection, alias)}
         `;
 
@@ -1018,41 +1017,34 @@ export abstract class BaseAdapter extends EventEmitter {
     }
 
     protected getAttributeProjection(selections: string[], prefix: string): string {
-        if (!selections || selections.length === 0 || selections.includes('*')) {
-            return `${this.$.quote(prefix)}.*`;
+        if (!selections.length) throw new DatabaseException('Selections are required internally.');
+
+        const projected: string[] = [];
+        selections.splice(0, 0,
+            "$id",
+            "$sequence",
+            "$createdAt",
+            "$updatedAt",
+            "$permissions",
+        )
+
+        for (let key of selections) {
+            if (key === '$collection') continue;
+
+            let dbKey = this.getInternalKeyForAttribute(key);
+            let alias = key;
+
+            projected.push(`${this.quote(prefix)}.${this.quote(dbKey)} AS ${this.quote(alias)}`);
         }
 
-        const internalKeys = [
-            '$id',
-            '$sequence',
-            '$permissions',
-            '$createdAt',
-            '$updatedAt',
-        ];
-
-        // Remove internal keys and $collection from selections
-        selections = selections.filter(
-            (s) => ![...internalKeys, '$collection'].includes(s)
-        );
-
-        // Add internal keys as their mapped SQL names
-        for (const internalKey of internalKeys) {
-            selections.push(this.getInternalKeyForAttribute(internalKey));
-        }
-
-        const projected = selections.map(
-            (selection) =>
-                `${this.$.quote(prefix)}.${this.$.quote(selection)}`
-        );
-
-        return projected.join(',');
+        return projected.join(', ');
     }
 
     public quote(name: string): string {
         if (!name) {
             throw new DatabaseException("Failed to quote name: name is empty");
         }
-        return `"${this.sanitize(name)}"`;
+        return `"${name}"`;
     }
 
     protected getAttributeSelections(queries: QueryBuilder | Array<Query>): string[] {
