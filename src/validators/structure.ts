@@ -1,6 +1,6 @@
 import { AttributeEnum } from "@core/enums.js";
 import { Format, Validator } from "./interface.js";
-import { Attribute } from "./schema.js";
+import { Attribute, Collection } from "./schema.js";
 import { Doc } from "@core/doc.js";
 import { DatabaseException } from "@errors/base.js";
 import { Database } from "@core/database.js";
@@ -22,38 +22,45 @@ export class Structure implements Validator {
     protected systemAttributes: Attribute[] = [
         {
             $id: "$id",
+            key: "$id",
             type: AttributeEnum.String,
             size: 255,
         },
         {
             $id: "$sequence",
+            key: "$sequence",
             type: AttributeEnum.Integer,
             size: 8,
         },
         {
             $id: "$collection",
+            key: "$collection",
             type: AttributeEnum.String,
             size: 255,
             required: true,
         },
         {
             $id: "$tenant",
+            key: "$tenant",
             type: AttributeEnum.Integer,
             default: null,
             size: 8,
         },
         {
             $id: "$permissions",
+            key: "$permissions",
             type: AttributeEnum.String,
             size: 255,
             array: true,
         },
         {
             $id: "$createdAt",
+            key: "$createdAt",
             type: AttributeEnum.Timestamptz,
         },
         {
             $id: "$updatedAt",
+            key: "$updatedAt",
             type: AttributeEnum.Timestamptz,
         },
     ];
@@ -74,7 +81,7 @@ export class Structure implements Validator {
      * @param maxAllowedDate - The maximum date allowed for datetime attributes.
      */
     constructor(
-        protected readonly collection: Doc,
+        protected readonly collection: Doc<Collection>,
         private readonly minAllowedDate: Date = new Date("0000-01-01"),
         private readonly maxAllowedDate: Date = new Date("9999-12-31"),
     ) { }

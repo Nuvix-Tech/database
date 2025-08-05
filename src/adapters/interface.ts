@@ -5,36 +5,7 @@ import { ColumnInfo, CreateIndex, UpdateAttribute } from "./types.js";
 import { Pool, Client, PoolClient } from 'pg';
 
 export interface IAdapter {
-    readonly $limitForString: number;
-    readonly $limitForInt: number;
-    readonly $limitForAttributes: number;
-    readonly $limitForIndexes: number;
-    readonly $supportForSchemas: boolean;
-    readonly $supportForIndex: boolean;
-    readonly $supportForAttributes: boolean;
-    readonly $supportForUniqueIndex: boolean;
-    readonly $supportForFulltextIndex: boolean;
-    readonly $supportForUpdateLock: boolean;
-    readonly $supportForAttributeResizing: boolean;
-    readonly $supportForBatchOperations: boolean;
-    readonly $supportForGetConnectionId: boolean;
-    readonly $supportForCacheSkipOnFailure: boolean;
-    readonly $supportForHostname: boolean;
-    readonly $documentSizeLimit: number;
-    readonly $supportForCasting: boolean;
-    readonly $supportForNumericCasting: boolean;
-    readonly $supportForQueryContains: boolean;
-    readonly $supportForIndexArray: boolean;
-    readonly $supportForCastIndexArray: boolean;
-    readonly $supportForRelationships: boolean;
-    readonly $supportForReconnection: boolean;
-    readonly $supportForBatchCreateAttributes: boolean;
-    readonly $internalIndexesKeys: string[];
-
-    // Max Sizes
-    readonly $maxVarcharLength: number;
-    readonly $maxIndexLength: number;
-
+   
     setMeta(meta: Partial<Meta>): void;
     readonly $database: string;
     readonly $sharedTables: boolean;

@@ -2,8 +2,7 @@ import { Client, PoolOptions } from "pg";
 import { BaseAdapter } from "./base.js";
 import { PostgresClient } from "./postgres.js";
 import { AttributeEnum, EventsEnum, IndexEnum, RelationEnum, RelationSideEnum } from "@core/enums.js";
-import { Query, QueryType } from "@core/query.js";
-import { CreateCollectionOptions } from "./interface.js";
+import { CreateCollectionOptions, IAdapter } from "./interface.js";
 import { DatabaseException } from "@errors/base.js";
 import { Database } from "@core/database.js";
 import { Doc } from "@core/doc.js";
@@ -11,7 +10,7 @@ import { NotFoundException } from "@errors/index.js";
 import { Attribute } from "@validators/schema.js";
 import { ColumnInfo, CreateAttribute, CreateIndex, CreateRelationship, UpdateAttribute } from "./types.js";
 
-export class Adapter extends BaseAdapter {
+export class Adapter extends BaseAdapter implements IAdapter {
     protected client: PostgresClient;
 
     constructor(client: PoolOptions | Client) {

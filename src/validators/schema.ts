@@ -1,7 +1,15 @@
-import { AttributeEnum, IndexEnum } from "@core/enums.js";
+import { AttributeEnum, IndexEnum, RelationEnum, RelationSideEnum } from "@core/enums.js";
 import { z } from "zod";
 
 export const AttributeType = z.enum(AttributeEnum);
+
+const AttributeOptions = z.object({
+    type: z.enum(RelationEnum),
+    side: z.enum(RelationSideEnum),
+    relatedCollection: z.string(),
+    twoWay: z.boolean().default(false).optional(),
+    relatedAttribute: z.string().optional(),
+});
 
 export const AttributeSchema = z.object({
     $id: z.string(),
@@ -12,7 +20,7 @@ export const AttributeSchema = z.object({
     array: z.boolean().default(false).optional(),
     filters: z.array(z.string()).default([]).optional(),
     default: z.any().optional(),
-    options: z.record(z.string(), z.any()).optional(),
+    options: z.union([AttributeOptions, z.record(z.string(), z.any())]).optional(),
 });
 
 export const IndexType = z.enum(IndexEnum);

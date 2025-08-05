@@ -1,4 +1,4 @@
-import { AttributeEnum, EventsEnum, PermissionEnum } from "./enums.js";
+import { AttributeEnum, EventsEnum, PermissionEnum, RelationEnum, RelationSideEnum } from "./enums.js";
 import { Attribute, Collection } from "@validators/schema.js";
 import { Adapter } from "@adapters/base.js";
 import { CreateCollection, Filters, UpdateCollection } from "./types.js";
@@ -8,12 +8,15 @@ import { Entities, IEntity } from "types.js";
 import { QueryBuilder } from "@utils/query-builder.js";
 import { Query } from "./query.js";
 import { Doc } from "./doc.js";
-import { DatabaseException, DuplicateException, IndexException, LimitException, NotFoundException, QueryException } from "@errors/index.js";
+import { AuthorizationException, DatabaseException, DuplicateException, IndexException, LimitException, NotFoundException, QueryException, StructureException } from "@errors/index.js";
 import { Permission } from "@utils/permission.js";
 import { Role } from "@utils/role.js";
 import { Permissions } from "@validators/permissions.js";
 import { Index } from "@validators/index-validator.js";
 import { Documents } from "@validators/queries/documents.js";
+import { Authorization } from "@utils/authorization.js";
+import { ID } from "@utils/id.js";
+import { Structure } from "@validators/structure.js";
 
 export class Database extends Cache {
     constructor(adapter: Adapter, cache: NuvixCache, options: DatabaseOptions = {}) {
@@ -183,7 +186,7 @@ export class Database extends Cache {
         if (permissions !== undefined) collection.set('$permissions', permissions);
         if (documentSecurity !== undefined) collection.set('documentSecurity', documentSecurity);
 
-        collection = await this.silent(() => this.updateDocument(Database.METADATA, collection.getId(), collection));
+        // collection = await this.silent(() => this.updateDocument(Database.METADATA, collection.getId(), collection));
         this.trigger(EventsEnum.CollectionUpdate, collection);
 
         return collection;
@@ -227,7 +230,8 @@ export class Database extends Cache {
             Query.offset(offset)
         ];
 
-        return this.find<Collection>(Database.METADATA, query);
+        // return this.find<Collection>(Database.METADATA, query);
+        return []
     }
 
     /**
@@ -276,9 +280,9 @@ export class Database extends Cache {
             (attribute) => attribute.get('type') === AttributeEnum.Relationship
         );
 
-        for (const relationship of relationships) {
-            await this.deleteRelationship(collection.getId(), relationship.get('$id'));
-        }
+        // for (const relationship of relationships) {
+        //     await this.deleteRelationship(collection.getId(), relationship.get('$id'));
+        // }
 
         try {
             await this.adapter.deleteCollection(id);
@@ -297,14 +301,15 @@ export class Database extends Cache {
         if (id === Database.METADATA) {
             deleted = true;
         } else {
-            deleted = await this.silent(() => this.deleteDocument(Database.METADATA, id));
+            deleted = false
+            // deleted = await this.silent(() => this.deleteDocument(Database.METADATA, id));
         }
 
         if (deleted) {
             this.trigger(EventsEnum.CollectionDelete, collection);
         }
 
-        await this.purgeCachedCollection(id);
+        // await this.purgeCachedCollection(id);
 
         return deleted;
     }
@@ -314,7 +319,7 @@ export class Database extends Cache {
         id: string,
         query: ((builder: QueryBuilder) => QueryBuilder) | Query[] = [],
         forUpdate: boolean = false,
-    ): Promise<C extends string ? Doc<Entities[C]> : Doc<C>> {
+    ): Promise<C extends string ? Doc<Entities[C]> : C extends Record<string, any> ? Doc<C> : Doc<IEntity>> {
         if (collectionId === Database.METADATA && id === Database.METADATA) {
             return new Doc(Database.COLLECTION) as any;
         }
@@ -329,13 +334,107 @@ export class Database extends Cache {
 
         const processedQuery = await this.processQueries(query, collection);
 
-        // TODO: Implement document retrieval logic
-        throw new Error("Method not implemented.");
+        const results = await this.adapter.getDocument(collection.getId(), id, processedQuery);
+
+        return {} as any;
+    }
+
+    public async createDocument<C extends (string & keyof Entities) | Partial<IEntity> & Record<string, any>>(
+        collectionId: C extends string ? C : string,
+        document: C extends string ? Partial<Entities[C]> | Doc<Partial<Entities[C]>> : C extends Record<string, any> ? Partial<C> | Doc<Partial<C>> : Partial<IEntity>
+    ): Promise<C extends string ? Doc<Entities[C]> : C extends Record<string, any> ? Doc<C> : Doc<IEntity>> {
+        if (
+            collectionId !== Database.METADATA
+            && this.adapter.$sharedTables
+            && !this.adapter.$tenantPerDocument
+            && !this.adapter.$tenantId
+        ) {
+            throw new DatabaseException('Missing tenant. Tenant must be set when table sharing is enabled.');
+        }
+
+        if (
+            !this.adapter.$sharedTables
+            && this.adapter.$tenantPerDocument
+        ) {
+            throw new DatabaseException('Shared tables must be enabled if tenant per document is enabled.');
+        }
+
+        const collection = await this.silent(() => this.getCollection(collectionId));
+
+        if (collection.getId() !== Database.METADATA) {
+            const authorization = new Authorization(PermissionEnum.Create);
+            if (!authorization.$valid(collection.getCreate())) {
+                throw new AuthorizationException(authorization.$description);
+            }
+        }
+
+        const time = new Date().toISOString();
+        let doc = new Doc(document);
+
+        const createdAt = doc.get('$createdAt');
+        const updatedAt = doc.get('$updatedAt');
+
+        doc
+            .set('$id', doc.getId() || ID.unique())
+            .set('$collection', collection.getId())
+            .set('$createdAt', (createdAt === null || createdAt === undefined || !this.preserveDates) ? time : createdAt)
+            .set('$updatedAt', (updatedAt === null || updatedAt === undefined || !this.preserveDates) ? time : updatedAt);
+
+        if (this.adapter.$sharedTables) {
+            if (this.adapter.$tenantPerDocument) {
+                if (
+                    collection.getId() !== Database.METADATA
+                    && doc.getTenant() === null
+                ) {
+                    throw new DatabaseException('Missing tenant. Tenant must be set when tenant per document is enabled.');
+                }
+            } else {
+                doc.set('$tenant', this.adapter.$tenantId);
+            }
+        }
+
+        doc = await this.encode(collection, doc);
+
+        if (this.validate) {
+            const validator = new Permissions();
+            if (!validator.$valid(doc.get('$permissions', []))) {
+                throw new DatabaseException(validator.$description);
+            }
+        }
+
+        const structure = new Structure(
+            collection,
+            // this.adapter.getIdAttributeType(),
+            // this.adapter.getMinDateTime(),
+            // this.adapter.getMaxDateTime(),
+        );
+        if (!await structure.$valid(doc)) {
+            throw new StructureException(structure.$description);
+        }
+
+        const result =
+            // if (this.resolveRelationships) {
+            //     doc = await this.silent(() => this.createDocumentRelationships(collection, doc));
+            // }
+            await this.adapter.createDocument(collection.getId(), doc as any);
+
+        // if (this.resolveRelationships) {
+        //     result = await this.silent(() => this.populateDocumentRelationships(collection, result));
+        // }
+
+        // const decodedResult = this.decode(collection, castedResult);
+
+        this.trigger(EventsEnum.DocumentCreate, result);
+
+        return result;
     }
 
     async processQueries(
         queries: ((builder: QueryBuilder) => QueryBuilder) | Query[],
         collection: Doc<Collection>,
+        metadata: Attribute['options'] & {
+            populated?: boolean;
+        } = {},
     ): Promise<ProcessQuery> {
         if (!Array.isArray(queries)) {
             queries = queries(new QueryBuilder()).build();
@@ -397,12 +496,16 @@ export class Database extends Cache {
                 throw new QueryException(`Populate query for attribute '${attribute}' must be an array of queries.`);
             }
 
-            const relatedCollection = await this.silent(() => this.getCollection(attributeDoc.get('collection')));
+            const relatedCollectionId = attributeDoc.get('options', {})['relatedCollection'];
+            const relatedCollection = await this.silent(() => this.getCollection(relatedCollectionId));
             if (relatedCollection.empty()) {
-                throw new NotFoundException(`Collection '${attributeDoc.get('collection')}' not found for attribute '${attribute}'.`);
+                throw new NotFoundException(`Collection '${relatedCollectionId}' not found for attribute '${attribute}'.`);
             }
 
-            const processedQueries = await this.processQueries(values, relatedCollection);
+            const processedQueries = await this.processQueries(values, relatedCollection, {
+                populated: true,
+                ...attributeDoc.get('options', {})
+            });
             populate.push(processedQueries);
         }
 
@@ -415,7 +518,7 @@ export class Database extends Cache {
     }
 }
 
-interface ProcessQuery {
+export interface ProcessQuery {
     queries: Query[];
     collection: Doc<Collection>;
     selections?: string[];

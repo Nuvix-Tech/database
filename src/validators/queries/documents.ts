@@ -8,6 +8,7 @@ import { Select } from "../query/select.js";
 import { Doc } from "@core/doc.js";
 import { Attribute } from "@validators/schema.js";
 import { AttributeEnum } from "@core/enums.js";
+import { Base } from "@validators/query/base.js";
 
 export class Documents extends IndexedQueries {
     /**
@@ -23,6 +24,7 @@ export class Documents extends IndexedQueries {
         attributes: Doc<Attribute>[] = [],
         indexes: any[],
         maxValuesCount: number = 100,
+        validators: Base[] | undefined = undefined,
         minAllowedDate: Date = new Date("0000-01-01"),
         maxAllowedDate: Date = new Date("9999-12-31"),
     ) {
@@ -50,7 +52,7 @@ export class Documents extends IndexedQueries {
             }),
         );
 
-        const validators = [
+        validators ??= [
             new Limit(),
             new Offset(),
             new Cursor(),

@@ -4,7 +4,7 @@ import { IAdapter, IClient } from "./interface.js";
 import { AttributeEnum, CursorEnum, EventsEnum, IndexEnum, OrderEnum, PermissionEnum } from "@core/enums.js";
 import { Find, IncreaseDocumentAttribute } from "./types.js";
 import { Doc } from "@core/doc.js";
-import { Database } from "@core/database.js";
+import { Database, ProcessQuery } from "@core/database.js";
 import { QueryBuilder } from "@utils/query-builder.js";
 import { Query, QueryType } from "@core/query.js";
 import { Entities, IEntity } from "types.js";
@@ -189,19 +189,18 @@ export abstract class BaseAdapter extends EventEmitter {
     public async getDocument<C extends keyof Entities>(
         collection: C,
         id: string,
-        queries?: ((b: QueryBuilder) => QueryBuilder) | Array<Query>,
+        queries?: ProcessQuery | null,
         forUpdate?: boolean
     ): Promise<Doc<Entities[C]>>;
     public async getDocument(
         collection: string,
         id: string,
-        queries: ((b: QueryBuilder) => QueryBuilder) | Array<Query> = [],
+        { queries }: ProcessQuery,
         forUpdate: boolean = false
     ): Promise<Doc<IEntity>> {
         if (!collection || !id) {
             throw new DatabaseException("Failed to get document: collection and id are required");
         }
-        queries = Array.isArray(queries) ? queries : queries(new QueryBuilder()).build();
 
         const table = this.getSQLTable(collection);
         const selections = this.getAttributeSelections(queries);
@@ -226,43 +225,6 @@ export abstract class BaseAdapter extends EventEmitter {
         const { rows } = await this.client.query<any>(sql, params);
 
         let document = rows[0];
-
-        if ('_id' in document) {
-            document['$sequence'] = document['_id'];
-            delete document['_id'];
-        }
-        if ('_uid' in document) {
-            document['$id'] = document['_uid'];
-            delete document['_uid'];
-        }
-        if ('_tenant' in document) {
-            document['$tenant'] = document['_tenant'];
-            delete document['_tenant'];
-        }
-        if ('_createdAt' in document) {
-            document['$createdAt'] = document['_createdAt'];
-            delete document['_createdAt'];
-        }
-        if ('_updatedAt' in document) {
-            document['$updatedAt'] = document['_updatedAt'];
-            delete document['_updatedAt'];
-        }
-        if ('_permissions' in document) {
-            const _permissions = document['_permissions'];
-            try {
-                if (typeof _permissions === 'string') {
-                    document['$permissions'] = JSON.parse(document['_permissions'] ?? '[]');
-                } else if (Array.isArray(_permissions)) {
-                    document['$permissions'] = _permissions;
-                } else {
-                    this.$logger.warn(`Unexpected type for _permissions: ${typeof _permissions}. Expected string or array.`);
-                    document['$permissions'] = [];
-                }
-            } catch {
-                document['$permissions'] = [];
-            }
-            delete document['_permissions'];
-        }
 
         return new Doc(document);
     }
