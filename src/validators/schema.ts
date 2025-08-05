@@ -1,4 +1,4 @@
-import { AttributeEnum, IndexEnum, RelationEnum, RelationSideEnum } from "@core/enums.js";
+import { AttributeEnum, IndexEnum, OnDelete, RelationEnum, RelationSideEnum } from "@core/enums.js";
 import { z } from "zod";
 
 export const AttributeType = z.enum(AttributeEnum);
@@ -9,6 +9,7 @@ const AttributeOptions = z.object({
     relatedCollection: z.string(),
     twoWay: z.boolean().default(false).optional(),
     relatedAttribute: z.string().optional(),
+    onDelete: z.enum(OnDelete),
 });
 
 export const AttributeSchema = z.object({

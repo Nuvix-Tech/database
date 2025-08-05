@@ -73,8 +73,4 @@ export interface CreateRelationship {
         attribute?: string;
     },
     junctionCollection?: string;
-    onDelete?: {
-        action: "cascade" | "set null" | "restrict";
-        side: RelationSideEnum;
-    };
 }

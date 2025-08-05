@@ -3,6 +3,7 @@ import type { Database } from "./database.js";
 import type { Doc } from "./doc.js";
 import { Permission } from "@utils/permission.js";
 import { Query } from "./query.js";
+import { OnDelete, RelationEnum, RelationSideEnum } from "./enums.js";
 
 export type FilterValue = string | number | boolean | Date | null | undefined | object | any[] | Record<string, any> | FilterValue[];
 
@@ -37,4 +38,15 @@ export type QueryByType = {
     cursor: string | number | null;
     cursorDirection: 'AFTER' | 'BEFORE' | null;
     populate: Map<string, QueryByType>;
+}
+
+
+export type CreateRelationshipAttribute = {
+    collectionId: string;
+    relatedCollectionId: string;
+    attribute: string;
+    type: RelationEnum;
+    relatedAttribute?: string;
+    twoWay?: boolean;
+    onDelete?: OnDelete;
 }

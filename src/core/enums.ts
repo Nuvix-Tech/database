@@ -34,6 +34,12 @@ export enum RelationSideEnum {
     Child = "child",
 }
 
+export enum OnDelete {
+    Cascade = 'cascade',
+    SetNull = 'setNull',
+    Restrict = 'restrict'
+}
+
 export enum IndexEnum {
     Unique = "unique",
     Key = 'key',

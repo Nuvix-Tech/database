@@ -1,6 +1,6 @@
-import { AttributeEnum, EventsEnum, PermissionEnum, RelationEnum, RelationSideEnum } from "./enums.js";
+import { AttributeEnum, EventsEnum, OnDelete, PermissionEnum, RelationEnum, RelationSideEnum } from "./enums.js";
 import { Attribute, Collection, Index } from "@validators/schema.js";
-import { CreateCollection, Filters, UpdateCollection } from "./types.js";
+import { CreateCollection, CreateRelationshipAttribute, Filters, UpdateCollection } from "./types.js";
 import { Cache } from "./cache.js";
 import { Cache as NuvixCache } from '@nuvix/cache';
 import { Entities, IEntity } from "types.js";
@@ -761,6 +761,143 @@ export class Database extends Cache {
         return true;
     }
 
+    /**
+     * Renames an attribute in a collection.
+     */
+    public async renameAttribute(
+        collectionId: string,
+        oldName: string,
+        newName: string
+    ): Promise<boolean> {
+        const collection = await this.silent(() => this.getCollection(collectionId));
+
+        if (collection.empty()) {
+            throw new NotFoundException(`Collection '${collectionId}' not found`);
+        }
+
+        const attributes = collection.get('attributes', []);
+        const indexes = collection.get('indexes', []);
+
+        const attribute = attributes.find(attr => attr.get('$id') === oldName);
+        if (!attribute) {
+            throw new NotFoundException(`Attribute '${oldName}' not found`);
+        }
+
+        if (attributes.some(attr => attr.get('$id') === newName)) {
+            throw new DuplicateException(`Attribute name '${newName}' already used`);
+        }
+
+        if (this.validate) {
+            const validator = new IndexDependency(
+                indexes,
+                this.adapter.$supportForCastIndexArray
+            );
+
+            if (!validator.$valid(attribute)) {
+                throw new DependencyException(validator.$description);
+            }
+        }
+
+        attribute.set('$id', newName);
+        attribute.set('key', newName);
+
+        for (const index of indexes) {
+            const indexAttributes = index.get('attributes', []);
+            const updatedAttributes = indexAttributes.map(attr => (attr === oldName ? newName : attr));
+            index.set('attributes', updatedAttributes);
+        }
+
+        await this.adapter.renameAttribute(collection.getId(), oldName, newName);
+
+        collection.set('attributes', attributes);
+        collection.set('indexes', indexes);
+
+        if (collection.getId() !== Database.METADATA) {
+            await this.silent(() => this.updateDocument(Database.METADATA, collection.getId(), collection));
+        }
+
+        this.trigger(EventsEnum.AttributeUpdate, collection, attribute);
+
+        return true;
+    }
+
+    public async createRelationship(
+        { collectionId,
+            relatedCollectionId,
+            attribute, type,
+            relatedAttribute = '',
+            twoWay = false,
+            onDelete = OnDelete.Restrict,
+        }: CreateRelationshipAttribute
+    ) {
+        if (twoWay && !relatedAttribute)
+            throw new DatabaseException('Related attribute is required for two-way relationships');
+
+        const collection = await this.silent(() => this.getCollection(collectionId, true));
+        const relatedCollection = await this.silent(() => this.getCollection(relatedCollectionId));
+
+        if (relatedCollection.empty()) {
+            throw new NotFoundException('Related collection not found')
+        }
+
+        const attributes = collection.get('attributes', []);
+        for (const attr of attributes) {
+            if (attr.get('key').toLowerCase() === attribute.toLowerCase()) {
+                throw new DuplicateException(`Attribute '${attribute}' already exists in collection '${collectionId}'`);
+            }
+            const options = attr.get('options', {});
+            if (attr.get('type') === AttributeEnum.Relationship
+                && options.relatedAttribute === relatedAttribute.toLowerCase()
+                && options.relatedCollection === relatedCollectionId) {
+                throw new DuplicateException(`Relationship '${attribute}' already exists in collection '${collectionId}'`);
+            }
+        }
+
+        const attr = new Doc<Attribute>({
+            '$id': attribute,
+            'key': attribute,
+            'type': AttributeEnum.Relationship,
+            required: false,
+            default: null,
+            'options': {
+                relatedCollection: relatedCollectionId,
+                relatedAttribute: relatedAttribute || null,
+                type: type ?? RelationEnum.OneToOne,
+                side: RelationSideEnum.Parent,
+                twoWay: twoWay,
+                onDelete,
+            }
+        });
+
+        const relatedAttr = new Doc<Attribute>({
+            '$id': relatedAttribute,
+            'key': relatedAttribute,
+            'type': AttributeEnum.Relationship,
+            required: false,
+            default: null,
+            'options': {
+                relatedCollection: collectionId,
+                relatedAttribute: attribute.toLowerCase(),
+                type: type ?? RelationEnum.OneToOne,
+                side: RelationSideEnum.Child,
+                onDelete,
+            }
+        });
+
+        this.checkAttribute(collection, attr);
+        this.checkAttribute(relatedCollection, relatedAttr);
+
+        this.adapter.createRelationship({
+            collection: collection.getId(),
+            attribute: attr.get('key'),
+            type,
+            target: {
+                collection: relatedCollection.getId(),
+                attribute: relatedAttr.get('key'),
+            }
+        });
+
+    }
 
 
     public getDocument<C extends (string & keyof Entities)>(

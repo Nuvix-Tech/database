@@ -1,5 +1,5 @@
+import { DatabaseException } from "@errors/base.js";
 import { Permission } from "@utils/permission.js";
-import { StructureException } from "errors/index.js";
 import { IEntity, IEntityInput } from "types.js";
 
 type IsReferenceObject<T> =
@@ -33,58 +33,28 @@ function isEntityLike(value: unknown): value is Record<string, unknown> {
 }
 
 export class Doc<T extends Record<string, any> & Partial<IEntity> = IEntity> {
-    private static readonly __methods_keys: string[] = [
-        "__methods_keys",
-        "get",
-        "set",
-        "getAll",
-        "append",
-        "prepend",
-        "getId",
-        "getSequence",
-        "getTenant",
-        "getInternalId",
-        "getCollection",
-        "createdAt",
-        "updatedAt",
-        "getPermissions",
-        "getRead",
-        "getCreate",
-        "getUpdate",
-        "getDelete",
-        "getWrite",
-        "getPermissionsByType",
-        "keys",
-        "has",
-        "empty",
-        "findWhere",
-        "replaceWhere",
-        "deleteWhere",
-        "toObject",
-        "toJSON",
-        "clone",
-        "toString",
-    ];
+    private _data: Record<string, any> = {}
 
     constructor(data?: (T | TransformEntity<T>) | IEntityInput) {
+        this._data = {};
         if (data) {
             if (data.$id && typeof data.$id !== "string") {
-                throw new StructureException("$id must be a string");
+                throw new DocException("$id must be a string");
             }
 
             if (data.$permissions && !Array.isArray(data.$permissions)) {
-                throw new StructureException("$permissions must be an array");
+                throw new DocException("$permissions must be an array");
             }
 
             for (const [key, value] of Object.entries(data)) {
                 if (Array.isArray(value)) {
-                    (this as any)[key] = value.map((item) =>
+                    this._data[key] = value.map((item) =>
                         isEntityLike(item) ? new Doc(item as any) : item
                     );
                 } else if (isEntityLike(value)) {
-                    (this as any)[key] = new Doc(value as any);
+                    this._data[key] = new Doc(value as any);
                 } else {
-                    (this as any)[key] = value ?? null;
+                    this._data[key] = value ?? null;
                 }
             }
         }
@@ -99,59 +69,52 @@ export class Doc<T extends Record<string, any> & Partial<IEntity> = IEntity> {
     public get<K extends keyof T, D = null>(name: K, _default?: D): Exclude<TransformEntity<T>[K], undefined> | D;
     public get<K extends string, D = null>(name: K, _default?: D): D;
     public get<K extends keyof T, D = null>(name: K, _default: D = null as D): Exclude<TransformEntity<T>[K], undefined> | D {
-        const value = (this as any)[name];
+        const value = this._data[name as string];
         return value === undefined ? _default : value;
     }
 
     public getAll(): TransformEntity<T> {
-        const output: Partial<TransformEntity<T>> = {};
-        const keys = this.keys();
-        for (const key of keys) {
-            output[key] = (this as any)[key];
-        }
-        return output as TransformEntity<T>;
+        return this._data as TransformEntity<T>;
     }
 
     public set<K extends keyof T>(name: K, value: TransformField<T[K]>): this;
     public set<K extends string, V extends unknown>(name: K, value: V): Doc<Simplify<T & Record<K, TransformField<V>>>>;
     public set<K extends string, V extends unknown>(name: K, value: V): any {
         if (isEntityLike(value)) {
-            (this as any)[name] = value instanceof Doc ? value : new Doc(value as any);
+            this._data[name] = value instanceof Doc ? value : new Doc(value as any);
         } else {
-            (this as any)[name] = value;
+            this._data[name] = value;
         }
         return this;
     }
 
-    public append<K extends keyof T>(name: K, value: TransformField<T[K]> extends Array<any> ? TransformField<T[K]>[number] : TransformField<T[K]>): this {
-        if (!Array.isArray((this as any)[name])) {
-            throw new StructureException(`Cannot append to ${String(name)}, it is not an array`);
+    public append<K extends (string & keyof T)>(name: K, value: TransformField<T[K]> extends Array<any> ? TransformField<T[K]>[number] : TransformField<T[K]>): this {
+        if (!Array.isArray(this._data[name])) {
+            throw new DocException(`Cannot append to ${String(name)}, it is not an array`);
         }
         if (isEntityLike(value)) {
-            (this as any)[name].push(value instanceof Doc ? value : new Doc(value as any));
+            this._data[name].push(value instanceof Doc ? value : new Doc(value as any));
         } else {
-            (this as any)[name].push(value);
+            this._data[name].push(value);
         }
         return this;
     }
 
-    public prepend<K extends keyof T>(name: K, value: TransformField<T[K]> extends Array<any> ? TransformField<T[K]>[number] : TransformField<T[K]>): this {
-        if (!Array.isArray((this as any)[name])) {
-            throw new StructureException(`Cannot prepend to ${String(name)}, it is not an array`);
+    public prepend<K extends (string & keyof T)>(name: K, value: TransformField<T[K]> extends Array<any> ? TransformField<T[K]>[number] : TransformField<T[K]>): this {
+        if (!Array.isArray(this._data[name])) {
+            throw new DocException(`Cannot prepend to ${String(name)}, it is not an array`);
         }
         if (isEntityLike(value)) {
-            (this as any)[name].unshift(value instanceof Doc ? value : new Doc(value as any));
+            this._data[name].unshift(value instanceof Doc ? value : new Doc(value as any));
         } else {
-            (this as any)[name].unshift(value);
+            this._data[name].unshift(value);
         }
         return this;
     }
 
-    public delete<K extends keyof T>(name: K): this {
-        if (name in this) {
-            delete (this as any)[name];
-        } else {
-            throw new StructureException(`Property ${String(name)} does not exist on this entity`);
+    public delete<K extends (string & keyof T)>(name: K): this {
+        if (name in this._data) {
+            delete this._data[name];
         }
         return this;
     }
@@ -169,7 +132,7 @@ export class Doc<T extends Record<string, any> & Partial<IEntity> = IEntity> {
         if (tenant === null || typeof tenant === "number") {
             return tenant;
         } else {
-            throw new StructureException("$tenant must be a number or null");
+            throw new DocException("$tenant must be a number or null");
         }
     }
 
@@ -184,7 +147,7 @@ export class Doc<T extends Record<string, any> & Partial<IEntity> = IEntity> {
     public getCollection(): string {
         const collection = this.get("$collection");
         if (typeof collection !== "string") {
-            throw new StructureException("$collection must be a string");
+            throw new DocException("$collection must be a string");
         }
         return collection;
     }
@@ -251,15 +214,12 @@ export class Doc<T extends Record<string, any> & Partial<IEntity> = IEntity> {
             );
     }
 
-    public has<K extends keyof T>(name: K): boolean {
-        return (this as any)[name] !== undefined;
+    public has<K extends (string & keyof T)>(name: K): boolean {
+        return this._data[name] !== undefined;
     }
 
     public keys(): (keyof T)[] {
-        const keys = Object.keys(this);
-        return keys.filter(
-            (key) => !Doc.__methods_keys.includes(key),
-        ) as (keyof T)[];
+        return Object.keys(this._data);
     }
 
     public findWhere<V = unknown>(
@@ -291,7 +251,7 @@ export class Doc<T extends Record<string, any> & Partial<IEntity> = IEntity> {
         // Recursively search all fields for nested entities/arrays
         for (const k of this.keys()) {
             if (k === key) continue;
-            const field = (this as any)[k];
+            const field = this._data[k as string];
             if (field instanceof Doc) {
                 const found = field.findWhere(key, predicate);
                 if (found !== null) {
@@ -312,7 +272,7 @@ export class Doc<T extends Record<string, any> & Partial<IEntity> = IEntity> {
     }
 
     public replaceWhere<V = unknown>(
-        key: keyof T,
+        key: (string & keyof T),
         predicate: (item: V) => boolean,
         replacement: V,
     ): void {
@@ -329,13 +289,13 @@ export class Doc<T extends Record<string, any> & Partial<IEntity> = IEntity> {
         } else if (value instanceof Doc) {
             value.replaceWhere(key, predicate, replacement);
         } else if (value !== undefined && predicate(value as V)) {
-            (this as any)[key] = replacement;
+            this._data[key] = replacement;
         }
 
         // Recursively replace in all fields for nested entities/arrays
         for (const k of this.keys()) {
             if (k === key) continue;
-            const field = (this as any)[k];
+            const field = this._data[k as string];
             if (field instanceof Doc) {
                 field.replaceWhere(key, predicate, replacement);
             } else if (Array.isArray(field)) {
@@ -349,7 +309,7 @@ export class Doc<T extends Record<string, any> & Partial<IEntity> = IEntity> {
     }
 
     public deleteWhere<V = unknown>(
-        key: keyof T,
+        key: (string & keyof T),
         predicate: (item: V) => boolean,
     ): void {
         // Recursively delete values matching the predicate at the given key in this entity and all nested entities/arrays
@@ -371,7 +331,7 @@ export class Doc<T extends Record<string, any> & Partial<IEntity> = IEntity> {
         // Recursively delete in all fields for nested entities/arrays
         for (const k of this.keys()) {
             if (k === key) continue;
-            const field = (this as any)[k];
+            const field = this._data[k as string];
             if (field instanceof Doc) {
                 field.deleteWhere(key, predicate);
             } else if (Array.isArray(field)) {
@@ -400,7 +360,7 @@ export class Doc<T extends Record<string, any> & Partial<IEntity> = IEntity> {
         const output: Record<string, unknown> = {};
         const keys = this.keys();
         for (const key of keys) {
-            const value = (this as any)[key];
+            const value = this._data[key as string];
             if (allow.length && !allow.includes(key)) continue;
             if (disallow.includes(key)) continue;
 
@@ -427,17 +387,19 @@ export class Doc<T extends Record<string, any> & Partial<IEntity> = IEntity> {
         const cloned = new Doc<T>();
         const keys = this.keys();
         for (const key of keys) {
-            const value = (this as any)[key];
+            const value = this._data[key as string];
             if (value instanceof Doc) {
-                (cloned as any)[key] = value.clone();
+                (cloned as any)._data[key as string] = value.clone();
             } else if (Array.isArray(value)) {
-                (cloned as any)[key] = value.map((item) =>
+                (cloned as any)._data[key as string] = value.map((item) =>
                     item instanceof Doc ? item.clone() : item,
                 );
             } else {
-                (cloned as any)[key] = value;
+                (cloned as any)._data[key as string] = value;
             }
         }
         return cloned;
     }
 }
+
+export class DocException extends DatabaseException { };
