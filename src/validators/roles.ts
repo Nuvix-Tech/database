@@ -62,7 +62,7 @@ export class Roles implements Validator {
         },
     };
 
-    protected _message: string = "Roles Error";
+    protected message: string = "Roles Error";
     protected allowedRoles: RoleName[];
     protected maxLength: number;
 
@@ -91,7 +91,7 @@ export class Roles implements Validator {
      * @returns {string}
      */
     public get $description(): string {
-        return this._message;
+        return this.message;
     }
 
     /**
@@ -102,21 +102,21 @@ export class Roles implements Validator {
      * @returns {boolean}
      */
     public $valid(roles: unknown): boolean {
-        this._message = "Roles Error";
+        this.message = "Roles Error";
 
         if (!Array.isArray(roles)) {
-            this._message = "Roles must be an array of strings.";
+            this.message = "Roles must be an array of strings.";
             return false;
         }
 
         if (this.maxLength > 0 && roles.length > this.maxLength) {
-            this._message = `You can only provide up to ${this.maxLength} roles.`;
+            this.message = `You can only provide up to ${this.maxLength} roles.`;
             return false;
         }
 
         for (const roleString of roles) {
             if (typeof roleString !== "string") {
-                this._message = "Every role must be of type string.";
+                this.message = "Every role must be of type string.";
                 return false;
             }
 
@@ -125,7 +125,7 @@ export class Roles implements Validator {
             );
 
             if (!isBaseRoleAllowed) {
-                this._message = `Role "${roleString}" is not allowed. Must start with one of: ${this.allowedRoles.join(", ")}.`;
+                this.message = `Role "${roleString}" is not allowed. Must start with one of: ${this.allowedRoles.join(", ")}.`;
                 return false;
             }
 
@@ -139,7 +139,7 @@ export class Roles implements Validator {
                     return false;
                 }
             } catch (error) {
-                this._message = (error instanceof Error) ? error.message : "Failed to parse role string.";
+                this.message = (error instanceof Error) ? error.message : "Failed to parse role string.";
                 return false;
             }
         }
@@ -149,7 +149,7 @@ export class Roles implements Validator {
 
     /**
      * Internal helper to validate role components (name, identifier, dimension).
-     * This method directly sets the `_message` property on failure.
+     * This method directly sets the `message` property on failure.
      */
     protected isValidRoleComponents(
         roleName: RoleName,
@@ -162,19 +162,19 @@ export class Roles implements Validator {
         const config = Roles.CONFIG[roleName];
 
         if (!config) {
-            this._message = `Internal error: Configuration not found for role "${roleName}".`;
+            this.message = `Internal error: Configuration not found for role "${roleName}".`;
             return false;
         }
 
         const { allowed: identifierAllowed, required: identifierRequired } = config.identifier;
 
         if (!identifierAllowed && identifier !== null) {
-            this._message = `Role "${roleName}" cannot have an ID value.`;
+            this.message = `Role "${roleName}" cannot have an ID value.`;
             return false;
         }
 
         if (identifierAllowed && identifierRequired && identifier === null) {
-            this._message = `Role "${roleName}" must have an ID value.`;
+            this.message = `Role "${roleName}" must have an ID value.`;
             return false;
         }
 
@@ -195,7 +195,7 @@ export class Roles implements Validator {
             }
 
             if (!isIdentifierValid) {
-                this._message = `Role "${roleName}" identifier value is invalid: ${identifierErrorMessage}`;
+                this.message = `Role "${roleName}" identifier value is invalid: ${identifierErrorMessage}`;
                 return false;
             }
         }
@@ -207,23 +207,23 @@ export class Roles implements Validator {
         } = config.dimension;
 
         if (!dimensionAllowed && dimension !== null) {
-            this._message = `Role "${roleName}" cannot have a dimension value.`;
+            this.message = `Role "${roleName}" cannot have a dimension value.`;
             return false;
         }
 
         if (dimensionAllowed && dimensionRequired && dimension === null) {
-            this._message = `Role "${roleName}" must have a dimension value.`;
+            this.message = `Role "${roleName}" must have a dimension value.`;
             return false;
         }
 
         if (dimensionAllowed && dimension !== null) {
             if (dimensionOptions.length > 0 && !dimensionOptions.includes(dimension)) {
-                this._message = `Role "${roleName}" dimension value is invalid. Must be one of: ${dimensionOptions.join(", ")}.`;
+                this.message = `Role "${roleName}" dimension value is invalid. Must be one of: ${dimensionOptions.join(", ")}.`;
                 return false;
             }
 
             if (!keyValidator.$valid(dimension)) {
-                this._message = `Role "${roleName}" dimension value is invalid: ${keyValidator.$description}.`;
+                this.message = `Role "${roleName}" dimension value is invalid: ${keyValidator.$description}.`;
                 return false;
             }
         }

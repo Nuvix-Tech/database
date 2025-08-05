@@ -3,7 +3,7 @@ import { Emitter, EmitterEventMap } from "./emitter.js";
 import { AttributeEnum, EventsEnum, PermissionEnum } from "./enums.js";
 import { Cache } from "@nuvix/cache";
 import { Filter, Filters } from "./types.js";
-import { Adapter } from "@adapters/base.js";
+import { Adapter, Meta } from "@adapters/base.js";
 import { filters } from "@utils/filters.js";
 import { Doc } from "./doc.js";
 import { DatabaseException, NotFoundException } from "@errors/index.js";
@@ -24,39 +24,45 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
     public static readonly INTERNAL_ATTRIBUTES: Attribute[] = [
         {
             $id: "$id",
+            key: "$id",
             type: AttributeEnum.String,
             size: Base.LENGTH_KEY,
             required: true,
         },
         {
             $id: "$sequence",
+            key: "$sequence",
             type: AttributeEnum.Integer,
             size: 8,
-            required: true,
         },
         {
             $id: "$collection",
+            key: "$collection",
             type: AttributeEnum.String,
             size: Base.LENGTH_KEY,
             required: true,
         },
         {
             $id: "$tenant",
+            key: "$tenant",
             type: AttributeEnum.Integer,
             size: 8
         },
         {
             $id: "$createdAt",
+            key: "$createdAt",
             type: AttributeEnum.Timestamptz,
             default: null,
         },
         {
             $id: "$updatedAt",
+            key: "$updatedAt",
             type: AttributeEnum.Timestamptz,
             default: null,
         },
         {
             $id: "$permissions",
+            key: "$permissions",
             type: AttributeEnum.String,
             size: 255,
             array: true,
@@ -105,6 +111,7 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
                 required: true,
             },
         ],
+        documentSecurity: false,
     };
 
     public static readonly PERMISSIONS: PermissionEnum[] = [
@@ -180,8 +187,9 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
         return this;
     }
 
-    public get setMeta() {
-        return this.adapter.setMeta;
+    public setMeta(meta: Partial<Meta>): this {
+        this.adapter.setMeta(meta);
+        return this;
     }
 
     public get database() {
@@ -398,11 +406,14 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
             if (!array) {
                 value = value[0];
             }
+            if (attribute.type === AttributeEnum.Json && typeof value === 'object') {
+                value = JSON.stringify(value);
+            }
             document.set(key, value);
         }
 
         return document;
-    }this.getLikeOperator()
+    }
 
     protected async decode<T extends Record<string, any>>(
         collection: Doc<Collection>,

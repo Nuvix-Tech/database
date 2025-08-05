@@ -1,4 +1,4 @@
-import { Client, PoolOptions } from "pg";
+import { Client, PoolConfig } from "pg";
 import { BaseAdapter } from "./base.js";
 import { PostgresClient } from "./postgres.js";
 import { AttributeEnum, EventsEnum, IndexEnum, RelationEnum, RelationSideEnum } from "@core/enums.js";
@@ -13,7 +13,7 @@ import { ColumnInfo, CreateAttribute, CreateIndex, CreateRelationship, UpdateAtt
 export class Adapter extends BaseAdapter implements IAdapter {
     protected client: PostgresClient;
 
-    constructor(client: PoolOptions | Client) {
+    constructor(client: PoolConfig | Client) {
         super();
         this.client = new PostgresClient(client);
     }
@@ -35,6 +35,7 @@ export class Adapter extends BaseAdapter implements IAdapter {
 
     async createCollection({ name, attributes, indexes }: CreateCollectionOptions): Promise<void> {
         name = this.sanitize(name);
+        const mainTable = this.getSQLTable(name);
         const attributeSql: string[] = [];
         const indexSql: string[] = [];
         const attributeHash: Record<string, Attribute> = {};
@@ -91,10 +92,10 @@ export class Adapter extends BaseAdapter implements IAdapter {
             }
 
             if (indexType === IndexEnum.FullText) {
-                indexSql.push(`CREATE INDEX ${this.quote(indexId)} ON ${this.quote(name)} USING GIN (${attributesSql})`);
+                indexSql.push(`CREATE INDEX ${this.quote(indexId)} ON ${mainTable} USING GIN (${attributesSql})`);
             } else {
                 const uniqueClause = indexType === IndexEnum.Unique ? 'UNIQUE ' : '';
-                indexSql.push(`CREATE ${uniqueClause}INDEX ${this.quote(indexId)} ON ${this.quote(name)} (${attributesSql})`);
+                indexSql.push(`CREATE ${uniqueClause}INDEX ${this.quote(indexId)} ON ${mainTable} (${attributesSql})`);
             }
         });
 
@@ -108,7 +109,6 @@ export class Adapter extends BaseAdapter implements IAdapter {
         ];
 
         let primaryKeyDefinition: string;
-        const quotedTableName = this.quote(name);
         const tenantCol = this.quote('_tenant');
 
         if (this.$sharedTables) {
@@ -120,7 +120,7 @@ export class Adapter extends BaseAdapter implements IAdapter {
 
         const columnsAndConstraints = mainTableColumns.join(',\n');
         let tableSql = `
-            CREATE TABLE ${quotedTableName} (
+            CREATE TABLE ${mainTable} (
                 ${columnsAndConstraints},
                 ${primaryKeyDefinition}
             );
@@ -128,28 +128,27 @@ export class Adapter extends BaseAdapter implements IAdapter {
 
         const postTableIndexes: string[] = [];
         if (this.$sharedTables) {
-            postTableIndexes.push(`CREATE UNIQUE INDEX "${name}_uid_tenant" ON ${quotedTableName} ("_uid", ${tenantCol});`);
-            postTableIndexes.push(`CREATE INDEX "${name}_created_at_tenant" ON ${quotedTableName} (${tenantCol}, "_createdAt");`);
-            postTableIndexes.push(`CREATE INDEX "${name}_updated_at_tenant" ON ${quotedTableName} (${tenantCol}, "_updatedAt");`);
-            postTableIndexes.push(`CREATE INDEX "${name}_tenant_id" ON ${quotedTableName} (${tenantCol}, "_id");`);
+            postTableIndexes.push(`CREATE UNIQUE INDEX "${name}_uid_tenant" ON ${mainTable} ("_uid", ${tenantCol});`);
+            postTableIndexes.push(`CREATE INDEX "${name}_created_at_tenant" ON ${mainTable} (${tenantCol}, "_createdAt");`);
+            postTableIndexes.push(`CREATE INDEX "${name}_updated_at_tenant" ON ${mainTable} (${tenantCol}, "_updatedAt");`);
+            postTableIndexes.push(`CREATE INDEX "${name}_tenant_id" ON ${mainTable} (${tenantCol}, "_id");`);
         } else {
-            postTableIndexes.push(`CREATE UNIQUE INDEX "${name}_uid" ON ${quotedTableName} ("_uid");`);
-            postTableIndexes.push(`CREATE INDEX "${name}_created_at" ON ${quotedTableName} ("_createdAt");`);
-            postTableIndexes.push(`CREATE INDEX "${name}_updated_at" ON ${quotedTableName} ("_updatedAt");`);
+            postTableIndexes.push(`CREATE UNIQUE INDEX "${name}_uid" ON ${mainTable} ("_uid");`);
+            postTableIndexes.push(`CREATE INDEX "${name}_created_at" ON ${mainTable} ("_createdAt");`);
+            postTableIndexes.push(`CREATE INDEX "${name}_updated_at" ON ${mainTable} ("_updatedAt");`);
         }
-        postTableIndexes.push(`CREATE INDEX "${name}_permissions_gin_idx" ON ${quotedTableName} USING GIN ("_permissions");`);
+        postTableIndexes.push(`CREATE INDEX "${name}_permissions_gin_idx" ON ${mainTable} USING GIN ("_permissions");`);
 
         tableSql = this.trigger(EventsEnum.CollectionCreate, tableSql);
 
-        const permissionsTableName = this.quote(name + '_perms');
-        const mainTableName = this.quote(name);
+        const permissionsTableName = this.getSQLTable(name + '_perms');
 
         const permissionsTableColumns = [
             `"_id" BIGINT NOT NULL GENERATED ALWAYS AS IDENTITY`,
             `"_type" VARCHAR(12) NOT NULL`,
             `"_permissions" TEXT[] NOT NULL DEFAULT '{}'`,
             `"_document" BIGINT NOT NULL`,
-            `FOREIGN KEY ("_document") REFERENCES ${mainTableName}("_id") ON DELETE CASCADE`
+            `FOREIGN KEY ("_document") REFERENCES ${mainTable}("_id") ON DELETE CASCADE`
         ];
         const postPermissionsTableIndexes: string[] = [];
         let permissionsPrimaryKeyDefinition: string;
@@ -677,7 +676,7 @@ export class Adapter extends BaseAdapter implements IAdapter {
             const attributes: Record<string, any> = { ...document.getAll() };
             attributes['_createdAt'] = document.createdAt();
             attributes['_updatedAt'] = document.updatedAt();
-            attributes['_permissions'] = JSON.stringify(document.getPermissions());
+            attributes['_permissions'] = document.getPermissions();
 
             if (this.$sharedTables) {
                 attributes['_tenant'] = document.getTenant();
@@ -694,13 +693,6 @@ export class Adapter extends BaseAdapter implements IAdapter {
                 const column = this.sanitize(attribute);
                 columns.push(this.$.quote(column));
                 placeholders.push('?');
-                // Convert arrays to JSON, booleans to int
-                if (Array.isArray(value) || (typeof value === "object" && value !== null)) {
-                    value = JSON.stringify(value);
-                }
-                if (typeof value === 'boolean') {
-                    value = value ? 1 : 0;
-                }
                 values.push(value);
             });
 
@@ -716,26 +708,26 @@ export class Adapter extends BaseAdapter implements IAdapter {
             values.push(document.getId());
 
             let sql = `
-                        INSERT INTO ${this.getSQLTable(name)} (${columns.join(', ')})
-                        VALUES (${placeholders.join(', ')})
-                    `;
+                INSERT INTO ${this.getSQLTable(name)} (${columns.join(', ')})
+                VALUES (${placeholders.join(', ')}) RETURNING _id
+            `;
 
             sql = this.trigger(EventsEnum.DocumentCreate, sql);
-
-            const [result]: any = await this.client.query(sql, values);
+            console.log({values})
+            const { rows } = await this.client.query(sql, values);
 
             // Set $sequence from insertId
-            document.set('$sequence', result?.insertId);
+            document.set('$sequence', rows[0]['_id']);
 
-            if (!result?.insertId) {
+            if (!rows[0]['_id']) {
                 throw new DatabaseException('Error creating document empty "$sequence"');
             }
 
-            // Insert permissions
             const permissions: any[] = [];
             for (const type of Database.PERMISSIONS || []) {
-                for (const permission of document.getPermissionsByType(type)) {
-                    const row: any[] = [type, String(permission).replace(/"/g, ''), document.getId()];
+                const perms = document.getPermissionsByType(type);
+                if (perms && perms.length) {
+                    const row: any[] = [type, perms, document.getSequence()];
                     if (this.$sharedTables) {
                         row.push(document.getTenant());
                     }
@@ -744,13 +736,13 @@ export class Adapter extends BaseAdapter implements IAdapter {
             }
 
             if (permissions.length) {
-                const columnsPerm = ['_type', '_permission', '_document'];
+                const columnsPerm = ['_type', '_permissions', '_document'];
                 if (this.$sharedTables) columnsPerm.push('_tenant');
                 const placeholdersPerm = '(' + columnsPerm.map(() => '?').join(', ') + ')';
                 const sqlPermissions = `
-                            INSERT INTO ${this.getSQLTable(name + '_perms')} (${columnsPerm.join(', ')})
-                            VALUES ${permissions.map(() => placeholdersPerm).join(', ')}
-                        `;
+                    INSERT INTO ${this.getSQLTable(name + '_perms')} (${columnsPerm.join(', ')})
+                    VALUES ${permissions.map(() => placeholdersPerm).join(', ')}
+                `;
                 const valuesPerm = permissions.flat();
                 await this.client.query(sqlPermissions, valuesPerm);
             }

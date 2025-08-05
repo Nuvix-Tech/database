@@ -1,8 +1,9 @@
 import {
     Client, escapeLiteral, Pool, PoolClient,
-    PoolOptions, QueryArrayConfig, QueryArrayResult, QueryConfig,
+    QueryArrayConfig, QueryArrayResult, QueryConfig,
     QueryConfigValues, QueryResult, QueryResultRow, Submittable,
-    DatabaseError
+    DatabaseError,
+    PoolConfig
 } from "pg";
 import { IClient } from "./interface.js";
 import { DatabaseException } from "@errors/base.js";
@@ -22,7 +23,7 @@ export class PostgresClient implements IClient {
         return this._type;
     }
 
-    constructor(options: PoolOptions | Client | { _internal_conn_: PoolClient | Client, _internal_type_: 'connection' }) {
+    constructor(options: PoolConfig | Client | { _internal_conn_: PoolClient | Client, _internal_type_: 'connection' }) {
         if ('_internal_conn_' in options) {
             this.connection = options._internal_conn_;
             this._type = options._internal_type_;
@@ -72,6 +73,12 @@ export class PostgresClient implements IClient {
         values?: QueryConfigValues<I>,
     ): Promise<QueryResult<R>>;
     public query(sql: any, values?: any): Promise<any> {
+        // Replace ? placeholders with $1, $2, $3, etc. for PostgreSQL
+        if (typeof sql === 'string' && values && Array.isArray(values)) {
+            let paramIndex = 1;
+            const convertedSql = sql.replace(/\?/g, () => `$${paramIndex++}`);
+            return this.connection.query(convertedSql, values);
+        }
         return this.connection.query(sql, values);
     }
 
@@ -112,9 +119,9 @@ export class PostgresClient implements IClient {
 
                     return result;
                 } catch (err: unknown) {
+                    console.warn(`Transaction attempt ${attempt} failed:`, err);
                     await this.query('ROLLBACK');
                     const isDeadlock = err instanceof DatabaseError && 'code' in err && err.code === '40P01';
-
                     if (isDeadlock && attempt < maxRetries) {
                         await new Promise(resolve => setTimeout(resolve, 50 * attempt));
                         continue;

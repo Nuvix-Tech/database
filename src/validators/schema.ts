@@ -38,7 +38,7 @@ export const CollectionSchema = z.object({
     name: z.string(),
     attributes: z.array(AttributeSchema),
     indexes: z.array(IndexSchema).optional(),
-    documentSecurity: z.boolean().default(false).optional(),
+    documentSecurity: z.boolean().default(false),
 });
 
 export type Collection = z.infer<typeof CollectionSchema>;

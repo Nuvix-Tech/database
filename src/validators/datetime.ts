@@ -44,7 +44,7 @@ export class Datetime implements Validator {
     }
 
     public $valid(value: any): boolean {
-        if (!(value instanceof Date) || typeof value !== "string" || (value as string)?.trim() === "") {
+        if (!(value instanceof Date || typeof value === "string")) {
             return false;
         }
 

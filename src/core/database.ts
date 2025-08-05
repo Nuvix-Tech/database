@@ -27,7 +27,7 @@ export class Database extends Cache {
      * Creates a new database.
      */
     public async create(database?: string): Promise<void> {
-        database = database ?? this.adapter.$database;
+        database = database ?? this.adapter.$schema;
         await this.adapter.create(database);
 
         const attributes = [...Database.COLLECTION.attributes]
@@ -38,7 +38,7 @@ export class Database extends Cache {
     }
 
     public async exists(database?: string, collection?: string): Promise<boolean> {
-        database ??= this.adapter.$database;
+        database ??= this.adapter.$schema;
         return this.adapter.exists(database, collection);
     }
 
@@ -48,7 +48,7 @@ export class Database extends Cache {
     }
 
     public async delete(database?: string): Promise<void> {
-        database ??= this.adapter.$database;
+        database ??= this.adapter.$schema;
         await this.adapter.delete(database);
 
         this.trigger(EventsEnum.DatabaseDelete, database);
@@ -107,7 +107,7 @@ export class Database extends Cache {
             'name': id,
             'attributes': attributes,
             'indexes': indexes,
-            'documentSecurity': documentSecurity
+            'documentSecurity': documentSecurity ?? false,
         });
 
         if (this.validate) {
@@ -329,14 +329,16 @@ export class Database extends Cache {
         }
         if (!id) return new Doc() as any;
 
+        console.log('Getting document:', collectionId, id, query);
+
         const collection = await this.silent(() => this.getCollection(collectionId, true));
         const attributes = collection.get('attributes', []);
-
         const processedQuery = await this.processQueries(query, collection);
 
         const results = await this.adapter.getDocument(collection.getId(), id, processedQuery);
+        console.log('IS THEIR ISSUE')
 
-        return {} as any;
+        return new Doc() as any;
     }
 
     public async createDocument<C extends (string & keyof Entities) | Partial<IEntity> & Record<string, any>>(

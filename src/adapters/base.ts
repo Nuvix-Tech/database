@@ -14,7 +14,7 @@ import { Collection } from "@validators/schema.js";
 
 export abstract class BaseAdapter extends EventEmitter {
     public readonly type: string = 'base';
-    protected _meta: Partial<Meta> = {};
+    protected _meta: Partial<Meta> = { schema: 'public' };
     protected abstract client: IClient;
     protected $logger = new Logger();
 
@@ -66,7 +66,8 @@ export abstract class BaseAdapter extends EventEmitter {
     }
 
     public get $schema(): string {
-        throw new Error('Not Implemented')
+        if (!this._meta.schema) throw new DatabaseException('Schema name is not defined in adapter metadata.');
+        return this._meta.schema;
     }
 
     public get $sharedTables(): boolean {
@@ -110,6 +111,7 @@ export abstract class BaseAdapter extends EventEmitter {
                 return metaString + query;
             });
         }
+        this._meta = { ...this._meta, ...meta };
         return this;
     }
 
@@ -853,6 +855,7 @@ export abstract class BaseAdapter extends EventEmitter {
     }
 
     protected processException(error: any, message?: string): never {
+        console.log({ error, message })
         throw new DatabaseException('Not implemented')
     }
 

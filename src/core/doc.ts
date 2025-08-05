@@ -1,3 +1,4 @@
+import { Permission } from "@utils/permission.js";
 import { StructureException } from "errors/index.js";
 import { IEntity, IEntityInput } from "types.js";
 
@@ -205,8 +206,10 @@ export class Doc<T extends Record<string, any> & Partial<IEntity> = IEntity> {
     }
 
     public getPermissions(): string[] {
+        const permissions: (string | Permission)[] = this.get("$permissions", []) as any;
+
         return Array.from(
-            new Set(this.get("$permissions", []) as string[]),
+            new Set(permissions.map((p) => p instanceof Permission ? p.toString() : p)),
         );
     }
 

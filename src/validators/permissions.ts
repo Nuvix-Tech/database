@@ -11,7 +11,7 @@ import { Roles } from "./roles.js";
  * which may include both a permission action and a role-based target.
  */
 export class Permissions extends Roles implements Validator {
-    protected override _message: string = "Permissions Error";
+    protected override message: string = "Permissions Error";
     protected allowedPermissions: PermissionEnum[];
 
     /**
@@ -49,7 +49,7 @@ export class Permissions extends Roles implements Validator {
      * @returns {string}
      */
     public override get $description(): string {
-        return this._message;
+        return this.message;
     }
 
     /**
@@ -60,44 +60,44 @@ export class Permissions extends Roles implements Validator {
      * @returns {boolean}
      */
     public override $valid(permissions: unknown): boolean {
-        this._message = "Permissions Error";
+        this.message = "Permissions Error";
 
         if (!Array.isArray(permissions)) {
-            this._message = "Permissions must be an array of strings.";
+            this.message = "Permissions must be an array of strings.";
             return false;
         }
 
         if (this.maxLength > 0 && permissions.length > this.maxLength) {
-            this._message = `You can only provide up to ${this.maxLength} permissions.`;
+            this.message = `You can only provide up to ${this.maxLength} permissions.`;
             return false;
         }
 
         for (const permissionString of permissions) {
-            if (typeof permissionString !== "string") {
-                this._message = "Every permission must be of type string.";
+            if (!(typeof permissionString === "string" || permissionString  instanceof Permission)) {
+                this.message = "Every permission must be of type string.";
                 return false;
             }
 
             const isAllowed = this.allowedPermissions.some((allowedPerm) =>
-                permissionString.startsWith(allowedPerm)
+                permissionString.toString().startsWith(allowedPerm)
             );
             if (!isAllowed) {
-                this._message = `Permission "${permissionString}" is not allowed. Must start with one of: ${this.allowedPermissions.join(", ")}.`;
+                this.message = `Permission "${permissionString}" is not allowed. Must start with one of: ${this.allowedPermissions.join(", ")}.`;
                 return false;
             }
 
             try {
-                const parsedPermission = Permission.parse(permissionString);
+                const parsedPermission = typeof permissionString === 'string' ? Permission.parse(permissionString) : permissionString;
                 const roleName = parsedPermission.getRole();
                 const identifier = parsedPermission.getIdentifier();
                 const dimension = parsedPermission.getDimension();
 
                 if (!this.isValidRoleComponents(roleName, identifier, dimension)) {
-                    // The parent method sets the `_message` for us
+                    // The parent method sets the `message` for us
                     return false;
                 }
             } catch (error) {
-                this._message = (error instanceof Error) ? error.message : "Failed to parse permission string.";
+                this.message = (error instanceof Error) ? error.message : "Failed to parse permission string.";
                 return false;
             }
         }

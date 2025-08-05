@@ -276,6 +276,7 @@ export class Structure implements Validator {
         documentStructure: Record<string, unknown>,
     ): Promise<boolean> {
         for (const key in documentStructure) {
+            if (key === '$permissions') continue;
             const value = documentStructure[key];
             const attribute: Attribute | undefined = this.keys[key];
 
@@ -289,7 +290,7 @@ export class Structure implements Validator {
             const required = attribute.required ?? false;
             const size = attribute.size ?? 0;
 
-            if (!required && value === null) {
+            if (!required && (value === null || value === undefined)) {
                 continue;
             }
 
