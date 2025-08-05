@@ -7,7 +7,7 @@ import { Entities, IEntity } from "types.js";
 import { QueryBuilder } from "@utils/query-builder.js";
 import { Query } from "./query.js";
 import { Doc } from "./doc.js";
-import { AuthorizationException, DatabaseException, DuplicateException, IndexException, LimitException, NotFoundException, QueryException, StructureException } from "@errors/index.js";
+import { AuthorizationException, DatabaseException, DependencyException, DuplicateException, IndexException, LimitException, NotFoundException, QueryException, StructureException } from "@errors/index.js";
 import { Permission } from "@utils/permission.js";
 import { Role } from "@utils/role.js";
 import { Permissions } from "@validators/permissions.js";
@@ -17,6 +17,7 @@ import { Authorization } from "@utils/authorization.js";
 import { ID } from "@utils/id.js";
 import { Structure } from "@validators/structure.js";
 import { Adapter } from "@adapters/adapter.js";
+import { IndexDependency } from "@validators/index-dependency.js";
 
 export class Database extends Cache {
     constructor(adapter: Adapter, cache: NuvixCache, options: DatabaseOptions = {}) {
@@ -384,7 +385,10 @@ export class Database extends Cache {
             collection = await this.silent(() => this.updateDocument(Database.METADATA, collection.getId(), collection))
         }
 
-        this.trigger(EventsEnum.AttributesCreate, collection, attrDocs)
+        this.purgeCachedCollection(collection);
+        this.purgeCachedDocument(Database.METADATA, collection);
+
+        this.trigger(EventsEnum.AttributesCreate, collection, attrDocs);
         return true;
     }
 
@@ -416,7 +420,7 @@ export class Database extends Cache {
         collection.set('indexes', indexes);
         await this.silent(() => this.updateDocument(Database.METADATA, collection.getId(), collection));
 
-        this.trigger(EventsEnum.AttributeUpdate, collection, indexes[indexPosition] as any);
+        this.trigger(EventsEnum.AttributeUpdate, collection, indexes[indexPosition]!);
 
         return indexes[indexPosition]!;
     }
@@ -427,7 +431,7 @@ export class Database extends Cache {
     protected async updateAttributeMeta(
         collectionId: string,
         id: string,
-        updateCallback: (attribute: Doc<Attribute>, collection: Doc<Collection>, index: number) => void
+        updateCallback: (attribute: Doc<Attribute>, collection: Doc<Collection>, index: number) => void | Promise<void>
     ): Promise<Doc<Attribute>> {
         let collection = await this.silent(() => this.getCollection(collectionId));
 
@@ -443,7 +447,10 @@ export class Database extends Cache {
         }
 
         // Execute update from callback
-        updateCallback(attributes[index]!, collection, index);
+        const res = updateCallback(attributes[index]!, collection, index);
+        if (res instanceof Promise) {
+            await res;
+        }
 
         // Save
         collection.set('attributes', attributes);
@@ -528,6 +535,232 @@ export class Database extends Cache {
             attribute.set('default', defaultValue);
         });
     }
+
+    /**
+     * Update an attribute in a collection.
+     */
+    public async updateAttribute(
+        collectionId: string,
+        id: string,
+        options: {
+            type?: AttributeEnum;
+            size?: number;
+            required?: boolean;
+            default?: any;
+            array?: boolean;
+            format?: string;
+            formatOptions?: Record<string, any>;
+            filters?: string[];
+            newKey?: string;
+        } = {}
+    ): Promise<Doc<Attribute>> {
+        return this.updateAttributeMeta(collectionId, id, async (attribute, collection, attributeIndex) => {
+            const {
+                type = attribute.get('type'),
+                size = attribute.get('size'),
+                required = attribute.get('required'),
+                default: defaultValue = attribute.get('default'),
+                array = attribute.get('array'),
+                format = attribute.get('format'),
+                formatOptions = attribute.get('formatOptions'),
+                filters = attribute.get('filters'),
+                newKey
+            } = options;
+
+            const altering = options.type !== undefined
+                || options.size !== undefined
+                || options.array !== undefined
+                || options.newKey !== undefined;
+
+            const finalDefault = required === true && defaultValue !== null ? null : defaultValue;
+
+            // Validate attribute type and size constraints
+            switch (type) {
+                case AttributeEnum.String:
+                    if (!size) {
+                        throw new DatabaseException('Size length is required');
+                    }
+                    if (size > this.adapter.$limitForString) {
+                        throw new DatabaseException(`Max size allowed for string is: ${this.adapter.$limitForString}`);
+                    }
+                    break;
+
+                case AttributeEnum.Integer:
+                    if (size && size > this.adapter.$limitForInt) {
+                        throw new DatabaseException(`Max size allowed for int is: ${this.adapter.$limitForInt}`);
+                    }
+                    break;
+
+                case AttributeEnum.Float:
+                case AttributeEnum.Boolean:
+                case AttributeEnum.Json:
+                case AttributeEnum.Uuid:
+                case AttributeEnum.Timestamptz:
+                    if (size) {
+                        throw new DatabaseException('Size must be empty');
+                    }
+                    break;
+                default:
+                    throw new DatabaseException(`Unknown attribute type: ${type}`);
+            }
+
+            // Validate format
+            if (format && !Structure.hasFormat(format, type)) {
+                throw new DatabaseException(`Format "${format}" not available for attribute type "${type}"`);
+            }
+
+            // Validate default value
+            if (finalDefault !== null) {
+                if (required) {
+                    throw new DatabaseException('Cannot set a default value on a required attribute');
+                }
+                this.validateDefaultTypes(type, finalDefault);
+            }
+
+            // Update attribute properties
+            const updatedId = newKey ?? id;
+            attribute
+                .set('$id', updatedId)
+                .set('key', updatedId)
+                .set('type', type)
+                .set('size', size)
+                .set('array', array)
+                .set('format', format)
+                .set('formatOptions', formatOptions)
+                .set('filters', filters)
+                .set('required', required)
+                .set('default', finalDefault);
+
+            const attributes = collection.get('attributes', []);
+            attributes[attributeIndex] = attribute;
+            collection.set('attributes', attributes);
+
+            // Check document size limit
+            if (this.adapter.$documentSizeLimit > 0 &&
+                this.adapter.getAttributeWidth(collection) >= this.adapter.$documentSizeLimit) {
+                throw new LimitException('Row width limit reached. Cannot update attribute.');
+            }
+
+            if (altering) {
+                const indexes = collection.get('indexes', []);
+
+                // Update index attribute references if key changed
+                if (newKey && id !== newKey) {
+                    indexes.forEach(index => {
+                        const indexAttributes = index.get('attributes', []);
+                        if (indexAttributes.includes(id)) {
+                            const updatedAttributes = indexAttributes.map(attr => attr === id ? newKey : attr);
+                            index.set('attributes', updatedAttributes);
+                        }
+                    });
+                }
+
+                // Validate indexes after attribute update
+                if (this.validate) {
+                    const validator = new IndexValidator(
+                        attributes,
+                        this.adapter.$maxIndexLength,
+                        this.adapter.$internalIndexesKeys,
+                        this.adapter.$supportForIndexArray
+                    );
+
+                    indexes.forEach(index => {
+                        if (!validator.$valid(index)) {
+                            throw new IndexException(validator.$description);
+                        }
+                    });
+                }
+
+                // Update attribute in adapter
+                await this.adapter.updateAttribute({
+                    key: id,
+                    collection: collectionId,
+                    type,
+                    size,
+                    array,
+                    newName: newKey
+                });
+                await this.purgeCachedCollection(collection);
+            }
+
+            await this.purgeCachedDocument(Database.METADATA, collection);
+        });
+    }
+
+    /**
+     * Deletes an attribute from a collection.
+     */
+    public async deleteAttribute(collectionId: string, attributeId: string): Promise<boolean> {
+        const collection = await this.silent(() => this.getCollection(collectionId));
+
+        if (collection.getId() === Database.METADATA) {
+            throw new DatabaseException('Cannot delete metadata attributes');
+        }
+
+        const attributes = collection.get('attributes', []);
+        const indexes = collection.get('indexes', []);
+
+        const attributeIndex = attributes.findIndex((attr: Doc<Attribute>) => attr.get('$id') === attributeId);
+        if (attributeIndex === -1) {
+            throw new NotFoundException('Attribute not found');
+        }
+
+        const attribute = attributes[attributeIndex]!;
+        if (attribute.get('type') === AttributeEnum.Relationship) {
+            throw new DatabaseException('Cannot delete relationship as an attribute');
+        }
+        if (attribute.get('type') === AttributeEnum.Virtual) {
+            throw new DatabaseException('Cannot delete virtual attribute');
+        }
+
+        if (this.validate) {
+            const validator = new IndexDependency(
+                indexes,
+                this.adapter.$supportForCastIndexArray
+            );
+
+            if (!validator.$valid(attribute)) {
+                throw new DependencyException(validator.$description);
+            }
+        }
+
+        // Remove attribute from indexes
+        for (const index of indexes) {
+            const indexAttributes = index.get('attributes', []);
+            const updatedAttributes = indexAttributes.filter((attr) => attr !== attributeId);
+
+            if (updatedAttributes.length === 0) {
+                indexes.splice(indexes.indexOf(index), 1);
+            } else {
+                index.set('attributes', updatedAttributes);
+            }
+        }
+
+        // Remove attribute from collection
+        attributes.splice(attributeIndex, 1);
+        collection.set('attributes', attributes);
+        collection.set('indexes', indexes);
+
+        try {
+            await this.adapter.deleteAttribute(collection.getId(), attributeId);
+        } catch (error) {
+            if (!(error instanceof NotFoundException)) {
+                throw error;
+            }
+        }
+
+        if (collection.getId() !== Database.METADATA) {
+            await this.silent(() => this.updateDocument(Database.METADATA, collection.getId(), collection));
+        }
+
+        await this.purgeCachedCollection(collection);
+        await this.purgeCachedDocument(Database.METADATA, collection);
+
+        this.trigger(EventsEnum.AttributeDelete, collection, attribute);
+
+        return true;
+    }
+
 
 
     public getDocument<C extends (string & keyof Entities)>(

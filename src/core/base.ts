@@ -6,7 +6,7 @@ import { Filter, Filters } from "./types.js";
 import { Meta } from "@adapters/base.js";
 import { filters } from "@utils/filters.js";
 import { Doc } from "./doc.js";
-import { DatabaseException, DuplicateException, NotFoundException } from "@errors/index.js";
+import { DatabaseException, DuplicateException, LimitException, NotFoundException } from "@errors/index.js";
 import { Structure } from "@validators/structure.js";
 import { Adapter } from "@adapters/adapter.js";
 
@@ -372,7 +372,12 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
         return attr;
     }
 
-    protected checkAttribute(collection: Doc<Collection>, attribute: Doc<Attribute>): boolean {
+    /**
+    * Checks if attribute can be added to collection.
+    * Used to check attribute limits without asking the database
+    * Returns true if attribute can be added to collection, throws exception otherwise
+    */
+    public checkAttribute(collection: Doc<Collection>, attribute: Doc<Attribute>): boolean {
         const clonedCollection = collection.clone();
         clonedCollection.append('attributes', attribute);
 
