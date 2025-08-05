@@ -272,7 +272,7 @@ export class Adapter extends BaseAdapter implements IAdapter {
     }
 
     public async createAttribute(
-        { name, collection, size, array, type }: CreateAttribute
+        { key: name, collection, size, array, type }: CreateAttribute
     ): Promise<void> {
         if (!name || !collection || !type) {
             throw new DatabaseException("Failed to create attribute: name, collection, and type are required");
@@ -305,12 +305,12 @@ export class Adapter extends BaseAdapter implements IAdapter {
         const parts: string[] = [];
 
         for (const attr of attributes) {
-            if (!attr.name || !attr.type) {
+            if (!attr.key || !attr.type) {
                 throw new DatabaseException("Failed to create attribute: name and type are required");
             }
 
             const sqlType = this.getSQLType(attr.type, attr.size, attr.array);
-            parts.push(`${this.quote(attr.name)} ${sqlType}`);
+            parts.push(`${this.quote(attr.key)} ${sqlType}`);
         }
 
         const columns = parts.join(', ADD COLUMN ');
@@ -551,7 +551,7 @@ export class Adapter extends BaseAdapter implements IAdapter {
     }
 
     public async updateAttribute(
-        { collection, name, newName, array, size, type }: UpdateAttribute
+        { collection, key: name, newName, array, size, type }: UpdateAttribute
     ): Promise<void> {
         const tableName = this.getSQLTable(this.sanitize(collection));
         const columnName = this.sanitize(name);

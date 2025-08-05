@@ -328,11 +328,8 @@ export class Database extends Cache {
 
         try {
             await this.adapter.createAttribute({
-                name: attribute.key,
-                size: attribute.size,
                 collection: collectionId,
-                array: attribute.array,
-                type,
+                ...attribute,
             })
         } catch (error) {
             if (error instanceof DuplicateException) {
@@ -348,9 +345,50 @@ export class Database extends Cache {
             collection = await this.silent(() => this.updateDocument(Database.METADATA, collection.getId(), collection))
         }
 
-        this.trigger(EventsEnum.AttributeCreate, collection, attribute)
+        this.trigger(EventsEnum.AttributeCreate, collection, attr)
         return true;
     }
+
+    public async createAttributes(
+        collectionId: string,
+        attributes: Attribute[]
+    ) {
+        if (attributes.length === 0) {
+            throw new DatabaseException('No attributes to create');
+        }
+
+        let collection = await this.silent(() => this.getCollection(collectionId, true));
+        const attrDocs: Doc<Attribute>[] = []
+
+        for (const attribute of attributes) {
+            const attr = await this.validateAttribute(collection, attribute)
+
+            collection.append('attributes', attr)
+            attrDocs.push(attr);
+        }
+
+        try {
+            await this.adapter.createAttributes(collection.getId(), attributes)
+        } catch (error) {
+            if (error instanceof DuplicateException) {
+                // No attributes were in a metadata, but at least one of them was present on the table
+                // HACK: Metadata should still be updated, can be removed when null tenant collections are supported.
+                if (!this.adapter.$sharedTables || !this.migrating) {
+                    throw error;
+                }
+            }
+            throw error;
+        }
+
+        if (collection.getId() !== Database.METADATA) {
+            collection = await this.silent(() => this.updateDocument(Database.METADATA, collection.getId(), collection))
+        }
+
+        this.trigger(EventsEnum.AttributesCreate, collection, attrDocs)
+        return true;
+    }
+
+    
 
 
     public getDocument<C extends (string & keyof Entities)>(

@@ -5,7 +5,7 @@ import { Attribute } from "@validators/schema.js";
 
 export type CreateAttribute = {
     collection: string;
-    name: string;
+    key: string;
     type: AttributeEnum;
     size?: number;
     array?: boolean;
