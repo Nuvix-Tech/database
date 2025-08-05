@@ -314,12 +314,30 @@ export class Database extends Cache {
         return deleted;
     }
 
-    public async getDocument<C extends (string & keyof Entities) | Partial<IEntity> & Record<string, any>>(
-        collectionId: C extends string ? C : string,
+    public getDocument<C extends (string & keyof Entities)>(
+        collectionId: C,
+        id: string,
+        query?: ((builder: QueryBuilder) => QueryBuilder) | Query[],
+        forUpdate?: boolean,
+    ): Promise<Doc<Entities[C]>>;
+    public getDocument<C extends string>(
+        collectionId: C,
+        id: string,
+        query?: ((builder: QueryBuilder) => QueryBuilder) | Query[],
+        forUpdate?: boolean,
+    ): Promise<Doc<Partial<IEntity> & Record<string, any>>>;
+    public getDocument<D extends Record<string, any>>(
+        collectionId: string,
+        id: string,
+        query?: ((builder: QueryBuilder) => QueryBuilder) | Query[],
+        forUpdate?: boolean,
+    ): Promise<Doc<Partial<IEntity> & D>>;
+    public async getDocument(
+        collectionId: string,
         id: string,
         query: ((builder: QueryBuilder) => QueryBuilder) | Query[] = [],
         forUpdate: boolean = false,
-    ): Promise<C extends string ? Doc<Entities[C]> : C extends Record<string, any> ? Doc<C> : Doc<IEntity>> {
+    ): Promise<any> {
         if (collectionId === Database.METADATA && id === Database.METADATA) {
             return new Doc(Database.COLLECTION) as any;
         }
@@ -327,16 +345,30 @@ export class Database extends Cache {
         if (!collectionId) {
             throw new NotFoundException(`Collection '${collectionId}' not found.`);
         }
-        if (!id) return new Doc() as any;
+        if (!id) return new Doc();
 
         const collection = await this.silent(() => this.getCollection(collectionId, true));
-        const attributes = collection.get('attributes', []);
+        const validator = new Authorization(PermissionEnum.Read);
+
+        if (collection.getId() !== Database.METADATA) {
+            if (!validator.$valid([
+                ...collection.getRead(),
+            ])) {
+                return new Doc();
+            }
+        }
+
         const processedQuery = await this.processQueries(query, collection);
+        const documentSecurity = collection.get('documentSecurity', false);
 
         const doc = await this.adapter.getDocument(collection.getId(), id, processedQuery);
 
-        this.trigger(EventsEnum.DocumentRead, doc as any)
-        return doc as any;
+        if (doc.empty()) {
+            return new Doc();
+        }
+
+        this.trigger(EventsEnum.DocumentRead, doc)
+        return doc;
     }
 
     public async createDocument<C extends (string & keyof Entities) | Partial<IEntity> & Record<string, any>>(
@@ -374,8 +406,7 @@ export class Database extends Cache {
         const createdAt = doc.get('$createdAt');
         const updatedAt = doc.get('$updatedAt');
 
-        doc
-            .set('$id', doc.getId() || ID.unique())
+        doc.set('$id', doc.getId() || ID.unique())
             .set('$collection', collection.getId())
             .set('$createdAt', (createdAt === null || createdAt === undefined || !this.preserveDates) ? time : createdAt)
             .set('$updatedAt', (updatedAt === null || updatedAt === undefined || !this.preserveDates) ? time : updatedAt);
@@ -401,7 +432,7 @@ export class Database extends Cache {
                 throw new DatabaseException(validator.$description);
             }
         }
-        console.log({ collection: collection.toObject()})
+
         const structure = new Structure(
             collection,
             // this.adapter.getIdAttributeType(),
@@ -422,11 +453,12 @@ export class Database extends Cache {
         //     result = await this.silent(() => this.populateDocumentRelationships(collection, result));
         // }
 
-        // const decodedResult = this.decode(collection, castedResult);
+        const castedResult = this.cast(collection, result);
+        const decodedResult = await this.decode(collection, castedResult);
 
-        this.trigger(EventsEnum.DocumentCreate, result);
+        this.trigger(EventsEnum.DocumentCreate, decodedResult);
 
-        return result;
+        return decodedResult as any;
     }
 
     async processQueries(

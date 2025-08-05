@@ -188,18 +188,24 @@ export abstract class BaseAdapter extends EventEmitter {
         return rows[0].count > 0;
     }
 
-    public async getDocument<C extends keyof Entities>(
+    public async getDocument<C extends (string & keyof Entities)>(
         collection: C,
         id: string,
         queries?: ProcessQuery | null,
         forUpdate?: boolean
     ): Promise<Doc<Entities[C]>>;
+    public async getDocument<C extends Record<string, any>>(
+        collection: string,
+        id: string,
+        queries?: ProcessQuery | null,
+        forUpdate?: boolean
+    ): Promise<Doc<Partial<IEntity> & C>>;
     public async getDocument(
         collection: string,
         id: string,
         { queries, selections }: ProcessQuery,
         forUpdate: boolean = false
-    ): Promise<Doc<IEntity>> {
+    ): Promise<Doc<Partial<IEntity> & Record<string, any>>> {
         if (!collection || !id) {
             throw new DatabaseException("Failed to get document: collection and id are required");
         }

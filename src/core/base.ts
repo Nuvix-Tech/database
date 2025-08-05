@@ -375,7 +375,7 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
             }
 
             if (key === '$permissions') {
-                if (!value || (Array.isArray(value) && value.length === 0)) {
+                if (!value) {
                     document.set('$permissions', []);
                 }
                 continue;
