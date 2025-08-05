@@ -395,7 +395,7 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
         return true;
     }
 
-    private validateDefaultTypes(type: AttributeEnum, value: unknown): void {
+    protected validateDefaultTypes(type: AttributeEnum, value: unknown): void {
         if (value === null || value === undefined) {
             // Disable null. No validation required
             return;

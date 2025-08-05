@@ -1,5 +1,5 @@
 import { AttributeEnum, EventsEnum, PermissionEnum, RelationEnum, RelationSideEnum } from "./enums.js";
-import { Attribute, Collection } from "@validators/schema.js";
+import { Attribute, Collection, Index } from "@validators/schema.js";
 import { CreateCollection, Filters, UpdateCollection } from "./types.js";
 import { Cache } from "./cache.js";
 import { Cache as NuvixCache } from '@nuvix/cache';
@@ -11,7 +11,7 @@ import { AuthorizationException, DatabaseException, DuplicateException, IndexExc
 import { Permission } from "@utils/permission.js";
 import { Role } from "@utils/role.js";
 import { Permissions } from "@validators/permissions.js";
-import { Index } from "@validators/index-validator.js";
+import { Index as IndexValidator } from "@validators/index-validator.js";
 import { Documents } from "@validators/queries/documents.js";
 import { Authorization } from "@utils/authorization.js";
 import { ID } from "@utils/id.js";
@@ -111,7 +111,7 @@ export class Database extends Cache {
         });
 
         if (this.validate) {
-            const validator = new Index(
+            const validator = new IndexValidator(
                 attributes,
                 this.adapter.$maxIndexLength,
                 this.adapter.$internalIndexesKeys,
@@ -388,7 +388,146 @@ export class Database extends Cache {
         return true;
     }
 
-    
+    /**
+     * Update index metadata. Utility method for update index methods.
+     */
+    protected async updateIndexMeta(
+        collectionId: string,
+        id: string,
+        updateCallback: (index: Doc<Index>, collection: Doc<Collection>, indexPosition: number) => void
+    ): Promise<Doc<Index>> {
+        let collection = await this.silent(() => this.getCollection(collectionId));
+
+        if (collection.getId() === Database.METADATA) {
+            throw new DatabaseException('Cannot update metadata indexes');
+        }
+
+        const indexes = collection.get('indexes', []);
+        const indexPosition = indexes.findIndex((index: Doc<Index>) => index.get('$id') === id);
+
+        if (indexPosition === -1) {
+            throw new NotFoundException('Index not found');
+        }
+
+        // Execute update from callback
+        updateCallback(indexes[indexPosition]!, collection, indexPosition);
+
+        // Save
+        collection.set('indexes', indexes);
+        await this.silent(() => this.updateDocument(Database.METADATA, collection.getId(), collection));
+
+        this.trigger(EventsEnum.AttributeUpdate, collection, indexes[indexPosition] as any);
+
+        return indexes[indexPosition]!;
+    }
+
+    /**
+     * Update attribute metadata. Utility method for update attribute methods.
+     */
+    protected async updateAttributeMeta(
+        collectionId: string,
+        id: string,
+        updateCallback: (attribute: Doc<Attribute>, collection: Doc<Collection>, index: number) => void
+    ): Promise<Doc<Attribute>> {
+        let collection = await this.silent(() => this.getCollection(collectionId));
+
+        if (collection.getId() === Database.METADATA) {
+            throw new DatabaseException('Cannot update metadata attributes');
+        }
+
+        const attributes = collection.get('attributes', []);
+        const index = attributes.findIndex((attribute: Doc<Attribute>) => attribute.get('$id') === id);
+
+        if (index === -1) {
+            throw new NotFoundException('Attribute not found');
+        }
+
+        // Execute update from callback
+        updateCallback(attributes[index]!, collection, index);
+
+        // Save
+        collection.set('attributes', attributes);
+        await this.silent(() => this.updateDocument(Database.METADATA, collection.getId(), collection));
+
+        this.trigger(EventsEnum.AttributeUpdate, collection, attributes[index]!);
+
+        return attributes[index]!;
+    }
+
+    /**
+     * Update required status of attribute.
+     */
+    public async updateAttributeRequired(
+        collectionId: string,
+        id: string,
+        required: boolean
+    ): Promise<Doc<Attribute>> {
+        return this.updateAttributeMeta(collectionId, id, (attribute) => {
+            attribute.set('required', required);
+        });
+    }
+
+    /**
+     * Update format of attribute.
+     */
+    public async updateAttributeFormat(
+        collectionId: string,
+        id: string,
+        format: string
+    ): Promise<Doc<Attribute>> {
+        return this.updateAttributeMeta(collectionId, id, (attribute) => {
+            if (!Structure.hasFormat(format, attribute.get('type'))) {
+                throw new DatabaseException(`Format "${format}" not available for attribute type "${attribute.get('type')}"`);
+            }
+
+            attribute.set('format', format);
+        });
+    }
+
+    /**
+     * Update format options of attribute.
+     */
+    public async updateAttributeFormatOptions(
+        collectionId: string,
+        id: string,
+        formatOptions: Record<string, any>
+    ): Promise<Doc<Attribute>> {
+        return this.updateAttributeMeta(collectionId, id, (attribute) => {
+            attribute.set('formatOptions', formatOptions);
+        });
+    }
+
+    /**
+     * Update filters of attribute.
+     */
+    public async updateAttributeFilters(
+        collectionId: string,
+        id: string,
+        filters: string[]
+    ): Promise<Doc<Attribute>> {
+        return this.updateAttributeMeta(collectionId, id, (attribute) => {
+            attribute.set('filters', filters);
+        });
+    }
+
+    /**
+     * Update default value of attribute.
+     */
+    public async updateAttributeDefault(
+        collectionId: string,
+        id: string,
+        defaultValue: any = null
+    ): Promise<Doc<Attribute>> {
+        return this.updateAttributeMeta(collectionId, id, (attribute) => {
+            if (attribute.get('required') === true) {
+                throw new DatabaseException('Cannot set a default value on a required attribute');
+            }
+
+            this.validateDefaultTypes(attribute.get('type'), defaultValue);
+
+            attribute.set('default', defaultValue);
+        });
+    }
 
 
     public getDocument<C extends (string & keyof Entities)>(
