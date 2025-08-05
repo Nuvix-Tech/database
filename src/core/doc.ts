@@ -123,7 +123,7 @@ export class Doc<T extends Record<string, any> & Partial<IEntity> = IEntity> {
         return this;
     }
 
-    public append<K extends keyof T>(name: K, value: TransformField<T[K]>): this {
+    public append<K extends keyof T>(name: K, value: TransformField<T[K]> extends Array<any> ? TransformField<T[K]>[number] : TransformField<T[K]>): this {
         if (!Array.isArray((this as any)[name])) {
             throw new StructureException(`Cannot append to ${String(name)}, it is not an array`);
         }
@@ -135,7 +135,7 @@ export class Doc<T extends Record<string, any> & Partial<IEntity> = IEntity> {
         return this;
     }
 
-    public prepend<K extends keyof T>(name: K, value: TransformField<T[K]>): this {
+    public prepend<K extends keyof T>(name: K, value: TransformField<T[K]> extends Array<any> ? TransformField<T[K]>[number] : TransformField<T[K]>): this {
         if (!Array.isArray((this as any)[name])) {
             throw new StructureException(`Cannot prepend to ${String(name)}, it is not an array`);
         }

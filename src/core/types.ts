@@ -21,7 +21,11 @@ export type CreateCollection = {
     documentSecurity?: boolean;
 }
 
-export type UpdateCollection = Omit<CreateCollection, 'attributes' | 'indexes'>
+export type UpdateCollection = {
+    id: string;
+    permissions: (Permission | string)[];
+    documentSecurity: boolean;
+}
 
 export type QueryByType = {
     filters: Query[];

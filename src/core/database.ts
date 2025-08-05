@@ -161,7 +161,7 @@ export class Database extends Cache {
     public async updateCollection(
         { id, documentSecurity, permissions }: UpdateCollection
     ): Promise<Doc<Collection>> {
-        if (permissions !== undefined) {
+        if (permissions.length) {
             if (this.validate) {
                 const perms = new Permissions();
                 if (!perms.$valid(permissions)) {
@@ -170,22 +170,19 @@ export class Database extends Cache {
             }
         }
 
-        let collection = await this.silent(() => this.getCollection(id));
-
-        if (collection.empty()) {
-            throw new NotFoundException(`Collection "${id}" not found`);
-        }
+        let collection = await this.silent(() => this.getCollection(id, true));
 
         if (
             this.adapter.$sharedTables
             && collection.getTenant() !== this.adapter.$tenantId
         ) {
-            throw new NotFoundException(`Collection "${id}" not found`);
+            throw new NotFoundException(`Collection '${id}' not found`);
         }
 
-        if (permissions !== undefined) collection.set('$permissions', permissions);
-        if (documentSecurity !== undefined) collection.set('documentSecurity', documentSecurity);
+        collection.set('$permissions', permissions);
+        collection.set('documentSecurity', documentSecurity);
 
+        // TODO: --
         // collection = await this.silent(() => this.updateDocument(Database.METADATA, collection.getId(), collection));
         this.trigger(EventsEnum.CollectionUpdate, collection);
 
@@ -230,6 +227,7 @@ export class Database extends Cache {
             Query.offset(offset)
         ];
 
+        // TODO: --
         // return this.find<Collection>(Database.METADATA, query);
         return []
     }
@@ -279,7 +277,7 @@ export class Database extends Cache {
         const relationships = (collection.get('attributes') ?? []).filter(
             (attribute) => attribute.get('type') === AttributeEnum.Relationship
         );
-
+        // TODO: --
         // for (const relationship of relationships) {
         //     await this.deleteRelationship(collection.getId(), relationship.get('$id'));
         // }
@@ -313,6 +311,14 @@ export class Database extends Cache {
 
         return deleted;
     }
+
+    public async createAttribute(
+        collectionId: string,
+        attribute: Attribute | Doc<Attribute>,
+    ) {
+
+    }
+
 
     public getDocument<C extends (string & keyof Entities)>(
         collectionId: C,
@@ -361,11 +367,14 @@ export class Database extends Cache {
         const processedQuery = await this.processQueries(query, collection);
         const documentSecurity = collection.get('documentSecurity', false);
 
-        const doc = await this.adapter.getDocument(collection.getId(), id, processedQuery);
+        let doc = await this.adapter.getDocument(collection.getId(), id, processedQuery);
 
         if (doc.empty()) {
             return new Doc();
         }
+
+        doc = this.cast(collection, doc);
+        doc = await this.decode(collection, doc);
 
         this.trigger(EventsEnum.DocumentRead, doc)
         return doc;
@@ -464,7 +473,7 @@ export class Database extends Cache {
     async processQueries(
         queries: ((builder: QueryBuilder) => QueryBuilder) | Query[],
         collection: Doc<Collection>,
-        metadata: Attribute['options'] & {
+        metadata: Partial<Attribute['options']> & {
             populated?: boolean;
         } = {},
     ): Promise<ProcessQuery> {
@@ -503,7 +512,7 @@ export class Database extends Cache {
                 }
             }
         } else {
-            selections = [Query.select(attributes.map(a => a.get('key', a.getId())))];
+            selections = [Query.select(attributes.filter(a => a.get('type') !== AttributeEnum.Relationship && a.get('type') !== AttributeEnum.Virtual).map(a => a.get('key', a.getId())))];
         }
 
         if (!_populate.size) {
@@ -530,7 +539,7 @@ export class Database extends Cache {
                 throw new QueryException(`Populate query for attribute '${attribute}' must be an array of queries.`);
             }
 
-            const relatedCollectionId = attributeDoc.get('options', {})['relatedCollection'];
+            const relatedCollectionId = attributeDoc.get('options', {} as any)['relatedCollection'];
             const relatedCollection = await this.silent(() => this.getCollection(relatedCollectionId));
             if (relatedCollection.empty()) {
                 throw new NotFoundException(`Collection '${relatedCollectionId}' not found for attribute '${attribute}'.`);

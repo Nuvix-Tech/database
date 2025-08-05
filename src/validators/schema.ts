@@ -19,6 +19,8 @@ export const AttributeSchema = z.object({
     required: z.boolean().default(false).optional(),
     array: z.boolean().default(false).optional(),
     filters: z.array(z.string()).default([]).optional(),
+    format: z.string().optional(),
+    formatOptions: z.record(z.string(), z.any()).optional(),
     default: z.any().optional(),
     options: z.union([AttributeOptions, z.record(z.string(), z.any())]).optional(),
 });

@@ -6,7 +6,8 @@ import { Filter, Filters } from "./types.js";
 import { Adapter, Meta } from "@adapters/base.js";
 import { filters } from "@utils/filters.js";
 import { Doc } from "./doc.js";
-import { DatabaseException, NotFoundException } from "@errors/index.js";
+import { DatabaseException, DuplicateException, NotFoundException } from "@errors/index.js";
+import { Structure } from "@validators/structure.js";
 
 export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends Emitter<T> {
     public static METADATA = '_metadata' as const;
@@ -291,6 +292,164 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
 
     public get ping() {
         return this.adapter.$client.ping
+    }
+
+    protected async validateAttribute(
+        collection: Doc<Collection>,
+        attribute: Doc<Attribute>,
+    ): Promise<Doc<Attribute>> {
+        const attributes = collection.get('attributes', []);
+        const key = attribute.get('key');
+        attributes.forEach(attr => {
+            if (attr.get('key').toLowerCase() === key.toLowerCase()) {
+                throw new DuplicateException(`Attribute '${key}' already exists in metadata`);
+            }
+        })
+
+        if (!(this.sharedTables && this.migrating)) {
+            for (const attr of await this.adapter.getSchemaAttributes(collection.getId())) {
+                if (this.adapter.sanitize(attr.getId()).toLowerCase() === key.toLowerCase()) {
+                    throw new DuplicateException(`Attribute '${key}' already exists in schema`);
+                }
+            }
+        }
+
+        const type = attribute.get('type');
+        const filtersList = attribute.get('filters', []);
+        const format = attribute.get('format', null);
+        const size = attribute.get('size', 0);
+        const defaultValue = attribute.get('default');
+
+        const requiredFilters = this.getRequiredFilters(type);
+        if (requiredFilters.length > 0) {
+            const missingFilters = requiredFilters.filter(f => !filtersList.includes(f));
+            if (missingFilters.length > 0) {
+                throw new DatabaseException(
+                    `Attribute of type: ${type} requires the following filters: ${missingFilters.join(",")}`
+                );
+            }
+        }
+
+        if (format && !Structure.hasFormat(format, type)) {
+            throw new DatabaseException(
+                `Format ("${format}") not available for this attribute type ("${type}")`
+            );
+        }
+
+        this.checkAttribute(collection, attribute);
+
+        switch (type) {
+            case AttributeEnum.String:
+                if (size > this.adapter.$limitForString) {
+                    throw new DatabaseException(`Max size allowed for string is: ${this.adapter.$limitForString}`);
+                }
+                break;
+            case AttributeEnum.Integer:
+                if (size > this.adapter.$limitForInt) {
+                    throw new DatabaseException(`Max size allowed for int is: ${this.adapter.$limitForInt}`);
+                }
+                break;
+            case AttributeEnum.Float:
+            case AttributeEnum.Boolean:
+            case AttributeEnum.Timestamptz:
+            case AttributeEnum.Json:
+            case AttributeEnum.Relationship:
+            case AttributeEnum.Virtual:
+            case AttributeEnum.Uuid:
+                break
+            default:
+                throw new DatabaseException(`Unknown attribute type: ${type}, Must be one of ${Object.values(AttributeEnum)}`);
+        }
+
+        if (defaultValue !== null) {
+            if (attribute.get('required') === true) {
+                throw new DatabaseException('Cannot set a default value for a required attribute');
+            }
+            this.validateDefaultTypes(type, defaultValue);
+        }
+        return attribute;
+    }
+
+    protected checkAttribute(collection: Doc<Collection>, attribute: Doc<Attribute>): boolean {
+        const clonedCollection = collection.clone();
+        clonedCollection.append('attributes', attribute);
+
+        const attributeLimit = this.adapter.$limitForAttributes;
+        if (
+            attributeLimit > 0 &&
+            this.adapter.getCountOfAttributes(clonedCollection) > attributeLimit
+        ) {
+            throw new DatabaseException('Column limit reached. Cannot create new attribute.');
+        }
+
+        const documentSizeLimit = this.adapter.$documentSizeLimit;
+        if (
+            documentSizeLimit > 0 &&
+            this.adapter.getAttributeWidth(clonedCollection) >= documentSizeLimit
+        ) {
+            throw new DatabaseException('Row width limit reached. Cannot create new attribute.');
+        }
+
+        return true;
+    }
+
+    private validateDefaultTypes(type: AttributeEnum, value: unknown): void {
+        if (value === null || value === undefined) {
+            // Disable null. No validation required
+            return;
+        }
+
+        if (Array.isArray(value)) {
+            for (const v of value) {
+                this.validateDefaultTypes(type, v);
+            }
+            return;
+        }
+
+        const valueType = typeof value;
+
+        switch (type) {
+            case AttributeEnum.Json:
+                if (valueType !== 'object') {
+                    throw new DatabaseException(`Default value ${value} does not match given type ${type}`);
+                }
+                break;
+            case AttributeEnum.Uuid:
+            case AttributeEnum.String:
+                if (valueType !== 'string') {
+                    throw new DatabaseException(`Default value ${value} does not match given type ${type}`);
+                }
+                break;
+            case AttributeEnum.Integer:
+                if (valueType !== 'number' || !Number.isInteger(value)) {
+                    throw new DatabaseException(`Default value ${value} does not match given type ${type}`);
+                }
+                break;
+            case AttributeEnum.Float:
+                if (valueType !== 'number') {
+                    throw new DatabaseException(`Default value ${value} does not match given type ${type}`);
+                }
+                break;
+            case AttributeEnum.Boolean:
+                if (valueType !== 'boolean') {
+                    throw new DatabaseException(`Default value ${value} does not match given type ${type}`);
+                }
+                break;
+            case AttributeEnum.Timestamptz:
+                if (valueType !== 'string') {
+                    throw new DatabaseException(`Default value ${value} does not match given type ${type}`);
+                }
+                break;
+            default:
+                throw new DatabaseException(`Unknown attribute type: ${type}. Must be one of ${Object.values(AttributeEnum)}`);
+        }
+    }
+
+    protected getRequiredFilters(type: AttributeEnum): string[] {
+        switch (type) {
+            default:
+                return [];
+        }
     }
 
     protected cast<T extends Record<string, any>>(collection: Doc<Collection>, document: Doc<T>): Doc<T> {
