@@ -3,11 +3,12 @@ import { Emitter, EmitterEventMap } from "./emitter.js";
 import { AttributeEnum, EventsEnum, PermissionEnum } from "./enums.js";
 import { Cache } from "@nuvix/cache";
 import { Filter, Filters } from "./types.js";
-import { Adapter, Meta } from "@adapters/base.js";
+import { Meta } from "@adapters/base.js";
 import { filters } from "@utils/filters.js";
 import { Doc } from "./doc.js";
 import { DatabaseException, DuplicateException, NotFoundException } from "@errors/index.js";
 import { Structure } from "@validators/structure.js";
+import { Adapter } from "@adapters/adapter.js";
 
 export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends Emitter<T> {
     public static METADATA = '_metadata' as const;
@@ -296,10 +297,10 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
 
     protected async validateAttribute(
         collection: Doc<Collection>,
-        attribute: Doc<Attribute>,
+        attribute: Attribute,
     ): Promise<Doc<Attribute>> {
         const attributes = collection.get('attributes', []);
-        const key = attribute.get('key');
+        const key = attribute.key;
         attributes.forEach(attr => {
             if (attr.get('key').toLowerCase() === key.toLowerCase()) {
                 throw new DuplicateException(`Attribute '${key}' already exists in metadata`);
@@ -314,11 +315,11 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
             }
         }
 
-        const type = attribute.get('type');
-        const filtersList = attribute.get('filters', []);
-        const format = attribute.get('format', null);
-        const size = attribute.get('size', 0);
-        const defaultValue = attribute.get('default');
+        const type = attribute.type;
+        const filtersList = attribute.filters ?? [];
+        const format = attribute.format ?? null;
+        const size = attribute.size ?? 0;
+        const defaultValue = attribute.default ?? null;
 
         const requiredFilters = this.getRequiredFilters(type);
         if (requiredFilters.length > 0) {
@@ -336,7 +337,8 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
             );
         }
 
-        this.checkAttribute(collection, attribute);
+        const attr = new Doc(attribute);
+        this.checkAttribute(collection, attr);
 
         switch (type) {
             case AttributeEnum.String:
@@ -362,12 +364,12 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
         }
 
         if (defaultValue !== null) {
-            if (attribute.get('required') === true) {
+            if (attribute.required === true) {
                 throw new DatabaseException('Cannot set a default value for a required attribute');
             }
             this.validateDefaultTypes(type, defaultValue);
         }
-        return attribute;
+        return attr;
     }
 
     protected checkAttribute(collection: Doc<Collection>, attribute: Doc<Attribute>): boolean {

@@ -7,7 +7,7 @@ export type CreateAttribute = {
     collection: string;
     name: string;
     type: AttributeEnum;
-    size: number;
+    size?: number;
     array?: boolean;
 }
 

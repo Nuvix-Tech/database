@@ -2,7 +2,7 @@ import { EventEmitter } from 'events';
 import { EventsEnum } from './enums.js';
 import { Logger } from '@utils/logger.js';
 import { Doc } from './doc.js';
-import { Collection } from '@validators/schema.js';
+import { Attribute, Collection } from '@validators/schema.js';
 import { IEntity } from 'types.js';
 
 /**
@@ -27,6 +27,8 @@ export type EmitterEventMap = Record<string | symbol, any[]> & {
     [EventsEnum.CollectionCreate]: [Doc<Collection>];
     [EventsEnum.CollectionUpdate]: [Doc<Collection>];
     [EventsEnum.CollectionDelete]: [Doc<Collection>];
+
+    [EventsEnum.AttributeCreate]: [Doc<Collection>, Attribute];
     [EventsEnum.DocumentRead]: [Doc<Partial<IEntity & Record<string, any>>>];
     'error': [Error, string | number | symbol, string];
 };

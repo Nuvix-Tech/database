@@ -1,6 +1,5 @@
 import { AttributeEnum, EventsEnum, PermissionEnum, RelationEnum, RelationSideEnum } from "./enums.js";
 import { Attribute, Collection } from "@validators/schema.js";
-import { Adapter } from "@adapters/base.js";
 import { CreateCollection, Filters, UpdateCollection } from "./types.js";
 import { Cache } from "./cache.js";
 import { Cache as NuvixCache } from '@nuvix/cache';
@@ -17,6 +16,7 @@ import { Documents } from "@validators/queries/documents.js";
 import { Authorization } from "@utils/authorization.js";
 import { ID } from "@utils/id.js";
 import { Structure } from "@validators/structure.js";
+import { Adapter } from "@adapters/adapter.js";
 
 export class Database extends Cache {
     constructor(adapter: Adapter, cache: NuvixCache, options: DatabaseOptions = {}) {
@@ -314,9 +314,42 @@ export class Database extends Cache {
 
     public async createAttribute(
         collectionId: string,
-        attribute: Attribute | Doc<Attribute>,
+        attribute: Attribute,
     ) {
+        const type = attribute.type;
+        if (type === AttributeEnum.Relationship || type === AttributeEnum.Virtual) {
+            throw new DatabaseException(`Cannot create attribute of type '${type}'.`);
+        }
 
+        let collection = await this.silent(() => this.getCollection(collectionId, true));
+        const attr = await this.validateAttribute(collection, attribute);
+
+        collection.append('attributes', attr);
+
+        try {
+            await this.adapter.createAttribute({
+                name: attribute.key,
+                size: attribute.size,
+                collection: collectionId,
+                array: attribute.array,
+                type,
+            })
+        } catch (error) {
+            if (error instanceof DuplicateException) {
+                // HACK: Metadata should still be updated, can be removed when null tenant collections are supported.
+                if (!this.adapter.$sharedTables || !this.migrating) {
+                    throw error;
+                }
+            }
+            else throw error;
+        }
+
+        if (collection.getId() !== Database.METADATA) {
+            collection = await this.silent(() => this.updateDocument(Database.METADATA, collection.getId(), collection))
+        }
+
+        this.trigger(EventsEnum.AttributeCreate, collection, attribute)
+        return true;
     }
 
 
@@ -468,6 +501,27 @@ export class Database extends Cache {
         this.trigger(EventsEnum.DocumentCreate, decodedResult);
 
         return decodedResult as any;
+    }
+
+
+    public async updateDocument<C extends (string & keyof Entities)>(
+        collectionId: C,
+        id: string,
+        document: Entities[C]
+    ): Promise<Doc<Entities[C]>>;
+    public async updateDocument<D extends Record<string, any>>(
+        collectionId: string,
+        id: string,
+        document: D
+    ): Promise<D>;
+
+    public async updateDocument(
+        collectionId: string,
+        id: string,
+        document: any
+    ): Promise<Doc<any>> {
+        // TODO: Implement update logic here
+        return new Doc(document);
     }
 
     async processQueries(

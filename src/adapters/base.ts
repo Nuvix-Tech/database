@@ -743,9 +743,10 @@ export abstract class BaseAdapter extends EventEmitter {
         return { addPermissions, removePermissions };
     }
 
-    protected getSQLType(type: AttributeEnum, size: number, array?: boolean): string {
+    protected getSQLType(type: AttributeEnum, size?: number, array?: boolean): string {
         let pgType: string;
-
+        size ??= 0;
+        
         switch (type) {
             case AttributeEnum.String:
                 if (size > 255) {
@@ -1266,5 +1267,3 @@ export interface Meta {
     namespace: string;
     metadata: Record<string, string>
 }
-
-export type Adapter = BaseAdapter & IAdapter;
