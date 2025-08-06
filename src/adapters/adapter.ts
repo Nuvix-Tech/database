@@ -539,6 +539,85 @@ export class Adapter extends BaseAdapter implements IAdapter {
         }
     }
 
+    public async updateRelationship(
+        collection: string,
+        relatedCollection: string,
+        type: RelationEnum,
+        twoWay: boolean = false,
+        key: string,
+        twoWayKey: string,
+        side: RelationSideEnum,
+        newKey?: string,
+        newTwoWayKey?: string
+    ): Promise<boolean> {
+        const name = this.sanitize(collection);
+        const relatedName = this.sanitize(relatedCollection);
+        const table = this.getSQLTable(name);
+        const relatedTable = this.getSQLTable(relatedName);
+        const sanitizedKey = this.sanitize(key);
+        const sanitizedTwoWayKey = this.sanitize(twoWayKey);
+
+        let sql = '';
+
+        if (newKey) {
+            newKey = this.sanitize(newKey);
+        }
+        if (newTwoWayKey) {
+            newTwoWayKey = this.sanitize(newTwoWayKey);
+        }
+
+        switch (type) {
+            case RelationEnum.OneToOne:
+                if (sanitizedKey !== newKey) {
+                    sql = `ALTER TABLE ${table} RENAME COLUMN ${this.quote(sanitizedKey)} TO ${this.quote(newKey!)};`;
+                }
+                if (twoWay && sanitizedTwoWayKey !== newTwoWayKey) {
+                    sql += `ALTER TABLE ${relatedTable} RENAME COLUMN ${this.quote(sanitizedTwoWayKey)} TO ${this.quote(newTwoWayKey!)};`;
+                }
+                break;
+            case RelationEnum.OneToMany:
+                if (side === RelationSideEnum.Parent) {
+                    if (sanitizedTwoWayKey !== newTwoWayKey) {
+                        sql = `ALTER TABLE ${relatedTable} RENAME COLUMN ${this.quote(sanitizedTwoWayKey)} TO ${this.quote(newTwoWayKey!)};`;
+                    }
+                } else {
+                    if (sanitizedKey !== newKey) {
+                        sql = `ALTER TABLE ${table} RENAME COLUMN ${this.quote(sanitizedKey)} TO ${this.quote(newKey!)};`;
+                    }
+                }
+                break;
+            case RelationEnum.ManyToOne:
+                if (side === RelationSideEnum.Child) {
+                    if (sanitizedTwoWayKey !== newTwoWayKey) {
+                        sql = `ALTER TABLE ${relatedTable} RENAME COLUMN ${this.quote(sanitizedTwoWayKey)} TO ${this.quote(newTwoWayKey!)};`;
+                    }
+                } else {
+                    if (sanitizedKey !== newKey) {
+                        sql = `ALTER TABLE ${table} RENAME COLUMN ${this.quote(sanitizedKey)} TO ${this.quote(newKey!)};`;
+                    }
+                }
+                break;
+            case RelationEnum.ManyToMany:
+                // TODO: 
+                break;
+            default:
+                throw new DatabaseException('Invalid relationship type');
+        }
+
+        if (!sql) {
+            return true;
+        }
+
+        sql = this.trigger(EventsEnum.AttributeUpdate, sql);
+
+        try {
+            await this.client.query(sql);
+            return true;
+        } catch (e: any) {
+            this.processException(e, `Failed to update relationship between '${collection}' and '${relatedCollection}'`);
+        }
+    }
+
     public async deleteRelationship(
         collection: string,
         relatedCollection: string,

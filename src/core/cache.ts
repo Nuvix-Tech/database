@@ -10,7 +10,7 @@ export class Cache extends Base {
         return this.cache;
     }
 
-    public async purgeCachedCollection(collection: Doc<Collection>) {
+    public async purgeCachedCollection(collection: Doc<Collection> | string) {
 
     }
 

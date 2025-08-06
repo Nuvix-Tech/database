@@ -308,7 +308,7 @@ export class Database extends Cache {
             this.trigger(EventsEnum.CollectionDelete, collection);
         }
 
-        // await this.purgeCachedCollection(id);
+        await this.purgeCachedCollection(id);
 
         return deleted;
     }
@@ -1022,6 +1022,179 @@ export class Database extends Cache {
     }
 
     /**
+     * Updates an existing relationship in a collection.
+     */
+    public async updateRelationship(
+        collectionId: string,
+        id: string,
+        newKey?: string,
+        newTwoWayKey?: string,
+        twoWay?: boolean,
+        onDelete?: OnDelete
+    ): Promise<boolean> {
+        if (!newKey && !newTwoWayKey && twoWay === undefined && !onDelete) {
+            return true;
+        }
+
+        const collection = await this.silent(() => this.getCollection(collectionId, true));
+        const attributes = collection.get('attributes', []);
+
+        if (newKey && attributes.some(attr => attr.get('key') === newKey)) {
+            throw new DuplicateException('Relationship already exists');
+        }
+
+        const attributeIndex = attributes.findIndex(attr => attr.get('$id') === id);
+        if (attributeIndex === -1) {
+            throw new NotFoundException('Relationship not found');
+        }
+
+        const attribute = attributes[attributeIndex]!;
+        const type = attribute.get('options')['relationType'];
+        const side = attribute.get('options')['side'];
+
+        if (type === RelationEnum.ManyToMany) {
+            throw new DatabaseException('Cannot update ManyToMany relationship.');
+        }
+
+        const relatedCollectionId = attribute.get('options')['relatedCollection'];
+        const relatedCollection = await this.silent(() => this.getCollection(relatedCollectionId));
+
+        await this.updateAttributeMeta(collection.getId(), id, async (attr) => {
+            const altering = (newKey && newKey !== id) || (newTwoWayKey && newTwoWayKey !== attr.get('options')['twoWayKey']);
+
+            const relatedAttributes = relatedCollection.get('attributes', []);
+            if (newTwoWayKey && relatedAttributes.some(attr => attr.get('key') === newTwoWayKey)) {
+                throw new DuplicateException('Related attribute already exists');
+            }
+
+            newKey ??= attr.get('key');
+            const twoWayKey = attr.get('options')['twoWayKey'];
+            newTwoWayKey ??= twoWayKey;
+            twoWay ??= attr.get('options')['twoWay'];
+            onDelete ??= attr.get('options.onDelete');
+
+            attr.set('$id', newKey)
+                .set('key', newKey)
+                .set('options', {
+                    relatedCollection: relatedCollection.getId(),
+                    relationType: type,
+                    twoWay,
+                    twoWayKey: newTwoWayKey,
+                    onDelete,
+                    side,
+                });
+
+            await this.updateAttributeMeta(relatedCollection.getId(), twoWayKey, (relatedAttr) => {
+                relatedAttr.set('$id', newTwoWayKey)
+                    .set('key', newTwoWayKey)
+                    .set('options', {
+                        ...relatedAttr.get('options'),
+                        twoWayKey: newKey,
+                        twoWay,
+                        onDelete,
+                    });
+            });
+
+            // if (type === RelationEnum.ManyToMany) {
+            //     const junction = this.getJunctionTable(
+            //         collection.getSequence(),
+            //         relatedCollection.getSequence(),
+            //         id,
+            //         twoWayKey
+            //     );
+
+            //     await this.renameAttribute(junction, id, newKey);
+            //     newTwoWayKey !== undefined && await this.renameAttribute(junction, twoWayKey, newTwoWayKey);
+            //     await this.purgeCachedCollection(junction);
+            // }
+
+            if (altering) {
+                const updated = await this.adapter.updateRelationship(
+                    collection.getId(),
+                    relatedCollection.getId(),
+                    type,
+                    twoWay,
+                    id,
+                    twoWayKey,
+                    side,
+                    newKey,
+                    newTwoWayKey
+                );
+
+                if (!updated) {
+                    throw new DatabaseException('Failed to update relationship');
+                }
+            }
+        });
+
+        const renameIndex = async (collectionId: string, key: string, newKey: string) => {
+            await this.updateIndexMeta(collectionId, `_index_${key}`, (index) => {
+                index.set('attributes', [newKey]);
+            });
+            await this.silent(() => this.renameIndex(collectionId, `_index_${key}`, `_index_${newKey}`));
+        };
+
+        newKey ??= attribute.get('key');
+        const twoWayKey: string = attribute.get('options')['twoWayKey'];
+        newTwoWayKey ??= twoWayKey;
+
+        switch (type) {
+            case RelationEnum.OneToOne:
+                if (id !== newKey) {
+                    await renameIndex(collection.getId(), id, newKey);
+                }
+                if (twoWay && twoWayKey !== newTwoWayKey) {
+                    await renameIndex(relatedCollection.getId(), twoWayKey, newTwoWayKey);
+                }
+                break;
+            case RelationEnum.OneToMany:
+                if (side === RelationSideEnum.Parent) {
+                    if (twoWayKey !== newTwoWayKey) {
+                        await renameIndex(relatedCollection.getId(), twoWayKey, newTwoWayKey);
+                    }
+                } else {
+                    if (id !== newKey) {
+                        await renameIndex(collection.getId(), id, newKey);
+                    }
+                }
+                break;
+            case RelationEnum.ManyToOne:
+                if (side === RelationSideEnum.Parent) {
+                    if (id !== newKey) {
+                        await renameIndex(collection.getId(), id, newKey);
+                    }
+                } else {
+                    if (twoWayKey !== newTwoWayKey) {
+                        await renameIndex(relatedCollection.getId(), twoWayKey, newTwoWayKey);
+                    }
+                }
+                break;
+            case RelationEnum.ManyToMany:
+                // const junction = this.getJunctionTable(
+                //     collection.getSequence(),
+                //     relatedCollection.getSequence(),
+                //     id,
+                //     twoWayKey
+                // );
+
+                // if (id !== newKey) {
+                //     await renameIndex(junction, id, newKey);
+                // }
+                // if (twoWayKey !== newTwoWayKey) {
+                //     await renameIndex(junction, twoWayKey, newTwoWayKey);
+                // }
+                break;
+            default:
+                throw new DatabaseException('Invalid relationship type.');
+        }
+
+        await this.purgeCachedCollection(collection.getId());
+        await this.purgeCachedCollection(relatedCollection.getId());
+
+        return true;
+    }
+
+    /**
      * Renames an index in a collection.
      */
     public async renameIndex(
@@ -1175,6 +1348,37 @@ export class Database extends Cache {
 
         return true;
     }
+
+    /**
+     * Delete an index in a collection.
+     */
+    public async deleteIndex(collectionId: string, id: string): Promise<boolean> {
+        const collection = await this.silent(() => this.getCollection(collectionId));
+
+        const indexes = collection.get('indexes', []);
+
+        let indexDeleted: Doc<Index> | null = null;
+        const updatedIndexes = indexes.filter((index: Doc<Index>) => {
+            if (index.get('$id') === id) {
+                indexDeleted = index;
+                return false;
+            }
+            return true;
+        });
+
+        const deleted = await this.adapter.deleteIndex(collection.getId(), id);
+
+        collection.set('indexes', updatedIndexes);
+
+        if (collection.getId() !== Database.METADATA) {
+            await this.silent(() => this.updateDocument(Database.METADATA, collection.getId(), collection));
+        }
+
+        this.trigger(EventsEnum.IndexDelete, indexDeleted);
+
+        return deleted;
+    }
+
 
     public getDocument<C extends (string & keyof Entities)>(
         collectionId: C,
