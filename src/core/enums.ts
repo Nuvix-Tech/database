@@ -87,6 +87,10 @@ export enum EventsEnum {
     IndexRename = "index_rename",
     IndexCreate = "index_create",
     IndexDelete = "index_delete",
+
+    RelationshipCreate = "relationship_create",
+    RelationshipDelete = "relationship_delete",
+    RelationshipUpdate = "relationship_update",
 }
 
 export enum CursorEnum {

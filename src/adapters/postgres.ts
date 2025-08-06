@@ -35,8 +35,7 @@ types.setTypeParser(1017 as any, x => x); // _point
 export class PostgresClient implements IClient {
     private connection: Client | Pool | PoolClient;
     private _type: 'connection' | 'pool' | 'transaction' = 'connection';
-
-    private readonly isTransactional: boolean = false;
+    private isTransactional: boolean = false;
 
     get $client(): Client | Pool | PoolClient {
         return this.connection;
@@ -46,14 +45,7 @@ export class PostgresClient implements IClient {
         return this._type;
     }
 
-    constructor(options: PoolConfig | Client | { _internal_conn_: PoolClient | Client, _internal_type_: 'connection' }) {
-        if ('_internal_conn_' in options) {
-            this.connection = options._internal_conn_;
-            this._type = options._internal_type_;
-            this.isTransactional = true;
-            return;
-        }
-
+    constructor(options: PoolConfig | Client) {
         if ('connect' in options) {
             this.connection = options;
             this._type = 'connection';
@@ -74,8 +66,6 @@ export class PostgresClient implements IClient {
         } else if (this._type === 'connection') {
             await (this.connection as Client).end();
         } else if (this._type === 'transaction') {
-            // For transactions, we do not end the connection here.
-            // It will be released back to the pool after the transaction is completed.
             return;
         } else {
             throw new DatabaseException("Unknown connection type.");
@@ -83,7 +73,6 @@ export class PostgresClient implements IClient {
     }
 
     query<T extends Submittable>(queryStream: T): T;
-    // tslint:disable:no-unnecessary-generics
     query<R extends any[] = any[], I = any[]>(
         queryConfig: QueryArrayConfig<I>,
         values?: QueryConfigValues<I>,
@@ -96,7 +85,6 @@ export class PostgresClient implements IClient {
         values?: QueryConfigValues<I>,
     ): Promise<QueryResult<R>>;
     public query(sql: any, values?: any): Promise<any> {
-        // Replace ? placeholders with $1, $2, $3, etc. for PostgreSQL
         if (typeof sql === 'string' && values && Array.isArray(values)) {
             let paramIndex = 1;
             const convertedSql = sql.replace(/\?/g, () => `$${paramIndex++}`);
@@ -118,28 +106,28 @@ export class PostgresClient implements IClient {
     }
 
     async transaction<T>(
-        callback: (client: Omit<IClient, 'transaction' | 'disconnect'>) => Promise<T>,
+        callback: () => Promise<T>,
         maxRetries = 3
     ): Promise<T> {
         if (this.isTransactional) {
             throw new TransactionException('Cannot start a nested transaction.');
         }
 
-        const conn = this._type === 'pool'
-            ? await (this.connection as Pool).connect()
-            : this.connection as Client;
+        const originalConnection = this.connection;
+        const originalType = this._type;
+
+        if (this._type === 'pool') {
+            this.connection = await (this.connection as Pool).connect();
+            this._type = 'transaction';
+            this.isTransactional = true;
+        }
 
         try {
             for (let attempt = 1; attempt <= maxRetries; attempt++) {
                 try {
                     await this.query('BEGIN');
-                    const transactionalClient = new PostgresClient(
-                        { _internal_conn_: conn, _internal_type_: 'connection' }
-                    );
-
-                    const result = await callback(transactionalClient);
+                    const result = await callback();
                     await this.query('COMMIT');
-
                     return result;
                 } catch (err: unknown) {
                     console.warn(`Transaction attempt ${attempt} failed:`, err);
@@ -154,9 +142,12 @@ export class PostgresClient implements IClient {
             }
             throw new TransactionException(`Transaction failed after ${maxRetries} attempts.`);
         } finally {
-            if ('release' in conn) {
-                conn.release();
+            if (originalType === 'pool' && 'release' in this.connection) {
+                (this.connection as PoolClient).release();
             }
+            this.connection = originalConnection;
+            this._type = originalType;
+            this.isTransactional = false;
         }
     }
 }

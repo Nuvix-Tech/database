@@ -20,7 +20,6 @@ export type CreateIndex = {
     name: string;
     type: IndexEnum;
     attributes: string[];
-    lengths?: number[];
     orders?: string[];
     attributeTypes: AttributeEnum[];
 }

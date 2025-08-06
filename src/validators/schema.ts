@@ -30,9 +30,10 @@ export const IndexType = z.enum(IndexEnum);
 
 export const IndexSchema = z.object({
     $id: z.string(),
+    key: z.string().optional(),
     type: IndexType,
     attributes: z.array(z.string()).optional(),
-    orders: z.array(z.string()).optional(),
+    orders: z.array(z.union([z.string(), z.null()])).optional(),
 });
 
 export const CollectionSchema = z.object({

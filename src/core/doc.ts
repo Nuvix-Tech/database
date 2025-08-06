@@ -88,7 +88,7 @@ export class Doc<T extends Record<string, any> & Partial<IEntity> = IEntity> {
         return this;
     }
 
-    public append<K extends (string & keyof T)>(name: K, value: TransformField<T[K]> extends Array<any> ? TransformField<T[K]>[number] : TransformField<T[K]>): this {
+    public append<K extends (string & keyof T)>(name: K, value: TransformField<T[K]> extends Array<unknown> ? TransformField<T[K]>[number] : TransformField<T[K][number]> ): this {
         if (!Array.isArray(this._data[name])) {
             throw new DocException(`Cannot append to ${String(name)}, it is not an array`);
         }

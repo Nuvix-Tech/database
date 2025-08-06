@@ -174,19 +174,19 @@ export class Adapter extends BaseAdapter implements IAdapter {
         `;
 
         permissionsTable = this.trigger(EventsEnum.PermissionsCreate, permissionsTable);
-        await this.$client.transaction(async (client) => {
-            await client.query(tableSql);
+        await this.$client.transaction(async () => {
+            await this.client.query(tableSql);
             for (const sql of postTableIndexes) {
-                await client.query(sql);
+                await this.client.query(sql);
             }
 
             for (const sql of indexSql) {
-                await client.query(sql);
+                await this.client.query(sql);
             }
 
-            await client.query(permissionsTable);
+            await this.client.query(permissionsTable);
             for (const sql of postPermissionsTableIndexes) {
-                await client.query(sql);
+                await this.client.query(sql);
             }
         })
     }
@@ -483,22 +483,33 @@ export class Adapter extends BaseAdapter implements IAdapter {
                     ADD COLUMN ${attributeName} ${fkSqlType} DEFAULT NULL;
                 `);
 
+                parts.push(`
+                    CREATE INDEX ${this.quote(`${sanitizedCollection}_${attribute}_idx`)} 
+                    ON ${tableName} (${attributeName});
+                `);
+
                 if (type === RelationEnum.OneToOne && twoWay) {
                     if (!target.attribute) {
                         throw new DatabaseException("Target attribute is required for a two-way, one-to-one relationship");
                     }
                     const relatedTableName = this.getSQLTable(sanitizedRelatedCollection);
                     const targetAttributeName = this.quote(this.getInternalKeyForAttribute(target.attribute));
-
+                    
                     parts.push(`
                         ALTER TABLE ${relatedTableName}
                         ADD COLUMN ${targetAttributeName} ${fkSqlType} DEFAULT NULL;
+                    `);
+
+                    parts.push(`
+                        CREATE UNIQUE INDEX ${this.quote(`${sanitizedRelatedCollection}_${target.attribute}_uniq_idx`)} 
+                        ON ${relatedTableName} (${targetAttributeName});
                     `);
                 }
                 break;
             }
 
             case RelationEnum.OneToMany: {
+                // TODO: recheck
                 if (!target.attribute) {
                     throw new DatabaseException("Target attribute is required for a one-to-many relationship");
                 }
@@ -509,6 +520,11 @@ export class Adapter extends BaseAdapter implements IAdapter {
                 parts.push(`
                     ALTER TABLE ${relatedTableName}
                     ADD COLUMN ${targetAttributeName} ${fkSqlType} DEFAULT NULL;
+                `);
+
+                parts.push(`
+                    CREATE INDEX ${this.quote(`${sanitizedRelatedCollection}_${target.attribute}_idx`)} 
+                    ON ${relatedTableName} (${targetAttributeName});
                 `);
                 break;
             }
@@ -539,10 +555,10 @@ export class Adapter extends BaseAdapter implements IAdapter {
         }
 
         try {
-            await this.client.transaction(async (client) => {
+            await this.client.transaction(async () => {
                 for (const sql of parts) {
                     const finalSql = this.trigger(EventsEnum.AttributeCreate, sql);
-                    await client.query(finalSql);
+                    await this.client.query(finalSql);
                 }
             })
         } catch (e: any) {
@@ -574,6 +590,7 @@ export class Adapter extends BaseAdapter implements IAdapter {
         }
     }
 
+    /**@deprecated should update */
     public async renameIndex(collection: string, oldName: string, newName: string): Promise<boolean> {
         collection = this.sanitize(collection);
         oldName = this.sanitize(oldName);
@@ -590,8 +607,9 @@ export class Adapter extends BaseAdapter implements IAdapter {
         }
     }
 
+    /**@deprecated should update */
     public async createIndex(
-        { collection: c, name, type, attributes, orders = [], lengths = [], attributeTypes = [] }: CreateIndex
+        { collection: c, name, type, attributes, orders = [], attributeTypes = [] }: CreateIndex
     ): Promise<boolean> {
         const collection = await this.getDocument(Database.METADATA, c);
         if (collection.empty()) {
@@ -608,11 +626,10 @@ export class Adapter extends BaseAdapter implements IAdapter {
             );
 
             const order = !orders[i] || type === IndexEnum.FullText ? '' : orders[i];
-            const length = !lengths[i] ? '' : `(${Number(lengths[i])})`;
 
             let internalAttr = this.sanitize(this.getInternalKeyForAttribute(attr));
 
-            let attrSql = `\`${internalAttr}\`${length}${order ? ' ' + order : ''}`;
+            let attrSql = `\`${internalAttr}\`${order ? ' ' + order : ''}`;
 
             if (this.$supportForCastIndexArray && attribute?.array) {
                 attrSql = `(CAST(\`${internalAttr}\` AS char(${Database.ARRAY_INDEX_LENGTH}) ARRAY))`;
@@ -652,6 +669,7 @@ export class Adapter extends BaseAdapter implements IAdapter {
         }
     }
 
+    /**@deprecated should update */
     public async deleteIndex(collection: string, id: string): Promise<boolean> {
         collection = this.sanitize(collection);
         id = this.sanitize(id);
@@ -758,7 +776,7 @@ export class Adapter extends BaseAdapter implements IAdapter {
             const attributes: Record<string, any> = { ...document.getAll() };
             attributes['_createdAt'] = document.createdAt();
             attributes['_updatedAt'] = document.updatedAt();
-            attributes['_permissions'] = JSON.stringify(document.getPermissions());
+            attributes['_permissions'] = document.getPermissions();
 
             const name = this.sanitize(collection);
             let columns = '';
@@ -781,15 +799,7 @@ export class Adapter extends BaseAdapter implements IAdapter {
 
                 const column = this.sanitize(attribute);
                 columnUpdates.push(`${this.quote(column)} = ?`);
-
-                let processedValue = value;
-                if (Array.isArray(value) || (typeof value === "object" && value !== null)) {
-                    processedValue = JSON.stringify(value);
-                }
-                if (typeof value === 'boolean') {
-                    processedValue = value ? 1 : 0;
-                }
-                updateParams.push(processedValue);
+                updateParams.push(value);
             }
 
             columns = columnUpdates.join(', ');

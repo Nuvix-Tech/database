@@ -1,4 +1,4 @@
-import { AttributeEnum, EventsEnum, OnDelete, PermissionEnum, RelationEnum, RelationSideEnum } from "./enums.js";
+import { AttributeEnum, EventsEnum, IndexEnum, OnDelete, PermissionEnum, RelationEnum, RelationSideEnum } from "./enums.js";
 import { Attribute, Collection, Index } from "@validators/schema.js";
 import { CreateCollection, CreateRelationshipAttribute, Filters, UpdateCollection } from "./types.js";
 import { Cache } from "./cache.js";
@@ -832,6 +832,8 @@ export class Database extends Cache {
     ) {
         if (twoWay && !relatedAttribute)
             throw new DatabaseException('Related attribute is required for two-way relationships');
+        if (type === RelationEnum.ManyToMany && !relatedAttribute)
+            throw new DatabaseException('Related attribute is required for many-to-many relationships')
 
         const collection = await this.silent(() => this.getCollection(collectionId, true));
         const relatedCollection = await this.silent(() => this.getCollection(relatedCollectionId));
@@ -887,18 +889,193 @@ export class Database extends Cache {
         this.checkAttribute(collection, attr);
         this.checkAttribute(relatedCollection, relatedAttr);
 
-        this.adapter.createRelationship({
+        const junctionCollectionName: string = type === RelationEnum.ManyToMany ?
+            `${collection.getId()}_${relatedCollection.getId()}_${attribute}_${relatedAttribute}` :
+            '';
+
+        await this.adapter.createRelationship({
             collection: collection.getId(),
             attribute: attr.get('key'),
             type,
             target: {
                 collection: relatedCollection.getId(),
-                attribute: relatedAttr.get('key'),
+                attribute: relatedAttr.get('key'),                 // TODO: recheck
+            },
+            junctionCollection: junctionCollectionName
+        });
+
+        collection.append('attributes', attr);
+        await this.silent(() => {
+            return this.withTransaction(async () => {
+                await this.updateDocument(Database.METADATA, collection.getId(), collection);
+                if (twoWay) {
+                    relatedCollection.append('attributes', relatedAttr);
+                    await this.updateDocument(Database.METADATA, relatedCollection.getId(), relatedCollection);
+                }
+            });
+        })
+
+        this.trigger(EventsEnum.RelationshipCreate, collection, attr, relatedCollection, relatedAttr);
+        if (twoWay) {
+            this.trigger(EventsEnum.RelationshipCreate, relatedCollection, relatedAttr, collection, attr);
+        }
+
+        return {
+            collection: collection,
+            attribute: attr,
+            relatedCollection: relatedCollection,
+            relatedAttribute: relatedAttr,
+        };
+    }
+
+    public async renameIndex(
+        collectionId: string,
+        oldName: string,
+        newName: string
+    ): Promise<boolean> {
+        const collection = await this.silent(() => this.getCollection(collectionId));
+
+        if (collection.empty()) {
+            throw new NotFoundException(`Collection '${collectionId}' not found`);
+        }
+
+        const indexes = collection.get('indexes', []);
+        const index = indexes.find((idx: Doc<Index>) => idx.get('$id') === oldName);
+
+        if (!index) {
+            throw new NotFoundException(`Index '${oldName}' not found`);
+        }
+
+        if (indexes.some((idx: Doc<Index>) => idx.get('$id') === newName)) {
+            throw new DuplicateException(`Index name '${newName}' already used`);
+        }
+
+        index.set('$id', newName);
+        index.set('key', newName);
+
+        collection.set('indexes', indexes);
+
+        await this.adapter.renameIndex(collection.getId(), oldName, newName);
+
+        if (collection.getId() !== Database.METADATA) {
+            await this.silent(() => this.updateDocument(Database.METADATA, collection.getId(), collection));
+        }
+
+        this.trigger(EventsEnum.IndexRename, collection, index);
+
+        return true;
+    }
+
+    public async createIndex(
+        collectionId: string,
+        id: string,
+        type: string,
+        attributes: string[],
+        orders: (string | null)[] = []
+    ): Promise<boolean> {
+        if (attributes.length === 0) {
+            throw new DatabaseException('Missing attributes');
+        }
+
+        const collection = await this.silent(() => this.getCollection(collectionId, true));
+
+        const indexes = collection.get('indexes', []);
+        if (indexes.some((index: Doc<Index>) => index.get('$id').toLowerCase() === id.toLowerCase())) {
+            throw new DuplicateException('Index already exists');
+        }
+
+        if (this.adapter.getCountOfIndexes(collection) >= this.adapter.$limitForIndexes) {
+            throw new LimitException('Index limit reached. Cannot create new index.');
+        }
+
+        switch (type) {
+            case IndexEnum.Key:
+                if (!this.adapter.$supportForIndex) {
+                    throw new DatabaseException('Key index is not supported');
+                }
+                break;
+            case IndexEnum.Unique:
+                if (!this.adapter.$supportForUniqueIndex) {
+                    throw new DatabaseException('Unique index is not supported');
+                }
+                break;
+            case IndexEnum.FullText:
+                if (!this.adapter.$supportForFulltextIndex) {
+                    throw new DatabaseException('Fulltext index is not supported');
+                }
+                break;
+            default:
+                throw new DatabaseException(`Unknown index type: ${type}. Must be one of [${Object.values(IndexEnum).join(', ')}]`);
+        }
+
+        const collectionAttributes = collection.get('attributes', []);
+        const indexAttributesWithTypes: Record<string, string> = {};
+
+        attributes.forEach((attr, i) => {
+            const collectionAttribute = collectionAttributes.find((attribute: Doc<Attribute>) => attribute.get('key') === attr);
+            if (!collectionAttribute) {
+                throw new DatabaseException(`Attribute '${attr}' not found in collection '${collectionId}'`);
+            }
+
+            indexAttributesWithTypes[attr] = collectionAttribute.get('type');
+            if (collectionAttribute.get('array', false)) {
+                orders[i] = null;
             }
         });
 
-    }
+        const index = new Doc<Index>({
+            '$id': id,
+            'key': id,
+            'type': type,
+            'attributes': attributes,
+            'orders': orders,
+        });
 
+        collection.append('indexes', index);
+
+        if (this.validate) {
+            const validator = new IndexValidator(
+                collectionAttributes,
+                this.adapter.$maxIndexLength,
+                this.adapter.$internalIndexesKeys,
+                this.adapter.$supportForIndexArray
+            );
+            if (!validator.$valid(index)) {
+                throw new IndexException(validator.$description);
+            }
+        }
+
+        try {
+            const created = await this.adapter.createIndex({
+                collection: collection.getId(),
+                name: id,
+                type,
+                attributes,
+                orders: orders as any,
+                attributeTypes: indexAttributesWithTypes as any // TODO: recheck
+            });
+
+            if (!created) {
+                throw new DatabaseException('Failed to create index');
+            }
+        } catch (error) {
+            if (error instanceof DuplicateException) {
+                if (!this.adapter.$sharedTables || !this.migrating) {
+                    throw error;
+                }
+            } else {
+                throw error;
+            }
+        }
+
+        if (collection.getId() !== Database.METADATA) {
+            await this.silent(() => this.updateDocument(Database.METADATA, collection.getId(), collection));
+        }
+
+        this.trigger(EventsEnum.IndexCreate, collection, index);
+
+        return true;
+    }
 
     public getDocument<C extends (string & keyof Entities)>(
         collectionId: C,
@@ -1061,14 +1238,118 @@ export class Database extends Cache {
         id: string,
         document: D
     ): Promise<D>;
-
     public async updateDocument(
         collectionId: string,
         id: string,
         document: any
     ): Promise<Doc<any>> {
-        // TODO: Implement update logic here
-        return new Doc(document);
+        if (!id) {
+            throw new DatabaseException('Must define $id attribute');
+        }
+
+        const collection = await this.silent(() => this.getCollection(collectionId));
+        const newUpdatedAt = document.$updatedAt;
+        const updatedDocument = await this.withTransaction(async () => {
+            const time = new Date().toISOString();
+            const old = await this.silent(() =>
+                this.getDocument(collection.getId(), id, [], true)
+            );
+
+            let skipPermissionsUpdate = true;
+
+            if (document.$permissions) {
+                const originalPermissions = old.get('$permissions', []);
+                const currentPermissions = document.$permissions;
+
+                originalPermissions.sort();
+                currentPermissions.sort();
+
+                skipPermissionsUpdate = JSON.stringify(originalPermissions) === JSON.stringify(currentPermissions);
+            }
+
+            const createdAt = document.$createdAt;
+
+            const mergedDocument = {
+                ...old.toObject(),
+                ...document,
+                $collection: old.get('$collection'),
+                $createdAt: createdAt === null || !this.preserveDates ? old.get('$createdAt') : createdAt,
+            };
+
+            if (this.adapter.$sharedTables) {
+                mergedDocument.$tenant = old.get('$tenant');
+            }
+
+            const relationships = collection
+                .get('attributes', [])
+                .filter((attr) => attr.get('type') === AttributeEnum.Relationship);
+
+            let shouldUpdate = false;
+
+            if (collection.getId() !== Database.METADATA) {
+                const documentSecurity = collection.get('documentSecurity', false);
+
+                for (const key in mergedDocument) {
+                    const value = mergedDocument[key];
+                    const oldValue = old.get(key);
+
+                    if (relationships.some((rel) => rel.get('key') === key)) {
+                        if (JSON.stringify(value) !== JSON.stringify(oldValue)) {
+                            shouldUpdate = true;
+                            break;
+                        }
+                        continue;
+                    }
+
+                    if (value !== oldValue) {
+                        shouldUpdate = true;
+                        break;
+                    }
+                }
+
+                const updatePermissions = [
+                    ...collection.getUpdate(),
+                    ...(documentSecurity ? old.getUpdate() : []),
+                ];
+
+                const readPermissions = [
+                    ...collection.getRead(),
+                    ...(documentSecurity ? old.getRead() : []),
+                ];
+
+                if (shouldUpdate && !new Authorization(PermissionEnum.Update).$valid(updatePermissions)) {
+                    throw new AuthorizationException('Update not authorized');
+                } else if (!shouldUpdate && !new Authorization(PermissionEnum.Read).$valid(readPermissions)) {
+                    throw new AuthorizationException('Read not authorized');
+                }
+            }
+
+            if (old.empty()) {
+                return new Doc();
+            }
+
+            if (shouldUpdate) {
+                mergedDocument.$updatedAt = newUpdatedAt === null || !this.preserveDates ? time : newUpdatedAt;
+            }
+
+            const structureValidator = new Structure(collection);
+            if (!structureValidator.$valid(new Doc(mergedDocument))) {
+                throw new StructureException(structureValidator.$description);
+            }
+
+            const encodedDocument = await this.encode(collection, new Doc(mergedDocument));
+
+            await this.adapter.updateDocument(collection.getId(), encodedDocument, skipPermissionsUpdate);
+            await this.purgeCachedDocument(collection.getId(), encodedDocument);
+
+            return encodedDocument;
+        });
+
+        const decodedDocument = await this.decode(collection, updatedDocument);
+
+        this.trigger(EventsEnum.DocumentUpdate, decodedDocument);
+
+        return decodedDocument;
     }
 
     async processQueries(

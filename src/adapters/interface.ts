@@ -5,7 +5,7 @@ import { ColumnInfo, CreateIndex, UpdateAttribute } from "./types.js";
 import { Pool, Client, PoolClient } from 'pg';
 
 export interface IAdapter {
-   
+
     setMeta(meta: Partial<Meta>): void;
     readonly $database: string;
     readonly $sharedTables: boolean;
@@ -42,7 +42,7 @@ export interface IClient extends Pick<Client, 'query'> {
     connect(): Promise<void>;
     disconnect(): Promise<void>;
     transaction<T>(
-        callback: (client: Omit<IClient, 'transaction' | 'disconnect'>) => Promise<T>
+        callback: () => Promise<T>
     ): Promise<T>;
     ping(): Promise<void>;
     quote(value: string): string;

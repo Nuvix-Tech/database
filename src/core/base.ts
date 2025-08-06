@@ -287,8 +287,10 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
         }
     }
 
-    public get withTransaction() {
-        return this.adapter.$client.transaction
+    public async withTransaction<T>(
+        callback: () => Promise<T>,
+    ): Promise<T> {
+        return this.adapter.$client.transaction(callback);
     }
 
     public get ping() {

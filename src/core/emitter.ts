@@ -31,6 +31,12 @@ export type EmitterEventMap = Record<string | symbol, any[]> & {
     [EventsEnum.AttributeUpdate]: [Doc<Collection>, Doc<Index> | Doc<Attribute>];
     [EventsEnum.AttributeDelete]: [Doc<Collection>, Doc<Attribute>];
 
+    [EventsEnum.RelationshipCreate]: [
+        Doc<Collection>,
+        Doc<Attribute>,
+        Doc<Collection>,
+        Doc<Attribute>,
+    ]
     [EventsEnum.DocumentRead]: [Doc<Partial<IEntity & Record<string, any>>>];
     'error': [Error, string | number | symbol, string];
 };
