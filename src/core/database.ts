@@ -1236,10 +1236,18 @@ export class Database extends Cache {
         return doc;
     }
 
-    public async createDocument<C extends (string & keyof Entities) | Partial<IEntity> & Record<string, any>>(
-        collectionId: C extends string ? C : string,
-        document: C extends string ? Partial<Entities[C]> | Doc<Partial<Entities[C]>> : C extends Record<string, any> ? Partial<C & IEntity> | Doc<Partial<C & IEntity>> : Partial<IEntity> | Doc<IEntity>
-    ): Promise<C extends string ? Doc<Entities[C]> : C extends Record<string, any> ? Doc<C> : Doc<IEntity>> {
+    public async createDocument<D extends Record<string, any>>(
+        collectionId: string,
+        document: Doc<D>,
+    ): Promise<Doc<D>>;
+    public async createDocument<C extends keyof Entities>(
+        collectionId: C,
+        document: Doc<Entities[C]> | Entities[C],
+    ): Promise<Doc<Entities[C]>>;
+    public async createDocument(
+        collectionId: string,
+        document: Doc<Partial<IEntity>>,
+    ): Promise<Doc<Partial<IEntity>>> {
         if (
             collectionId !== Database.METADATA
             && this.adapter.$sharedTables
@@ -1266,7 +1274,7 @@ export class Database extends Cache {
         }
 
         const time = new Date().toISOString();
-        let doc = new Doc(document);
+        let doc: Doc<any> = document instanceof Doc ? document : new Doc(document);
 
         const createdAt = doc.get('$createdAt');
         const updatedAt = doc.get('$updatedAt');
@@ -1370,7 +1378,7 @@ export class Database extends Cache {
 
             const mergedDocument = {
                 ...old.toObject(),
-                ...document,
+                ...(document instanceof Doc ? document.toObject() : document),
                 $collection: old.get('$collection'),
                 $createdAt: createdAt === null || !this.preserveDates ? old.get('$createdAt') : createdAt,
             };

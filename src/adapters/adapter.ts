@@ -686,7 +686,7 @@ export class Adapter extends BaseAdapter implements IAdapter {
             preparedAttributes.push(combinedTsvector);
         }
 
-        const pgTable = this.quote(this.getSQLTable(collectionId));
+        const pgTable = this.getSQLTable(collectionId);
         const pgIndexId = this.quote(this.getIndexName(collectionId, name));
         const uniqueClause = isUnique ? 'UNIQUE' : '';
 

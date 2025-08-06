@@ -12,7 +12,6 @@ export interface MetadataEntity {
 }
 
 export interface Entities {
-    [collection: string]: Partial<IEntity>;
     [Database.METADATA]: MetadataEntity;
 };
 
@@ -33,5 +32,5 @@ export type IEntityInput = {
     $permissions?: (Permission | string)[];
     $sequence?: number;
     $collection?: string;
-    $tenant?: number | null; 
+    $tenant?: number | null;
 }

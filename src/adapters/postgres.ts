@@ -34,8 +34,10 @@ types.setTypeParser(1017 as any, x => x); // _point
 
 export class PostgresClient implements IClient {
     private connection: Client | Pool | PoolClient;
+    private pool: Pool | null = null;
     private _type: 'connection' | 'pool' | 'transaction' = 'connection';
     private isTransactional: boolean = false;
+    private transactionCount: number = 0;
 
     get $client(): Client | Pool | PoolClient {
         return this.connection;
@@ -50,7 +52,9 @@ export class PostgresClient implements IClient {
             this.connection = options;
             this._type = 'connection';
         } else {
-            this.connection = new Pool(options);
+            const pool = new Pool(options);
+            this.connection = pool;
+            this.pool = pool;
             this._type = 'pool';
         }
     }
@@ -61,8 +65,8 @@ export class PostgresClient implements IClient {
         if (this.isTransactional) {
             throw new DatabaseException("Cannot disconnect a client within a transaction.");
         }
-        if (this._type === 'pool') {
-            await (this.connection as Pool).end();
+        if (this._type === 'pool' && this.pool) {
+            await this.pool.end();
         } else if (this._type === 'connection') {
             await (this.connection as Client).end();
         } else if (this._type === 'transaction') {
@@ -105,49 +109,79 @@ export class PostgresClient implements IClient {
         }
     }
 
+    async beginTransaction(): Promise<void> {
+        if (this.transactionCount === 0) {
+            if (this._type === 'pool' && this.pool) {
+                this.connection = await this.pool.connect();
+                this._type = 'transaction';
+                this.isTransactional = true;
+            }
+            await this.query('BEGIN');
+        } else {
+            await this.query(`SAVEPOINT sp_${this.transactionCount}`);
+        }
+        this.transactionCount++;
+    }
+
+    async commit(): Promise<void> {
+        if (this.transactionCount === 0) {
+            throw new TransactionException('No active transaction to commit.');
+        }
+
+        this.transactionCount--;
+        if (this.transactionCount === 0) {
+            await this.query('COMMIT');
+            await this._cleanupTransaction();
+        } else {
+            await this.query(`RELEASE SAVEPOINT sp_${this.transactionCount}`);
+        }
+    }
+
+    async rollback(): Promise<void> {
+        if (this.transactionCount === 0) {
+            throw new TransactionException('No active transaction to rollback.');
+        }
+
+        this.transactionCount--;
+        if (this.transactionCount === 0) {
+            await this.query('ROLLBACK');
+            await this._cleanupTransaction();
+        } else {
+            await this.query(`ROLLBACK TO SAVEPOINT sp_${this.transactionCount}`);
+        }
+    }
+
+    private async _cleanupTransaction(): Promise<void> {
+        if (this._type === 'transaction' && 'release' in this.connection && this.pool) {
+            const poolConnection = this.connection;
+            poolConnection.release();
+            this.connection = this.pool;
+            this._type = 'pool';
+        }
+        this.isTransactional = false;
+    }
+
     async transaction<T>(
         callback: () => Promise<T>,
         maxRetries = 3
     ): Promise<T> {
-        if (this.isTransactional) {
-            throw new TransactionException('Cannot start a nested transaction.');
-        }
-
-        const originalConnection = this.connection;
-        const originalType = this._type;
-
-        if (this._type === 'pool') {
-            this.connection = await (this.connection as Pool).connect();
-            this._type = 'transaction';
-            this.isTransactional = true;
-        }
-
-        try {
-            for (let attempt = 1; attempt <= maxRetries; attempt++) {
-                try {
-                    await this.query('BEGIN');
-                    const result = await callback();
-                    await this.query('COMMIT');
-                    return result;
-                } catch (err: unknown) {
-                    console.warn(`Transaction attempt ${attempt} failed:`, err);
-                    await this.query('ROLLBACK');
-                    const isDeadlock = err instanceof DatabaseError && 'code' in err && err.code === '40P01';
-                    if (isDeadlock && attempt < maxRetries) {
-                        await new Promise(resolve => setTimeout(resolve, 50 * attempt));
-                        continue;
-                    }
-                    throw err;
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
+            try {
+                await this.beginTransaction();
+                const result = await callback();
+                await this.commit();
+                return result;
+            } catch (err: unknown) {
+                console.warn(`Transaction attempt ${attempt} failed:`, err);
+                await this.rollback();
+                const isDeadlock = err instanceof DatabaseError && 'code' in err && err.code === '40P01';
+                if (isDeadlock && attempt < maxRetries) {
+                    await new Promise(resolve => setTimeout(resolve, 50 * attempt));
+                    continue;
                 }
+                throw err;
             }
-            throw new TransactionException(`Transaction failed after ${maxRetries} attempts.`);
-        } finally {
-            if (originalType === 'pool' && 'release' in this.connection) {
-                (this.connection as PoolClient).release();
-            }
-            this.connection = originalConnection;
-            this._type = originalType;
-            this.isTransactional = false;
         }
+        throw new TransactionException(`Transaction failed after ${maxRetries} attempts.`);
     }
 }

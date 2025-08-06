@@ -74,7 +74,7 @@ export class Doc<T extends Record<string, any> & Partial<IEntity> = IEntity> {
     }
 
     public getAll(): TransformEntity<T> {
-        return this._data as TransformEntity<T>;
+        return { ...this._data } as TransformEntity<T>;
     }
 
     public set<K extends keyof T>(name: K, value: TransformField<T[K]>): this;
@@ -88,7 +88,7 @@ export class Doc<T extends Record<string, any> & Partial<IEntity> = IEntity> {
         return this;
     }
 
-    public append<K extends (string & keyof T)>(name: K, value: TransformField<T[K]> extends Array<unknown> ? TransformField<T[K]>[number] : TransformField<T[K][number]> ): this {
+    public append<K extends (string & keyof T)>(name: K, value: TransformField<T[K]> extends Array<unknown> ? TransformField<T[K]>[number] : TransformField<T[K][number]>): this {
         if (!Array.isArray(this._data[name])) {
             throw new DocException(`Cannot append to ${String(name)}, it is not an array`);
         }
@@ -399,6 +399,11 @@ export class Doc<T extends Record<string, any> & Partial<IEntity> = IEntity> {
             }
         }
         return cloned;
+    }
+
+    [Symbol.for('nodejs.util.inspect.custom')]() {
+        const obj = this._data;
+        return `Doc (${JSON.stringify(obj, null, 2)})`;
     }
 }
 

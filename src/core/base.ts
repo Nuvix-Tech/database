@@ -618,7 +618,10 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
 
         for (const attribute of preparedAttributes) {
             const key = attribute.$id;
-            if (!key || attribute.type === AttributeEnum.Relationship) continue;
+            if (!key
+                || attribute.type === AttributeEnum.Relationship
+                || attribute.type === AttributeEnum.Json
+            ) continue;
 
             const isArrayAttribute = attribute.array ?? false;
             const attributeFilters = attribute.filters ?? [];

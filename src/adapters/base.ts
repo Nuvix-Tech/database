@@ -38,7 +38,7 @@ export abstract class BaseAdapter extends EventEmitter {
     readonly $documentSizeLimit: number = 16777216;
     readonly $supportForCasting: boolean = true;
     readonly $supportForNumericCasting: boolean = true;
-    readonly $supportForQueryContains: boolean = true;
+       readonly $supportForQueryContains: boolean = true;
     readonly $supportForIndexArray: boolean = true;
     readonly $supportForCastIndexArray: boolean = true;
     readonly $supportForRelationships: boolean = true;
