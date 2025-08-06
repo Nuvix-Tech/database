@@ -20,8 +20,8 @@ export type CreateIndex = {
     name: string;
     type: IndexEnum;
     attributes: string[];
-    orders?: string[];
-    attributeTypes: AttributeEnum[];
+    orders?: (string | null)[];
+    attributeTypes: Record<string, Attribute>;
 }
 
 export interface ColumnInfo {

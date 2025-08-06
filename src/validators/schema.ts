@@ -4,11 +4,11 @@ import { z } from "zod";
 export const AttributeType = z.enum(AttributeEnum);
 
 const AttributeOptions = z.object({
-    type: z.enum(RelationEnum),
+    relationType: z.enum(RelationEnum),
     side: z.enum(RelationSideEnum),
     relatedCollection: z.string(),
     twoWay: z.boolean().default(false).optional(),
-    relatedAttribute: z.string().optional(),
+    twoWayKey: z.string().optional(),
     onDelete: z.enum(OnDelete),
 });
 

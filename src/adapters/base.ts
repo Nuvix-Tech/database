@@ -746,7 +746,7 @@ export abstract class BaseAdapter extends EventEmitter {
     protected getSQLType(type: AttributeEnum, size?: number, array?: boolean): string {
         let pgType: string;
         size ??= 0;
-        
+
         switch (type) {
             case AttributeEnum.String:
                 if (size > 255) {
@@ -794,6 +794,10 @@ export abstract class BaseAdapter extends EventEmitter {
         } else {
             return pgType;
         }
+    }
+
+    protected getIndexName(coll: string, id: string): string {
+        return `${this.sanitize(coll)}_${this.sanitize(id)}`;
     }
 
     protected getSQLCondition(query: Query, binds: any[]): string {

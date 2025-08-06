@@ -22,6 +22,7 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
     public static readonly TTL = 60 * 60 * 24; // 24 hours
     public static readonly INSERT_BATCH_SIZE = 1000;
     public static readonly DELETE_BATCH_SIZE = 1000;
+    public static readonly FULLTEXT_LANGUAGE = 'english';
 
     public static readonly INTERNAL_ATTRIBUTES: Attribute[] = [
         {
@@ -295,6 +296,10 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
 
     public get ping() {
         return this.adapter.$client.ping
+    }
+
+    protected getJunctionTable(coll: number, relColl: number, attr: string, relAttr: string): string {
+        return `_${coll}_${relColl}_${attr}_${relAttr}`;
     }
 
     protected async validateAttribute(

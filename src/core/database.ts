@@ -79,7 +79,7 @@ export class Database extends Cache {
             throw new DuplicateException(`Collection '${id}' already exists.`);
         }
 
-        // Fix metadata index length & orders
+        // Fix metadata index orders
         for (let i = 0; i < indexes.length; i++) {
             const index = indexes[i]!;
             const orders: (string | null)[] = index.get('orders', []);
@@ -313,6 +313,9 @@ export class Database extends Cache {
         return deleted;
     }
 
+    /**
+     * Creates an attribute in a collection.
+     */
     public async createAttribute(
         collectionId: string,
         attribute: Attribute,
@@ -350,6 +353,9 @@ export class Database extends Cache {
         return true;
     }
 
+    /**
+     * Creates multiple attributes in a collection.
+     */
     public async createAttributes(
         collectionId: string,
         attributes: Attribute[]
@@ -821,113 +827,203 @@ export class Database extends Cache {
         return true;
     }
 
+    /**
+     * Creates a relationship between two collections.
+     */
     public async createRelationship(
-        { collectionId,
-            relatedCollectionId,
-            attribute, type,
-            relatedAttribute = '',
-            twoWay = false,
-            onDelete = OnDelete.Restrict,
-        }: CreateRelationshipAttribute
-    ) {
-        if (twoWay && !relatedAttribute)
-            throw new DatabaseException('Related attribute is required for two-way relationships');
-        if (type === RelationEnum.ManyToMany && !relatedAttribute)
-            throw new DatabaseException('Related attribute is required for many-to-many relationships')
-
+        collectionId: string,
+        relatedCollectionId: string,
+        type: RelationEnum,
+        twoWay: boolean = false,
+        id?: string,
+        twoWayKey?: string,
+        onDelete: OnDelete = OnDelete.Restrict
+    ): Promise<boolean> {
         const collection = await this.silent(() => this.getCollection(collectionId, true));
         const relatedCollection = await this.silent(() => this.getCollection(relatedCollectionId));
 
         if (relatedCollection.empty()) {
-            throw new NotFoundException('Related collection not found')
+            throw new NotFoundException('Related collection not found');
         }
+
+        id ??= relatedCollection.getId();
+        twoWayKey ??= collection.getId();
 
         const attributes = collection.get('attributes', []);
-        for (const attr of attributes) {
-            if (attr.get('key').toLowerCase() === attribute.toLowerCase()) {
-                throw new DuplicateException(`Attribute '${attribute}' already exists in collection '${collectionId}'`);
+        for (const attribute of attributes) {
+            if (attribute.get('$id').toLowerCase() === id.toLowerCase()) {
+                throw new DuplicateException('Attribute already exists');
             }
-            const options = attr.get('options', {});
-            if (attr.get('type') === AttributeEnum.Relationship
-                && options.relatedAttribute === relatedAttribute.toLowerCase()
-                && options.relatedCollection === relatedCollectionId) {
-                throw new DuplicateException(`Relationship '${attribute}' already exists in collection '${collectionId}'`);
+
+            const options = attribute.get('options', {});
+            if (
+                attribute.get('type') === AttributeEnum.Relationship &&
+                options.twoWayKey?.toLowerCase() === twoWayKey.toLowerCase() &&
+                options.relatedCollection === relatedCollection.getId()
+            ) {
+                throw new DuplicateException('Related attribute already exists');
             }
         }
 
-        const attr = new Doc<Attribute>({
-            '$id': attribute,
-            'key': attribute,
+        const relationship = new Doc<Attribute>({
+            '$id': id,
+            'key': id,
             'type': AttributeEnum.Relationship,
-            required: false,
-            default: null,
+            'required': false,
+            'default': null,
             'options': {
-                relatedCollection: relatedCollectionId,
-                relatedAttribute: relatedAttribute || null,
-                type: type ?? RelationEnum.OneToOne,
-                side: RelationSideEnum.Parent,
+                relatedCollection: relatedCollection.getId(),
+                relationType: type,
                 twoWay: twoWay,
-                onDelete,
-            }
-        });
-
-        const relatedAttr = new Doc<Attribute>({
-            '$id': relatedAttribute,
-            'key': relatedAttribute,
-            'type': AttributeEnum.Relationship,
-            required: false,
-            default: null,
-            'options': {
-                relatedCollection: collectionId,
-                relatedAttribute: attribute.toLowerCase(),
-                type: type ?? RelationEnum.OneToOne,
-                side: RelationSideEnum.Child,
-                onDelete,
-            }
-        });
-
-        this.checkAttribute(collection, attr);
-        this.checkAttribute(relatedCollection, relatedAttr);
-
-        const junctionCollectionName: string = type === RelationEnum.ManyToMany ?
-            `${collection.getId()}_${relatedCollection.getId()}_${attribute}_${relatedAttribute}` :
-            '';
-
-        await this.adapter.createRelationship({
-            collection: collection.getId(),
-            attribute: attr.get('key'),
-            type,
-            target: {
-                collection: relatedCollection.getId(),
-                attribute: relatedAttr.get('key'),                 // TODO: recheck
+                twoWayKey: twoWayKey,
+                onDelete: onDelete,
+                side: RelationSideEnum.Parent,
             },
-            junctionCollection: junctionCollectionName
         });
 
-        collection.append('attributes', attr);
-        await this.silent(() => {
-            return this.withTransaction(async () => {
-                await this.updateDocument(Database.METADATA, collection.getId(), collection);
-                if (twoWay) {
-                    relatedCollection.append('attributes', relatedAttr);
-                    await this.updateDocument(Database.METADATA, relatedCollection.getId(), relatedCollection);
-                }
-            });
-        })
+        const twoWayRelationship = new Doc<Attribute>({
+            '$id': twoWayKey,
+            'key': twoWayKey,
+            'type': AttributeEnum.Relationship,
+            'required': false,
+            'default': null,
+            'options': {
+                relatedCollection: collection.getId(),
+                relationType: type,
+                twoWay: twoWay,
+                twoWayKey: id,
+                onDelete: onDelete,
+                side: RelationSideEnum.Child,
+            },
+        });
 
-        this.trigger(EventsEnum.RelationshipCreate, collection, attr, relatedCollection, relatedAttr);
-        if (twoWay) {
-            this.trigger(EventsEnum.RelationshipCreate, relatedCollection, relatedAttr, collection, attr);
+        this.checkAttribute(collection, relationship);
+        this.checkAttribute(relatedCollection, twoWayRelationship);
+
+        collection.append('attributes', relationship);
+        relatedCollection.append('attributes', twoWayRelationship);
+
+        if (type === RelationEnum.ManyToMany) {
+            const junctionCollectionName = this.getJunctionTable(
+                collection.getSequence(),
+                relatedCollection.getSequence(),
+                relationship.getId(),
+                twoWayRelationship.getId()
+            );
+            await this.silent(() =>
+                this.createCollection({
+                    id: junctionCollectionName,
+                    attributes: [
+                        new Doc<Attribute>({
+                            '$id': id,
+                            'key': id,
+                            'type': AttributeEnum.String,
+                            'size': this.adapter.$limitForString,
+                            'required': true,
+                        }),
+                        new Doc<Attribute>({
+                            '$id': twoWayKey,
+                            'key': twoWayKey,
+                            'type': AttributeEnum.String,
+                            'size': this.adapter.$limitForString,
+                            'required': true,
+                        }),
+                    ],
+                    indexes: [
+                        new Doc<Index>({
+                            '$id': `_index_${id}`,
+                            'key': `_index_${id}`,
+                            'type': IndexEnum.Key,
+                            'attributes': [id],
+                        }),
+                        new Doc<Index>({
+                            '$id': `_index_${twoWayKey}`,
+                            'key': `_index_${twoWayKey}`,
+                            'type': IndexEnum.Key,
+                            'attributes': [twoWayKey],
+                        }),
+                    ],
+                })
+            );
         }
 
-        return {
-            collection: collection,
-            attribute: attr,
-            relatedCollection: relatedCollection,
-            relatedAttribute: relatedAttr,
-        };
+        const created = await this.adapter.createRelationship(
+            collection.getId(),
+            relatedCollection.getId(),
+            type,
+            twoWay,
+            id,
+            twoWayKey,
+        );
+
+        if (!created) {
+            throw new DatabaseException('Failed to create relationship');
+        }
+
+        await this.silent(async () => {
+            try {
+                await this.withTransaction(async () => {
+                    await this.updateDocument(Database.METADATA, collection.getId(), collection);
+                    await this.updateDocument(Database.METADATA, relatedCollection.getId(), relatedCollection);
+                });
+            } catch (error: any) {
+                try {
+                    await this.silent(() => {
+                        if (type === RelationEnum.ManyToMany) {
+                            // If the relationship is ManyToMany, we need to delete the junction collection
+                            return this.adapter.deleteCollection(this.getJunctionTable(
+                                collection.getSequence(),
+                                relatedCollection.getSequence(),
+                                id,
+                                twoWayKey
+                            )) as any;
+                        } else
+                            return this.adapter.deleteRelationship(
+                                collection.getId(),
+                                relatedCollection.getId(),
+                                type,
+                                twoWay,
+                                id,
+                                twoWayKey,
+                                RelationSideEnum.Parent,
+                            );
+                    })
+                } catch { }
+                throw new DatabaseException(`Failed to create relationship: ${error.message}`);
+            }
+
+            const indexKey = `_index_${id}`;
+            const twoWayIndexKey = `_index_${twoWayKey}`;
+
+            switch (type) {
+                case RelationEnum.OneToOne:
+                    await this.createIndex(collection.getId(), indexKey, IndexEnum.Unique, [id]);
+                    if (twoWay) {
+                        await this.createIndex(relatedCollection.getId(), twoWayIndexKey, IndexEnum.Unique, [twoWayKey]);
+                    }
+                    break;
+                case RelationEnum.OneToMany:
+                    await this.createIndex(relatedCollection.getId(), twoWayIndexKey, IndexEnum.Key, [twoWayKey]);
+                    break;
+                case RelationEnum.ManyToOne:
+                    await this.createIndex(collection.getId(), indexKey, IndexEnum.Key, [id]);
+                    break;
+                case RelationEnum.ManyToMany:
+                    // Indexes are created during junction collection creation
+                    break;
+                default:
+                    throw new DatabaseException('Invalid relationship type.');
+            }
+        });
+
+        this.trigger(EventsEnum.RelationshipCreate, collection, relationship, relatedCollection, twoWayRelationship);
+
+        return true;
     }
 
+    /**
+     * Renames an index in a collection.
+     */
     public async renameIndex(
         collectionId: string,
         oldName: string,
@@ -966,6 +1062,9 @@ export class Database extends Cache {
         return true;
     }
 
+    /**
+     * Creates an index in a collection.
+     */
     public async createIndex(
         collectionId: string,
         id: string,
@@ -1009,7 +1108,7 @@ export class Database extends Cache {
         }
 
         const collectionAttributes = collection.get('attributes', []);
-        const indexAttributesWithTypes: Record<string, string> = {};
+        const indexAttributesWithTypes: Record<string, Attribute> = {};
 
         attributes.forEach((attr, i) => {
             const collectionAttribute = collectionAttributes.find((attribute: Doc<Attribute>) => attribute.get('key') === attr);
@@ -1017,7 +1116,7 @@ export class Database extends Cache {
                 throw new DatabaseException(`Attribute '${attr}' not found in collection '${collectionId}'`);
             }
 
-            indexAttributesWithTypes[attr] = collectionAttribute.get('type');
+            indexAttributesWithTypes[attr] = collectionAttribute.toObject();
             if (collectionAttribute.get('array', false)) {
                 orders[i] = null;
             }
@@ -1051,8 +1150,8 @@ export class Database extends Cache {
                 name: id,
                 type,
                 attributes,
-                orders: orders as any,
-                attributeTypes: indexAttributesWithTypes as any // TODO: recheck
+                orders,
+                attributeTypes: indexAttributesWithTypes,
             });
 
             if (!created) {
@@ -1102,7 +1201,7 @@ export class Database extends Cache {
         forUpdate: boolean = false,
     ): Promise<any> {
         if (collectionId === Database.METADATA && id === Database.METADATA) {
-            return new Doc(Database.COLLECTION) as any;
+            return new Doc(Database.COLLECTION);
         }
 
         if (!collectionId) {

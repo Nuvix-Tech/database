@@ -73,30 +73,51 @@ export class Adapter extends BaseAdapter implements IAdapter {
             attributeSql.push(sql);
         });
 
-        indexes?.forEach((index) => {
-            const indexId = this.sanitize(index.getId());
+        indexes?.forEach(index => {
+            const indexId = index.getId();
             const indexType = index.get('type');
-            let indexAttributes = index.get('attributes') as string[];
+            const indexAttributes = index.get('attributes') as string[];
             const orders = index.get('orders') || [];
 
-            const formattedIndexAttributes = indexAttributes.map((attributeKey, nested) => {
-                const quotedAttribute = this.quote(this.getInternalKeyForAttribute(attributeKey));
-                const order = orders[nested] ? ` ${orders[nested]}` : '';
-                return `${quotedAttribute}${order}`;
+            const isFulltext = indexType === IndexEnum.FullText;
+            const hasArrayAttribute = indexAttributes.some(attrKey => {
+                const metadata = attributeHash[attrKey];
+                return metadata?.array;
             });
 
-            let attributesSql = formattedIndexAttributes.join(', ');
-
-            if (this.$sharedTables && indexType !== IndexEnum.FullText) {
-                attributesSql = `"_tenant", ${attributesSql}`;
+            let usingClause = '';
+            if (isFulltext || hasArrayAttribute) {
+                usingClause = 'USING GIN';
             }
 
-            if (indexType === IndexEnum.FullText) {
-                indexSql.push(`CREATE INDEX ${this.quote(indexId)} ON ${mainTable} USING GIN (${attributesSql})`);
-            } else {
-                const uniqueClause = indexType === IndexEnum.Unique ? 'UNIQUE ' : '';
-                indexSql.push(`CREATE ${uniqueClause}INDEX ${this.quote(indexId)} ON ${mainTable} (${attributesSql})`);
+            const formattedIndexAttributes = indexAttributes.map((attributeKey, i) => {
+                const pgKey = `"${this.sanitize(this.getInternalKeyForAttribute(attributeKey))}"`;
+                const order = (orders[i] && !isFulltext) ? ` ${orders[i]}` : '';
+
+                if (isFulltext) {
+                    return `to_tsvector('${Database.FULLTEXT_LANGUAGE}', ${pgKey})`;
+                }
+
+                return `${pgKey}${order}`;
+            });
+
+            // For multi-column full-text indexes, we must join the `to_tsvector` calls
+            let attributesForSql = formattedIndexAttributes.join(', ');
+            if (isFulltext && formattedIndexAttributes.length > 1) {
+                attributesForSql = formattedIndexAttributes.join(' || ');
             }
+
+            if (this.$sharedTables && !isFulltext) {
+                const pgTenantKey = `"${this.sanitize('_tenant')}"`;
+                attributesForSql = `${pgTenantKey}, ${attributesForSql}`;
+            }
+
+            const uniqueClause = isFulltext ? '' : (indexType === IndexEnum.Unique ? 'UNIQUE ' : '');
+
+            const pgIndexId = `"${this.getIndexName(name, this.sanitize(indexId))}"`;
+            const sql = `CREATE ${uniqueClause}INDEX ${pgIndexId} ON ${mainTable} ${usingClause} (${attributesForSql});`;
+
+            indexSql.push(sql);
         });
 
         const mainTableColumns = [
@@ -455,114 +476,132 @@ export class Adapter extends BaseAdapter implements IAdapter {
     }
 
     public async createRelationship(
-        relationship: CreateRelationship
-    ): Promise<void> {
-        const {
-            collection, type, twoWay, target,
-            junctionCollection, attribute
-        } = relationship;
+        collection: string,
+        relatedCollection: string,
+        type: RelationEnum,
+        twoWay: boolean = false,
+        id: string = '',
+        twoWayKey: string = ''
+    ): Promise<boolean> {
+        const name = this.sanitize(collection);
+        const relatedName = this.sanitize(relatedCollection);
+        const table = this.getSQLTable(name);
+        const relatedTable = this.getSQLTable(relatedName);
+        const sanitizedId = this.sanitize(id);
+        const sanitizedTwoWayKey = this.sanitize(twoWayKey);
+        const sqlType = this.getSQLType(AttributeEnum.Relationship, 0, false);
 
-        if (!collection || !attribute || !type || !target || !target.collection) {
-            throw new DatabaseException("Failed to create relationship: collection, attribute, type, and target are required");
-        }
-
-        const sanitizedCollection = this.sanitize(collection);
-        const sanitizedRelatedCollection = this.sanitize(target.collection);
-        const fkSqlType = this.getSQLType(AttributeEnum.Relationship, 0, false);
-
-        const parts: string[] = [];
+        let sql: string;
 
         switch (type) {
+            case RelationEnum.OneToOne:
+                sql = `
+                    ALTER TABLE ${table} 
+                    ADD COLUMN ${this.quote(sanitizedId)} ${sqlType} DEFAULT NULL;
+                `;
+
+                if (twoWay) {
+                    sql += `
+                        ALTER TABLE ${relatedTable} 
+                        ADD COLUMN ${this.quote(sanitizedTwoWayKey)} ${sqlType} DEFAULT NULL;
+                    `;
+                }
+                break;
+
+            case RelationEnum.OneToMany:
+                sql = `
+                    ALTER TABLE ${relatedTable} 
+                    ADD COLUMN ${this.quote(sanitizedTwoWayKey)} ${sqlType} DEFAULT NULL;
+                `;
+                break;
+
             case RelationEnum.ManyToOne:
-            case RelationEnum.OneToOne: {
-                const tableName = this.getSQLTable(sanitizedCollection);
-                const attributeName = this.quote(this.getInternalKeyForAttribute(attribute));
-
-                parts.push(`
-                    ALTER TABLE ${tableName}
-                    ADD COLUMN ${attributeName} ${fkSqlType} DEFAULT NULL;
-                `);
-
-                parts.push(`
-                    CREATE INDEX ${this.quote(`${sanitizedCollection}_${attribute}_idx`)} 
-                    ON ${tableName} (${attributeName});
-                `);
-
-                if (type === RelationEnum.OneToOne && twoWay) {
-                    if (!target.attribute) {
-                        throw new DatabaseException("Target attribute is required for a two-way, one-to-one relationship");
-                    }
-                    const relatedTableName = this.getSQLTable(sanitizedRelatedCollection);
-                    const targetAttributeName = this.quote(this.getInternalKeyForAttribute(target.attribute));
-                    
-                    parts.push(`
-                        ALTER TABLE ${relatedTableName}
-                        ADD COLUMN ${targetAttributeName} ${fkSqlType} DEFAULT NULL;
-                    `);
-
-                    parts.push(`
-                        CREATE UNIQUE INDEX ${this.quote(`${sanitizedRelatedCollection}_${target.attribute}_uniq_idx`)} 
-                        ON ${relatedTableName} (${targetAttributeName});
-                    `);
-                }
+                sql = `
+                    ALTER TABLE ${table} 
+                    ADD COLUMN ${this.quote(sanitizedId)} ${sqlType} DEFAULT NULL;
+                `;
                 break;
-            }
 
-            case RelationEnum.OneToMany: {
-                // TODO: recheck
-                if (!target.attribute) {
-                    throw new DatabaseException("Target attribute is required for a one-to-many relationship");
-                }
+            case RelationEnum.ManyToMany:
+                return true;
 
-                const relatedTableName = this.getSQLTable(sanitizedRelatedCollection);
-                const targetAttributeName = this.quote(this.getInternalKeyForAttribute(target.attribute));
-
-                parts.push(`
-                    ALTER TABLE ${relatedTableName}
-                    ADD COLUMN ${targetAttributeName} ${fkSqlType} DEFAULT NULL;
-                `);
-
-                parts.push(`
-                    CREATE INDEX ${this.quote(`${sanitizedRelatedCollection}_${target.attribute}_idx`)} 
-                    ON ${relatedTableName} (${targetAttributeName});
-                `);
-                break;
-            }
-
-            case RelationEnum.ManyToMany: {
-                if (!junctionCollection) {
-                    throw new DatabaseException("Junction collection is required for many-to-many relationships");
-                }
-                if (!target.attribute) {
-                    throw new DatabaseException("Target attribute is required for a many-to-many relationship");
-                }
-
-                const junctionCollectionName = this.getSQLTable(this.sanitize(junctionCollection));
-                const collectionFk = this.quote(this.getInternalKeyForAttribute(sanitizedCollection));
-                const targetFk = this.quote(this.getInternalKeyForAttribute(sanitizedRelatedCollection));
-                const tenantCol = this.quote('_tenant');
-
-                parts.push(`
-                    CREATE TABLE ${junctionCollectionName} (
-                        ${this.$sharedTables ? `${tenantCol} BIGINT DEFAULT NULL,` : ''}
-                        ${collectionFk} ${fkSqlType} NOT NULL,
-                        ${targetFk} ${fkSqlType} NOT NULL,
-                        PRIMARY KEY (${tenantCol ? `${tenantCol}, ` : ''}${collectionFk}, ${targetFk})
-                    );
-                `);
-                break;
-            }
+            default:
+                throw new DatabaseException('Invalid relationship type');
         }
 
+        sql = this.trigger(EventsEnum.AttributeCreate, sql);
+
         try {
-            await this.client.transaction(async () => {
-                for (const sql of parts) {
-                    const finalSql = this.trigger(EventsEnum.AttributeCreate, sql);
-                    await this.client.query(finalSql);
-                }
-            })
+            await this.client.query(sql);
+            return true;
         } catch (e: any) {
-            this.processException(e, `Failed to create relationship '${attribute}' for collection '${collection}'`);
+            this.processException(e, `Failed to create relationship between '${collection}' and '${relatedCollection}'`);
+        }
+    }
+
+    public async deleteRelationship(
+        collection: string,
+        relatedCollection: string,
+        type: RelationEnum,
+        twoWay: boolean,
+        key: string,
+        twoWayKey: string,
+        side: RelationSideEnum
+    ): Promise<boolean> {
+        const name = this.sanitize(collection);
+        const relatedName = this.sanitize(relatedCollection);
+        const table = this.getSQLTable(name);
+        const relatedTable = this.getSQLTable(relatedName);
+        const sanitizedKey = this.sanitize(key);
+        const sanitizedTwoWayKey = this.sanitize(twoWayKey);
+
+        let sql = '';
+
+        switch (type) {
+            case RelationEnum.OneToOne:
+                if (side === RelationSideEnum.Parent) {
+                    sql = `ALTER TABLE ${table} DROP COLUMN ${this.quote(sanitizedKey)};`;
+                    if (twoWay) {
+                        sql += `ALTER TABLE ${relatedTable} DROP COLUMN ${this.quote(sanitizedTwoWayKey)};`;
+                    }
+                } else if (side === RelationSideEnum.Child) {
+                    sql = `ALTER TABLE ${relatedTable} DROP COLUMN ${this.quote(sanitizedTwoWayKey)};`;
+                    if (twoWay) {
+                        sql += `ALTER TABLE ${table} DROP COLUMN ${this.quote(sanitizedKey)};`;
+                    }
+                }
+                break;
+            case RelationEnum.OneToMany:
+                if (side === RelationSideEnum.Parent) {
+                    sql = `ALTER TABLE ${relatedTable} DROP COLUMN ${this.quote(sanitizedTwoWayKey)};`;
+                } else {
+                    sql = `ALTER TABLE ${table} DROP COLUMN ${this.quote(sanitizedKey)};`;
+                }
+                break;
+            case RelationEnum.ManyToOne:
+                if (side === RelationSideEnum.Child) {
+                    sql = `ALTER TABLE ${relatedTable} DROP COLUMN ${this.quote(sanitizedTwoWayKey)};`;
+                } else {
+                    sql = `ALTER TABLE ${table} DROP COLUMN ${this.quote(sanitizedKey)};`;
+                }
+                break;
+            case RelationEnum.ManyToMany:
+                break;
+            default:
+                throw new DatabaseException('Invalid relationship type');
+        }
+
+        if (!sql) {
+            return true;
+        }
+
+        sql = this.trigger(EventsEnum.AttributeDelete, sql);
+
+        try {
+            await this.client.query(sql);
+            return true;
+        } catch (e: any) {
+            this.processException(e, `Failed to delete relationship between '${collection}' and '${relatedCollection}'`);
         }
     }
 
@@ -590,101 +629,95 @@ export class Adapter extends BaseAdapter implements IAdapter {
         }
     }
 
-    /**@deprecated should update */
-    public async renameIndex(collection: string, oldName: string, newName: string): Promise<boolean> {
-        collection = this.sanitize(collection);
-        oldName = this.sanitize(oldName);
-        newName = this.sanitize(newName);
+    public async renameIndex(collectionId: string, oldName: string, newName: string): Promise<boolean> {
+        const currentPgIndexName = `"${this.sanitize(this.getIndexName(collectionId, oldName))}"`;
+        const newPgIndexName = `"${this.sanitize(this.getIndexName(collectionId, newName))}"`;
 
-        let sql = `ALTER TABLE ${this.getSQLTable(collection)} RENAME INDEX \`${oldName}\` TO \`${newName}\`;`;
+        let sql = `ALTER INDEX ${currentPgIndexName} RENAME TO ${newPgIndexName};`;
         sql = this.trigger(EventsEnum.IndexRename, sql);
 
         try {
             await this.client.query(sql);
             return true;
         } catch (e: any) {
-            this.processException(e, `Failed to rename index from ${oldName} to ${newName}`);
+            throw this.processException(e, `Failed to rename index from ${oldName} to ${newName} for collection ${collectionId}`);
         }
     }
 
-    /**@deprecated should update */
     public async createIndex(
-        { collection: c, name, type, attributes, orders = [], attributeTypes = [] }: CreateIndex
+        { collection: collectionId, name, type, attributes, orders = [], attributeTypes = {} }: CreateIndex
     ): Promise<boolean> {
-        const collection = await this.getDocument(Database.METADATA, c);
-        if (collection.empty()) {
-            throw new NotFoundException(`Collection "${c}" not found.`)
+        const isUnique = type === IndexEnum.Unique;
+        const isFulltext = type === IndexEnum.FullText;
+
+        let usingClause = '';
+        if (isFulltext) {
+            usingClause = 'USING GIN';
         }
 
-        const _attrs = collection.get('attributes', []);
-        const collectionAttributes: Attribute[] = typeof _attrs === 'string' ? JSON.parse(_attrs) : _attrs;
+        const preparedAttributes = attributes.map((attrId, i) => {
+            const collectionAttribute = attributeTypes[attrId.toLowerCase()];
 
-        const indexAttributes = attributes.map((attr, i) => {
-            let attribute: Attribute | undefined = collectionAttributes.find(
-                (collectionAttribute) =>
-                    String(collectionAttribute['$id']).toLowerCase() === String(attr).toLowerCase()
-            );
-
-            const order = !orders[i] || type === IndexEnum.FullText ? '' : orders[i];
-
-            let internalAttr = this.sanitize(this.getInternalKeyForAttribute(attr));
-
-            let attrSql = `\`${internalAttr}\`${order ? ' ' + order : ''}`;
-
-            if (this.$supportForCastIndexArray && attribute?.array) {
-                attrSql = `(CAST(\`${internalAttr}\` AS char(${Database.ARRAY_INDEX_LENGTH}) ARRAY))`;
+            if (!collectionAttribute) {
+                throw new DatabaseException(`Attribute '${attrId}' not found in collection metadata.`);
             }
 
-            return attrSql;
+            const internalKey = this.getInternalKeyForAttribute(attrId);
+            const sanitizedKey = this.sanitize(internalKey);
+            const pgKey = this.quote(sanitizedKey);
+
+            if (isFulltext) {
+                // Full-text search indexes on a `TSVECTOR` representation of the column.
+                // We use the `to_tsvector` function for this.
+                return `to_tsvector('${Database.FULLTEXT_LANGUAGE}', ${pgKey})`;
+            }
+
+            if (collectionAttribute.array) {
+                usingClause = 'USING GIN';
+                return pgKey;
+            }
+            const order = (orders[i] && !isFulltext) ? ` ${orders[i]}` : '';
+            return `${pgKey}${order}`;
         });
 
-        let sqlType: string;
-        switch (type) {
-            case IndexEnum.Key:
-                sqlType = 'INDEX';
-                break;
-            case IndexEnum.Unique:
-                sqlType = 'UNIQUE INDEX';
-                break;
-            case IndexEnum.FullText:
-                sqlType = 'FULLTEXT INDEX';
-                break;
-            default:
-                throw new DatabaseException(`Unknown index type: ${attributeTypes?.[0]}. Must be one of ${IndexEnum.Key}, ${IndexEnum.Unique}, ${IndexEnum.FullText}`);
+        if (isFulltext && preparedAttributes.length > 1) {
+            const combinedTsvector = preparedAttributes.join(' || ');
+            preparedAttributes.length = 0;
+            preparedAttributes.push(combinedTsvector);
         }
 
-        let attributesSql = indexAttributes.join(', ');
-        if (this.$sharedTables && type !== IndexEnum.FullText) {
-            attributesSql = `_tenant, ${attributesSql}`;
+        const pgTable = this.quote(this.getSQLTable(collectionId));
+        const pgIndexId = this.quote(this.getIndexName(collectionId, name));
+        const uniqueClause = isUnique ? 'UNIQUE' : '';
+
+        let attributesForSql = preparedAttributes.join(', ');
+
+        if (this.$sharedTables && !isFulltext) {
+            const pgTenantKey = `"${this.sanitize('_tenant')}"`;
+            attributesForSql = `${pgTenantKey}, ${attributesForSql}`;
         }
 
-        let sql = `CREATE ${sqlType} \`${this.sanitize(name)}\` ON ${this.getSQLTable(this.sanitize(collection.getId()))} (${attributesSql})`;
-        sql = this.trigger(EventsEnum.IndexCreate, sql);
+        const sql = `CREATE ${uniqueClause} INDEX ${pgIndexId} ON ${pgTable} ${usingClause} (${attributesForSql})`;
+        const finalSql = this.trigger(EventsEnum.IndexCreate, sql);
 
         try {
-            await this.client.query(sql);
+            await this.client.query(finalSql);
             return true;
-        } catch (e: any) {
-            this.processException(e, 'Failed to create index');
+        } catch (e) {
+            throw this.processException(e);
         }
     }
 
-    /**@deprecated should update */
     public async deleteIndex(collection: string, id: string): Promise<boolean> {
-        collection = this.sanitize(collection);
-        id = this.sanitize(id);
+        const pgIndexName = this.quote(this.getIndexName(collection, id));
 
-        let sql = `ALTER TABLE ${this.getSQLTable(collection)} DROP INDEX \`${id}\`;`;
+        let sql = `DROP INDEX IF EXISTS ${pgIndexName};`;
         sql = this.trigger(EventsEnum.IndexDelete, sql);
 
         try {
             await this.client.query(sql);
             return true;
         } catch (e: any) {
-            // MariaDB error code 1091: Can't DROP 'index'; check that column/key exists
-            if (e.code === "ER_CANT_DROP_FIELD_OR_KEY" || (e.errno === 1091)) {
-                return true;
-            }
             this.processException(e, `Failed to delete index ${id} from collection ${collection}`);
         }
     }
@@ -731,7 +764,7 @@ export class Adapter extends BaseAdapter implements IAdapter {
             `;
 
             sql = this.trigger(EventsEnum.DocumentCreate, sql);
-            console.log({values})
+            console.log({ values })
             const { rows } = await this.client.query(sql, values);
 
             // Set $sequence from insertId
