@@ -4,11 +4,12 @@ import { PostgresClient } from "./postgres.js";
 import { AttributeEnum, EventsEnum, IndexEnum, RelationEnum, RelationSideEnum } from "@core/enums.js";
 import { CreateCollectionOptions, IAdapter } from "./interface.js";
 import { DatabaseException } from "@errors/base.js";
-import { Database } from "@core/database.js";
+import { Database, ProcessQuery } from "@core/database.js";
 import { Doc } from "@core/doc.js";
 import { NotFoundException } from "@errors/index.js";
-import { Attribute } from "@validators/schema.js";
+import { Attribute, Collection, RelationOptions } from "@validators/schema.js";
 import { ColumnInfo, CreateAttribute, CreateIndex, CreateRelationship, UpdateAttribute } from "./types.js";
+import { Query, QueryType } from "@core/query.js";
 
 export class Adapter extends BaseAdapter implements IAdapter {
     protected client: PostgresClient;
@@ -95,7 +96,7 @@ export class Adapter extends BaseAdapter implements IAdapter {
                 const order = (orders[i] && !isFulltext) ? ` ${orders[i]}` : '';
 
                 if (isFulltext) {
-                    return `to_tsvector('${Database.FULLTEXT_LANGUAGE}', ${pgKey})`;
+                    return `to_tsvector('english', ${pgKey})`;
                 }
 
                 return `${pgKey}${order}`;
@@ -748,7 +749,7 @@ export class Adapter extends BaseAdapter implements IAdapter {
             if (isFulltext) {
                 // Full-text search indexes on a `TSVECTOR` representation of the column.
                 // We use the `to_tsvector` function for this.
-                return `to_tsvector('${Database.FULLTEXT_LANGUAGE}', ${pgKey})`;
+                return `to_tsvector('english', ${pgKey})`;
             }
 
             if (collectionAttribute.array) {
@@ -992,6 +993,652 @@ export class Adapter extends BaseAdapter implements IAdapter {
 
         return sql;
     }
+
+    public async deepFind(collection: string, query: ProcessQuery, options: {
+        limit?: number;
+        offset?: number;
+        orderAttributes?: string[];
+        orderTypes?: string[];
+        cursor?: Record<string, any>;
+        cursorDirection?: string;
+        forUpdate?: boolean;
+    } = {}): Promise<Doc<any>[]> {
+        const sqlResult = this.buildSql(query, options);
+        console.log('Deep Find SQL:', sqlResult.sql, sqlResult.params);
+        try {
+            const { rows } = await this.client.query(sqlResult.sql, sqlResult.params);
+            console.log({ rows })
+            // Group related data and construct documents
+            const documents = this.processDeepFindResults(rows, query);
+
+            return documents.map(doc => Doc.from(doc));
+        } catch (e: any) {
+            throw this.processException(e, `Failed to execute deep find query for collection '${collection}'`);
+        }
+    }
+
+    /**
+     * Processes the results from deepFind to group related data properly
+     */
+    private processDeepFindResults(rows: any[], query: ProcessQuery): any[] {
+        if (!rows.length) return [];
+
+        const documentsMap = new Map<string, any>();
+
+        // Group rows by main document ID
+        for (const row of rows) {
+            const mainId = row['$id'] || row['$sequence'];
+
+            if (!documentsMap.has(mainId)) {
+                // Initialize main document
+                const mainDoc: any = {};
+
+                // Extract main document fields
+                // TODO: instead use attributes from collection to map exactly. 
+                for (const [key, value] of Object.entries(row)) {
+                    if (typeof key === 'string' && !key.includes('_')) {
+                        mainDoc[key] = value;
+                    }
+                }
+
+                // Initialize populated relationships
+                if (query.populate) {
+                    for (let i = 0; i < query.populate.length; i++) {
+                        const populateQuery: ProcessQuery = query.populate[i]!;
+                        const relationshipAttr = populateQuery.collection.get('attributes', [])
+                            .find((attr) => attr.get('type') === AttributeEnum.Relationship);
+
+                        if (relationshipAttr) {
+                            const relationshipKey = relationshipAttr.get('key', relationshipAttr.getId());
+                            const options = relationshipAttr.get('options', {}) as RelationOptions;
+                            const relationType = options.relationType;
+                            const side = options.side;
+
+                            if ((relationType === RelationEnum.OneToMany && side === RelationSideEnum.Parent)
+                                || (relationType === RelationEnum.ManyToOne && side === RelationSideEnum.Child)
+                                || relationType === RelationEnum.ManyToMany
+                            ) {
+                                mainDoc[relationshipKey] = [];
+                            } else {
+                                mainDoc[relationshipKey] = null;
+                            }
+                        }
+                    }
+                }
+
+                documentsMap.set(mainId, mainDoc);
+            }
+
+            // Process populated relationships
+            if (query.populate) {
+                this.processPopulatedData(documentsMap.get(mainId), row, query.populate, 0);
+            }
+        }
+
+        return Array.from(documentsMap.values());
+    }
+
+    /**
+     * Recursively processes populated relationship data
+     */
+    private processPopulatedData(
+        document: Record<string, any>,
+        row: Record<string, any>,
+        populate: ProcessQuery[],
+        depth: number
+    ): void {
+        for (let i = 0; i < populate.length; i++) {
+            const populateQuery: ProcessQuery = populate[i]!;
+            const relationshipAttr: undefined | Doc<Attribute> = populateQuery.collection.get('attributes', [])
+                .find((attr: Doc<Attribute>) => attr.get('type') === AttributeEnum.Relationship);
+
+            if (!relationshipAttr) continue;
+
+            const relationshipKey = relationshipAttr.get('key', relationshipAttr.getId());
+            const options = relationshipAttr.get('options', {}) as RelationOptions;
+            const relationType = options.relationType;
+            const prefix = `${relationshipKey}_`;
+            const side = options.side;
+
+            // Extract related document data
+            const relatedDoc: Record<string, any> = {};
+            let hasRelatedData = false;
+
+            for (const [key, value] of Object.entries(row)) {
+                if (typeof key === 'string' && key.startsWith(prefix)) {
+                    const cleanKey = key.substring(prefix.length);
+                    relatedDoc[cleanKey] = value;
+                    if (value !== null && value !== undefined) {
+                        hasRelatedData = true;
+                    }
+                }
+            }
+
+            if (hasRelatedData) {
+                // Process nested relationships recursively
+                if (populateQuery.populate && populateQuery.populate.length > 0) {
+                    this.processPopulatedData(relatedDoc, row, populateQuery.populate, depth + 1);
+                }
+
+                // Add to document based on relationship type
+                if ((relationType === RelationEnum.OneToMany && side === RelationSideEnum.Child)
+                    || (relationType === RelationEnum.ManyToOne && side === RelationSideEnum.Parent)
+                    || relationType === RelationEnum.ManyToMany
+                ) {
+                    // Check if this related document already exists in the array
+                    document[relationshipKey] ??= [];
+                    const relatedId = relatedDoc['$id'] || relatedDoc['$sequence'];
+                    if (relatedId && !document[relationshipKey].some((item: any) => (item['$id'] || item['$sequence']) === relatedId)) {
+                        document[relationshipKey].push(relatedDoc);
+                    }
+                } else {
+                    // OneToOne or ManyToOne - single object
+                    if (!document[relationshipKey]) {
+                        document[relationshipKey] = relatedDoc;
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Builds a comprehensive SQL query with joins and filters for n-level relationships
+     * @param query - The processed query containing selections, populate relationships, and filters
+     * @param options - Additional options for the query building
+     * @returns Object containing SQL parts and parameters
+     */
+    protected buildSql(query: ProcessQuery, options: {
+        limit?: number;
+        offset?: number;
+        orderAttributes?: string[];
+        orderTypes?: string[];
+        cursor?: Record<string, any>;
+        cursorDirection?: string;
+        forUpdate?: boolean;
+    } = {}): {
+        sql: string;
+        params: any[];
+        joins: string[];
+        selections: string[];
+    } {
+        const { selections, populate = [], queries, collection } = query;
+        const mainTableAlias = 'main';
+        const collectionName = this.sanitize(collection.getId());
+        const mainTable = this.getSQLTable(collectionName);
+
+        // Initialize result structure
+        const result = {
+            sql: '',
+            params: [] as any[],
+            joins: [] as string[],
+            selections: [] as string[]
+        };
+
+        // Build selections with main table prefix
+        result.selections = this.buildSelections(selections, mainTableAlias, collection);
+
+        // Build joins for relationships
+        const joinInfo = this.buildJoins(populate, mainTableAlias, result.params);
+        result.joins = joinInfo.joins;
+        result.selections.push(...joinInfo.selections);
+
+        // Build WHERE conditions
+        const whereInfo = this.buildWhereConditions(queries, mainTableAlias, populate, result.params);
+        result.params.push(...whereInfo.params);
+
+        // Build ORDER BY clause
+        const orderClause = this.buildOrderClause(options.orderAttributes || [], options.orderTypes || [], mainTableAlias);
+
+        // Build pagination
+        const limitClause = options.limit ? `LIMIT ?` : '';
+        if (options.limit) result.params.push(options.limit);
+
+        const offsetClause = options.offset ? `OFFSET ?` : '';
+        if (options.offset) result.params.push(options.offset);
+
+        // Build cursor conditions if provided
+        const cursorConditions = this.buildCursorConditions(options.cursor, options.cursorDirection, options.orderAttributes || [], mainTableAlias);
+        if (cursorConditions.condition) {
+            whereInfo.conditions.push(cursorConditions.condition);
+            result.params.push(...cursorConditions.params);
+        }
+
+        // Construct final SQL
+        const finalWhereClause = whereInfo.conditions.length > 0 ? `WHERE ${whereInfo.conditions.join(' AND ')}` : '';
+
+        result.sql = `
+            SELECT DISTINCT ${result.selections.join(', ')}
+            FROM ${mainTable} AS ${this.quote(mainTableAlias)}
+            ${result.joins.join(' ')}
+            ${finalWhereClause}
+            ${orderClause}
+            ${limitClause}
+            ${offsetClause}
+        `.trim().replace(/\s+/g, ' ');
+
+        return result;
+    }
+
+    /**
+     * Builds selection clauses for the main table and relationship
+     */
+    private buildSelections(selections: string[], tableAlias: string, collection: Doc<Collection>): string[] {
+        const result: string[] = [];
+        const attributes = collection.get('attributes', []);
+
+        // If no specific selections, include all non-relationship attributes
+        const fieldsToSelect = selections.length > 0 ? selections :
+            attributes
+                .filter((attr: Doc<Attribute>) => attr.get('type') !== AttributeEnum.Relationship && attr.get('type') !== AttributeEnum.Virtual)
+                .map((attr: Doc<Attribute>) => attr.get('key', attr.getId()));
+
+        // Always include internal fields
+        const internalFields = ['$id', '$sequence', '$collection', '$createdAt', '$updatedAt', '$permissions'];
+        const allFields = [...new Set([...internalFields, ...fieldsToSelect])];
+
+        for (const field of allFields) {
+            const dbKey = this.getInternalKeyForAttribute(field);
+            const sanitizedKey = this.sanitize(dbKey);
+            if (field === '$collection') {
+                result.push(`'${collection.getId()}' AS ${this.quote(field)}`);
+            } else
+                result.push(`${this.quote(tableAlias)}.${this.quote(sanitizedKey)} AS ${this.quote(field)}`);
+        }
+
+        // Add tenant field if using shared tables
+        if (this.$sharedTables) {
+            result.push(`${this.quote(tableAlias)}.${this.quote('_tenant')} AS ${this.quote('$tenant')}`);
+        }
+
+        return result;
+    }
+
+    /**
+     * Builds JOIN clauses for relationships recursively
+     */
+    private buildJoins(
+        populate: ProcessQuery[],
+        parentAlias: string,
+        params: any[],
+        depth: number = 0,
+        maxDepth: number = 5
+    ): { joins: string[]; selections: string[] } {
+        const joins: string[] = [];
+        const selections: string[] = [];
+
+        if (depth >= maxDepth) {
+            return { joins, selections };
+        }
+
+        for (let i = 0; i < populate.length; i++) {
+            const populateQuery: ProcessQuery = populate[i]!;
+            const relationshipAttr: any = populateQuery.collection.get('attributes', [])
+                .find((attr: any) => attr.get('type') === AttributeEnum.Relationship);
+
+            if (!relationshipAttr) continue;
+
+            const options = relationshipAttr.get('options', {}) as RelationOptions;
+            const relationType = options.relationType;
+            const relationshipKey = relationshipAttr.get('key', relationshipAttr.getId());
+            const twoWayKey = options.twoWayKey;
+            const side = options.side;
+
+            const relationAlias = `rel_${depth}_${i}`;
+            const relatedTableName = this.sanitize(populateQuery.collection.getId());
+            const relatedTable = this.getSQLTable(relatedTableName);
+
+            // Build JOIN condition based on relationship type
+            const joinCondition = this.buildJoinCondition(
+                relationType,
+                relationAlias,
+                parentAlias,
+                relationshipKey,
+                twoWayKey,
+                side
+            );
+
+            if (joinCondition) {
+                joins.push(`LEFT JOIN ${relatedTable} AS ${this.quote(relationAlias)} ON ${joinCondition}`);
+
+                // Add permissions check for the joined table
+                if (this.$sharedTables) {
+                    joins.push(`AND (${this.quote(relationAlias)}.${this.quote('_tenant')} = ? OR ${this.quote(relationAlias)}.${this.quote('_tenant')} IS NULL)`);
+                    params.push(this.$tenantId);
+                }
+
+                // Add selections for the related table
+                const relatedSelections = this.buildSelections(
+                    populateQuery.selections,
+                    relationAlias,
+                    populateQuery.collection
+                );
+
+                // Prefix the selections to avoid conflicts
+                const prefixedSelections = relatedSelections.map(sel => {
+                    const parts = sel.split(' AS ');
+                    if (parts.length === 2 && parts[1]) {
+                        return `${parts[0]} AS ${this.quote(`${relationshipKey}_${parts[1].replace(/"/g, '')}`)}`;
+                    }
+                    return sel;
+                });
+
+                selections.push(...prefixedSelections);
+
+                // Recursively build nested joins
+                if (populateQuery.populate && populateQuery.populate.length > 0) {
+                    const nestedJoins = this.buildJoins(
+                        populateQuery.populate,
+                        relationAlias,
+                        params,
+                        depth + 1,
+                        maxDepth
+                    );
+                    joins.push(...nestedJoins.joins);
+                    selections.push(...nestedJoins.selections);
+                }
+            }
+        }
+
+        return { joins, selections };
+    }
+
+    /**
+     * Builds JOIN condition based on relationship type
+     */
+    private buildJoinCondition(
+        relationType: RelationEnum,
+        parentAlias: string,
+        relationAlias: string,
+        relationshipKey: string,
+        twoWayKey: string = '',
+        side: RelationSideEnum
+    ): string | null {
+        const parentUidCol = `${this.quote(parentAlias)}.${this.quote('_uid')}`;
+        const relationUidCol = `${this.quote(relationAlias)}.${this.quote('_uid')}`;
+        const parentRelCol = `${this.quote(parentAlias)}.${this.quote(this.sanitize(relationshipKey))}`;
+        const relationRelCol = `${this.quote(relationAlias)}.${this.quote(this.sanitize(twoWayKey))}`;
+
+        switch (relationType) {
+            case RelationEnum.OneToOne:
+                if (side === RelationSideEnum.Parent) {
+                    return `${parentRelCol} = ${relationUidCol}`;
+                } else {
+                    return `${parentUidCol} = ${relationRelCol}`;
+                }
+
+            case RelationEnum.OneToMany:
+                if (side === RelationSideEnum.Parent) {
+                    return `${parentUidCol} = ${relationRelCol}`;
+                } else {
+                    return `${parentRelCol} = ${relationUidCol}`;
+                }
+
+            case RelationEnum.ManyToOne:
+                if (side === RelationSideEnum.Child) {
+                    return `${parentUidCol} = ${relationRelCol}`;
+                } else {
+                    return `${parentRelCol} = ${relationUidCol}`;
+                }
+
+            case RelationEnum.ManyToMany:
+                // For ManyToMany, we would need a junction table
+                // This is a simplified implementation
+                // return `${parentUidCol} = ${relationUidCol}`;
+                throw new Error('NOT IMPLEMENTED')
+
+            default:
+                return null;
+        }
+    }
+
+    /**
+     * Builds WHERE conditions from queries
+     */
+    private buildWhereConditions(
+        queries: Query[],
+        tableAlias: string,
+        populate: ProcessQuery[],
+        params: any[],
+        depth: number = 0,
+        maxDepth: number = 5,
+    ): { conditions: string[]; params: any[] } {
+        const conditions: string[] = [];
+        const conditionParams: any[] = [];
+
+        // Add basic tenant filtering for shared tables
+        if (this.$sharedTables) {
+            conditions.push(`(${this.quote(tableAlias)}.${this.quote('_tenant')} = ? OR ${this.quote(tableAlias)}.${this.quote('_tenant')} IS NULL)`);
+            conditionParams.push(this.$tenantId);
+        }
+
+        // Process query filters
+        for (const query of queries) {
+            const condition = this.buildQueryCondition(query, tableAlias);
+            if (condition.sql) {
+                conditions.push(condition.sql);
+                conditionParams.push(...condition.params);
+            }
+        }
+
+        if (populate.length) {
+            console.log('INSIDE POULATE')
+            for (let i = 0; i < populate.length; i++) {
+                const { queries, populate: _pop = [], }: ProcessQuery = populate[i]!;
+                const relationAlias = `rel_${depth}_${i}`;
+                const { conditions: con, params } = this.buildWhereConditions(queries, relationAlias, _pop, conditionParams, depth + 1, maxDepth);
+                if (con.length > 0) {
+                    conditions.push(...con)
+                    conditionParams.push(...params);
+                }
+            }
+        }
+        console.log({ conditions, conditionParams })
+        return { conditions, params: conditionParams };
+    }
+
+    /**
+     * Builds a single query condition
+     */
+    private buildQueryCondition(query: Query, tableAlias: string): { sql: string; params: any[] } {
+        const method = query.getMethod();
+        const attribute = query.getAttribute();
+        const values = query.getValues();
+        const params: any[] = [];
+
+        if (method === QueryType.Select || method === QueryType.Populate) {
+            return { sql: '', params: [] };
+        }
+
+        const dbKey = this.getInternalKeyForAttribute(attribute);
+        const sanitizedKey = this.sanitize(dbKey);
+        const columnRef = `${this.quote(tableAlias)}.${this.quote(sanitizedKey)}`;
+
+        let sql = '';
+
+        switch (method) {
+            case QueryType.Equal:
+                if (values.length === 1) {
+                    sql = `${columnRef} = ?`;
+                    params.push(values[0]);
+                } else {
+                    sql = `${columnRef} IN (${values.map(() => '?').join(', ')})`;
+                    params.push(...values);
+                }
+                break;
+
+            case QueryType.NotEqual:
+                if (values.length === 1) {
+                    sql = `${columnRef} != ?`;
+                    params.push(values[0]);
+                } else {
+                    sql = `${columnRef} NOT IN (${values.map(() => '?').join(', ')})`;
+                    params.push(...values);
+                }
+                break;
+
+            case QueryType.LessThan:
+                sql = `${columnRef} < ?`;
+                params.push(values[0]);
+                break;
+
+            case QueryType.LessThanEqual:
+                sql = `${columnRef} <= ?`;
+                params.push(values[0]);
+                break;
+
+            case QueryType.GreaterThan:
+                sql = `${columnRef} > ?`;
+                params.push(values[0]);
+                break;
+
+            case QueryType.GreaterThanEqual:
+                sql = `${columnRef} >= ?`;
+                params.push(values[0]);
+                break;
+
+            case QueryType.Contains:
+                if (query.onArray()) {
+                    sql = `${columnRef} @> ?::jsonb`;
+                    params.push(JSON.stringify(values));
+                } else {
+                    sql = `${columnRef} LIKE ?`;
+                    params.push(`%${values[0]}%`);
+                }
+                break;
+
+            case QueryType.StartsWith:
+                sql = `${columnRef} LIKE ?`;
+                params.push(`${values[0]}%`);
+                break;
+
+            case QueryType.EndsWith:
+                sql = `${columnRef} LIKE ?`;
+                params.push(`%${values[0]}`);
+                break;
+
+            case QueryType.IsNull:
+                sql = `${columnRef} IS NULL`;
+                break;
+
+            case QueryType.IsNotNull:
+                sql = `${columnRef} IS NOT NULL`;
+                break;
+
+            case QueryType.Between:
+                sql = `${columnRef} BETWEEN ? AND ?`;
+                params.push(values[0], values[1]);
+                break;
+
+            case QueryType.Search:
+                sql = `to_tsvector('english', ${columnRef}) @@ plainto_tsquery('english', ?)`;
+                params.push(values[0]);
+                break;
+
+            case QueryType.And:
+                const andConditions = (values as Query[]).map(subQuery =>
+                    this.buildQueryCondition(subQuery, tableAlias)
+                );
+                sql = `(${andConditions.map(c => c.sql).filter(Boolean).join(' AND ')})`;
+                andConditions.forEach(c => params.push(...c.params));
+                break;
+
+            case QueryType.Or:
+                const orConditions = (values as Query[]).map(subQuery =>
+                    this.buildQueryCondition(subQuery, tableAlias)
+                );
+                sql = `(${orConditions.map(c => c.sql).filter(Boolean).join(' OR ')})`;
+                orConditions.forEach(c => params.push(...c.params));
+                break;
+
+            default:
+                // Handle other query types as needed
+                break;
+        }
+
+        return { sql, params };
+    }
+
+    /**
+     * Builds ORDER BY clause
+     */
+    private buildOrderClause(
+        orderAttributes: string[],
+        orderTypes: string[],
+        tableAlias: string
+    ): string {
+        if (orderAttributes.length === 0) {
+            // Default order by _id
+            return `ORDER BY ${this.quote(tableAlias)}.${this.quote('_id')} ASC`;
+        }
+
+        const orderParts = orderAttributes.map((attr, index) => {
+            const dbKey = this.getInternalKeyForAttribute(attr);
+            const sanitizedKey = this.sanitize(dbKey);
+            const orderType = orderTypes[index] || 'ASC';
+            return `${this.quote(tableAlias)}.${this.quote(sanitizedKey)} ${orderType}`;
+        });
+
+        return `ORDER BY ${orderParts.join(', ')}`;
+    }
+
+    /**
+     * Builds cursor conditions for pagination
+     */
+    private buildCursorConditions(
+        cursor: Record<string, any> = {},
+        cursorDirection: string = 'AFTER',
+        orderAttributes: string[],
+        tableAlias: string
+    ): { condition: string; params: any[] } {
+        if (!cursor || Object.keys(cursor).length === 0 || orderAttributes.length === 0) {
+            return { condition: '', params: [] };
+        }
+
+        const conditions: string[] = [];
+        const params: any[] = [];
+        const operator = cursorDirection === 'AFTER' ? '>' : '<';
+
+        // Build cursor condition for pagination
+        if (orderAttributes.length === 1 && orderAttributes[0] === '$sequence') {
+            // Simple case: single unique attribute
+            const attr = orderAttributes[0];
+            const dbKey = this.getInternalKeyForAttribute(attr);
+            const sanitizedKey = this.sanitize(dbKey);
+            conditions.push(`${this.quote(tableAlias)}.${this.quote(sanitizedKey)} ${operator} ?`);
+            params.push(cursor[attr]);
+        } else {
+            // Complex case: multiple attributes (tie-breaking)
+            for (let i = 0; i < orderAttributes.length; i++) {
+                const attr = orderAttributes[i];
+                if (!attr) continue;
+                const dbKey = this.getInternalKeyForAttribute(attr);
+                const sanitizedKey = this.sanitize(dbKey);
+
+                const equalityConditions = orderAttributes
+                    .slice(0, i)
+                    .filter((prevAttr): prevAttr is string => prevAttr !== undefined)
+                    .map(prevAttr => {
+                        const prevDbKey = this.getInternalKeyForAttribute(prevAttr);
+                        const prevSanitizedKey = this.sanitize(prevDbKey);
+                        params.push(cursor[prevAttr]);
+                        return `${this.quote(tableAlias)}.${this.quote(prevSanitizedKey)} = ?`;
+                    });
+
+                equalityConditions.push(`${this.quote(tableAlias)}.${this.quote(sanitizedKey)} ${operator} ?`);
+                params.push(cursor[attr]);
+
+                conditions.push(`(${equalityConditions.join(' AND ')})`);
+            }
+        }
+
+        return {
+            condition: conditions.length > 0 ? `(${conditions.join(' OR ')})` : '',
+            params
+        };
+    }
+
+
+
 
 
 

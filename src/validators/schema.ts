@@ -48,3 +48,4 @@ export const CollectionSchema = z.object({
 export type Collection = z.infer<typeof CollectionSchema>;
 export type Attribute = z.infer<typeof AttributeSchema>;
 export type Index = z.infer<typeof IndexSchema>;
+export type RelationOptions = z.infer<typeof AttributeOptions>;

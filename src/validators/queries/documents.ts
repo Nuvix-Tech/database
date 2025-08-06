@@ -9,6 +9,7 @@ import { Doc } from "@core/doc.js";
 import { Attribute } from "@validators/schema.js";
 import { AttributeEnum } from "@core/enums.js";
 import { Base } from "@validators/query/base.js";
+import { Populate } from "@validators/query/populate.js";
 
 export class Documents extends IndexedQueries {
     /**
@@ -64,6 +65,7 @@ export class Documents extends IndexedQueries {
             ),
             new Order(attributes),
             new Select(attributes),
+            new Populate(),
         ];
 
         super(attributes, indexes, validators);

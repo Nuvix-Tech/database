@@ -267,9 +267,9 @@ export class QueryBuilder {
      * @param builderFn - A function that receives a new QueryBuilder instance to define the nested query.
      * @returns {this} The current QueryBuilder instance for chaining.
      */
-    populate(attribute: string, builderFn: (builder: QueryBuilder) => void): this {
+    populate(attribute: string, builderFn?: (builder: QueryBuilder) => void): this {
         const nestedBuilder = new QueryBuilder();
-        builderFn(nestedBuilder);
+        builderFn?.(nestedBuilder);
         this.queries.push(Query.populate(attribute, nestedBuilder.build()));
         return this;
     }

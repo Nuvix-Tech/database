@@ -567,7 +567,7 @@ export class Query {
     public static groupByType(queries: Query[]): QueryByType {
         const filters: Query[] = [];
         const selections: Query[] = [];
-        const populate: Map<string, QueryByType> = new Map();
+        const populate: Map<string, Query[]> = new Map();
         let limit: number | null = null;
         let offset: number | null = null;
         const orderAttributes: string[] = [];
@@ -625,7 +625,7 @@ export class Query {
                     if (attribute) {
                         const populateQuery = query.clone();
                         populateQuery.setAttribute(attribute);
-                        populate.set(attribute, Query.groupByType(values as Query[]));
+                        populate.set(attribute, values as Query[]);
                     } else {
                         Logger.warn(`Populate query without attribute: ${query.toString()}`);
                     }

@@ -5,7 +5,7 @@ import { Cache } from "./cache.js";
 import { Cache as NuvixCache } from '@nuvix/cache';
 import { Entities, IEntity } from "types.js";
 import { QueryBuilder } from "@utils/query-builder.js";
-import { Query } from "./query.js";
+import { Query, QueryType } from "./query.js";
 import { Doc } from "./doc.js";
 import { AuthorizationException, DatabaseException, DependencyException, DuplicateException, IndexException, LimitException, NotFoundException, QueryException, StructureException } from "@errors/index.js";
 import { Permission } from "@utils/permission.js";
@@ -18,6 +18,7 @@ import { ID } from "@utils/id.js";
 import { Structure } from "@validators/structure.js";
 import { Adapter } from "@adapters/adapter.js";
 import { IndexDependency } from "@validators/index-dependency.js";
+import { MethodType } from "@validators/query/base.js";
 
 export class Database extends Cache {
     constructor(adapter: Adapter, cache: NuvixCache, options: DatabaseOptions = {}) {
@@ -1412,29 +1413,30 @@ export class Database extends Cache {
             throw new NotFoundException(`Collection '${collectionId}' not found.`);
         }
         if (!id) return new Doc();
-
+        let doc = new Doc();
         const collection = await this.silent(() => this.getCollection(collectionId, true));
         const validator = new Authorization(PermissionEnum.Read);
+        const processedQuery = await this.processQueries(query, collection);
 
-        if (collection.getId() !== Database.METADATA) {
-            if (!validator.$valid([
-                ...collection.getRead(),
-            ])) {
+        if (!processedQuery.populate?.length) {
+            const documentSecurity = collection.get('documentSecurity', false);
+            if (collection.getId() !== Database.METADATA) {
+                if (!validator.$valid([
+                    ...collection.getRead(),
+                ])) {
+                    return new Doc();
+                }
+            }
+
+            doc = await this.adapter.getDocument(collection.getId(), id, processedQuery);
+
+            if (doc.empty()) {
                 return new Doc();
             }
+
+            doc = this.cast(collection, doc);
+            doc = await this.decode(collection, doc);
         }
-
-        const processedQuery = await this.processQueries(query, collection);
-        const documentSecurity = collection.get('documentSecurity', false);
-
-        let doc = await this.adapter.getDocument(collection.getId(), id, processedQuery);
-
-        if (doc.empty()) {
-            return new Doc();
-        }
-
-        doc = this.cast(collection, doc);
-        doc = await this.decode(collection, doc);
 
         this.trigger(EventsEnum.DocumentRead, doc)
         return doc;
@@ -1536,6 +1538,32 @@ export class Database extends Cache {
         this.trigger(EventsEnum.DocumentCreate, decodedResult);
 
         return decodedResult as any;
+    }
+
+    public async createDocumentRelationships(collection: Doc<Collection>, document: Doc<any>): Promise<Doc<any>> {
+        const relationships = collection.get('attributes', [])
+            .filter(attr => attr.get('type') === AttributeEnum.Relationship);
+
+        for (const relationship of relationships) {
+            const relatedCollectionId = relationship.get('options', {}).relatedCollection;
+            if (!relatedCollectionId) continue;
+
+            const relatedCollection = await this.silent(() => this.getCollection(relatedCollectionId, true));
+            if (relatedCollection.empty()) continue;
+
+            const relatedDocumentId = document.get(relationship.get('key'));
+            if (!relatedDocumentId) continue;
+
+            const relatedDocument = await this.silent(() =>
+                this.getDocument(relatedCollection.getId(), relatedDocumentId)
+            );
+
+            if (relatedDocument.empty()) continue;
+
+            document.set(relationship.get('key'), relatedDocument);
+        }
+
+        return document;
     }
 
 
@@ -1663,6 +1691,38 @@ export class Database extends Cache {
         return decodedDocument;
     }
 
+
+
+
+
+
+
+
+
+
+
+    async find(collectionId: string, query: ((builder: QueryBuilder) => QueryBuilder) | Query[] = [], forUpdate: boolean = false): Promise<Doc<any>[]> {
+        const collection = await this.silent(() => this.getCollection(collectionId, true));
+
+        if (collection.empty()) {
+            return [];
+        }
+        let queries: Query[] = []
+        if (typeof query === 'function') {
+            queries = query(new QueryBuilder()).build();
+        } else {
+            queries = query;
+        }
+
+        const processedQueries = await this.processQueries(queries, collection);
+
+        return this.adapter.deepFind(collectionId, processedQueries);
+    }
+
+
+
+
+
     async processQueries(
         queries: ((builder: QueryBuilder) => QueryBuilder) | Query[],
         collection: Doc<Collection>,
@@ -1686,13 +1746,14 @@ export class Database extends Cache {
         }
 
         let { populate: _populate, selections } = Query.groupByType(queries);
+        console.log({ _populate }, 'IO')
         const attributes = collection.get('attributes', []);
 
         if (selections.length > 0) {
             const attributeMap = new Map(attributes.map(attr => [attr.get('$id'), attr]));
 
-            for (const query of selections) {
-                const attributeId = query.getAttribute();
+            for (const query of (selections.map(s => s.getValues()).flat())) {
+                const attributeId = query as string;
                 const attribute = attributeMap.get(attributeId);
 
                 if (!attribute) {
@@ -1719,6 +1780,7 @@ export class Database extends Cache {
         const populate: ProcessQuery[] = [];
 
         for (const [attribute, values] of _populate.entries()) {
+            console.log([attribute, values])
             const attributeDoc = attributes.find(attr => attr.get('$id') === attribute);
             if (!attributeDoc) {
                 throw new QueryException(`Attribute '${attribute}' not found in collection '${collection.getId()}'.`);
@@ -1732,10 +1794,10 @@ export class Database extends Cache {
                 throw new QueryException(`Populate query for attribute '${attribute}' must be an array of queries.`);
             }
 
-            const relatedCollectionId = attributeDoc.get('options', {} as any)['relatedCollection'];
+            const relatedCollectionId = attributeDoc.get('options', {})['relatedCollection'];
             const relatedCollection = await this.silent(() => this.getCollection(relatedCollectionId));
             if (relatedCollection.empty()) {
-                throw new NotFoundException(`Collection '${relatedCollectionId}' not found for attribute '${attribute}'.`);
+                throw new QueryException(`Collection '${relatedCollectionId}' not found for attribute '${attribute}'.`);
             }
 
             const processedQueries = await this.processQueries(values, relatedCollection, {

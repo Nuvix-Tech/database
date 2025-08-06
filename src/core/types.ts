@@ -37,7 +37,7 @@ export type QueryByType = {
     orderTypes: ('ASC' | 'DESC')[];
     cursor: string | number | null;
     cursorDirection: 'AFTER' | 'BEFORE' | null;
-    populate: Map<string, QueryByType>;
+    populate: Map<string, Query[]>;
 }
 
 
