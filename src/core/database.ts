@@ -1689,22 +1689,9 @@ export class Database extends Cache {
         return decodedDocument;
     }
 
-
-
-
-
-
-
-
-
-
-
     async find<C>(collectionId: string, query: ((builder: QueryBuilder) => QueryBuilder) | Query[] = [], forUpdate: boolean = false): Promise<Doc<any>[]> {
         const collection = await this.silent(() => this.getCollection(collectionId, true));
 
-        if (collection.empty()) {
-            return [];
-        }
         let queries: Query[] = []
         if (typeof query === 'function') {
             queries = query(new QueryBuilder()).build();
@@ -1714,12 +1701,12 @@ export class Database extends Cache {
 
         const processedQueries = await this.processQueries(queries, collection);
 
-        return this.adapter.findWithRelations(collectionId, processedQueries);
+        const rows = await this.adapter.findWithRelations(collectionId, processedQueries);
+
+        const result = this.processFindResults(rows, processedQueries)
+
+        return result;
     }
-
-
-
-
 
     /**
      * Processes queries for a collection, validating and authorizing them.

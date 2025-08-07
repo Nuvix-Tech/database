@@ -1,6 +1,6 @@
-import { Attribute, Collection } from "@validators/schema.js";
+import { Attribute, Collection, RelationOptions } from "@validators/schema.js";
 import { Emitter, EmitterEventMap } from "./emitter.js";
-import { AttributeEnum, EventsEnum, PermissionEnum } from "./enums.js";
+import { AttributeEnum, EventsEnum, PermissionEnum, RelationEnum, RelationSideEnum } from "./enums.js";
 import { Cache } from "@nuvix/cache";
 import { Filter, Filters } from "./types.js";
 import { Meta } from "@adapters/base.js";
@@ -9,6 +9,7 @@ import { Doc } from "./doc.js";
 import { DatabaseException, DuplicateException, LimitException, NotFoundException } from "@errors/index.js";
 import { Structure } from "@validators/structure.js";
 import { Adapter } from "@adapters/adapter.js";
+import { PopulateQuery, ProcessedQuery } from "./database.js";
 
 export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends Emitter<T> {
     public static METADATA = '_metadata' as const;
@@ -717,6 +718,150 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
 
         return attributes;
     }
+
+    /**
+     * Processes the results from Find to group related data properly
+     */
+    protected processFindResults(rows: any[], query: ProcessedQuery): any[] {
+        if (!rows.length) return [];
+
+        const documentsMap = new Map<string, any>();
+
+        // Group rows by main document ID
+        for (const row of rows) {
+            const mainId = row['$id'] || row['$sequence'];
+
+            if (!documentsMap.has(mainId)) {
+                // Initialize main document
+                const mainDoc: any = {};
+
+                // Extract main document fields (fields without underscores in the middle)
+                for (const [key, value] of Object.entries(row)) {
+                    if (typeof key === 'string' && !key.includes('_') && key.startsWith('$')) {
+                        mainDoc[key] = value;
+                    } else if (typeof key === 'string' && !key.includes('_')) {
+                        mainDoc[key] = value;
+                    }
+                }
+
+                // Initialize populated relationships
+                if (query.populateQueries) {
+                    this.initializeRelationships(mainDoc, query.populateQueries, query.collection);
+                }
+
+                documentsMap.set(mainId, mainDoc);
+            }
+
+            // Process populated relationships
+            if (query.populateQueries) {
+                this.processPopulatedData(documentsMap.get(mainId), query.collection, row, query.populateQueries, 0, '');
+            }
+        }
+
+        return Array.from(documentsMap.values());
+    }
+
+    /**
+     * Initialize relationship fields in the main document
+     */
+    private initializeRelationships(document: Record<string, any>, populateQueries: PopulateQuery[], collection: Doc<Collection>): void {
+        for (const populateQuery of populateQueries) {
+            const relationshipAttr = collection.get('attributes', [])
+                .find((attr) => attr.get('type') === AttributeEnum.Relationship && attr.get('key', attr.getId()) === populateQuery.attribute);
+
+            if (relationshipAttr) {
+                const options = relationshipAttr.get('options', {}) as RelationOptions;
+                const relationType = options.relationType;
+                const side = options.side;
+                const relationshipKey = relationshipAttr.get('key', relationshipAttr.getId());
+
+                if ((relationType === RelationEnum.OneToMany && side === RelationSideEnum.Parent)
+                    || (relationType === RelationEnum.ManyToOne && side === RelationSideEnum.Child)
+                    || relationType === RelationEnum.ManyToMany
+                ) {
+                    document[relationshipKey] = [];
+                } else {
+                    document[relationshipKey] = null;
+                }
+            }
+        }
+    }
+
+    /**
+     * Recursively processes populated relationship data
+     */
+    private processPopulatedData(
+        document: Record<string, any>,
+        collection: Doc<Collection>,
+        row: Record<string, any>,
+        populate: PopulateQuery[],
+        depth: number,
+        parentPrefix: string = ''
+    ): void {
+        for (let i = 0; i < populate.length; i++) {
+            const { attribute, ...populateQuery }: PopulateQuery = populate[i]!;
+            const relationshipAttr = collection.get('attributes', [])
+                .find((attr) => attr.get('type') === AttributeEnum.Relationship && attr.get('key', attr.getId()) === attribute);
+
+            if (!relationshipAttr) continue;
+
+            const options = relationshipAttr.get('options', {}) as RelationOptions;
+            const relationshipKey = relationshipAttr.get('key', relationshipAttr.getId());
+            const relationType = options.relationType;
+            const side = options.side;
+
+            // Build the correct prefix for this relationship level
+            const currentPrefix = parentPrefix ?
+                `${parentPrefix}_${relationshipKey}_` :
+                `${relationshipKey}_`;
+
+            // Extract related document data
+            const relatedDoc: Record<string, any> = {};
+            let hasRelatedData = false;
+
+            for (const [key, value] of Object.entries(row)) {
+                if (typeof key === 'string' && key.startsWith(currentPrefix)) {
+                    const cleanKey = key.substring(currentPrefix.length);
+
+                    // Only include direct fields, not nested relationship fields
+                    if (!cleanKey.includes('_') || cleanKey.startsWith('$')) {
+                        relatedDoc[cleanKey] = value;
+                        if (value !== null && value !== undefined) {
+                            hasRelatedData = true;
+                        }
+                    }
+                }
+            }
+
+            if (hasRelatedData) {
+                // Initialize nested relationships if they exist
+                if (populateQuery.populateQueries && populateQuery.populateQueries.length > 0) {
+                    this.initializeRelationships(relatedDoc, populateQuery.populateQueries, populateQuery.collection);
+                    // Process nested relationships recursively
+                    this.processPopulatedData(relatedDoc, populateQuery.collection, row, populateQuery.populateQueries, depth + 1, currentPrefix.slice(0, -1));
+                }
+
+                // Add to document based on relationship type
+                if ((relationType === RelationEnum.OneToMany && side === RelationSideEnum.Parent)
+                    || (relationType === RelationEnum.ManyToOne && side === RelationSideEnum.Child)
+                    || relationType === RelationEnum.ManyToMany
+                ) {
+                    // Array relationship - check for duplicates
+                    document[relationshipKey] ??= [];
+                    const relatedId = relatedDoc['$id'] || relatedDoc['$sequence'];
+                    if (relatedId && !document[relationshipKey].some((item: any) => (item['$id'] || item['$sequence']) === relatedId)) {
+                        document[relationshipKey].push(relatedDoc);
+                    }
+                } else {
+                    // Single relationship
+                    if (!document[relationshipKey]) {
+                        document[relationshipKey] = relatedDoc;
+                    }
+                }
+            }
+        }
+    }
+
 }
 
 type Options = {

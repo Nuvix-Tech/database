@@ -959,15 +959,14 @@ export abstract class BaseAdapter extends EventEmitter {
 
         const quotedRolesArray = `ARRAY[${roles.map(role => this.client.quote(role)).join(', ')}]::text[]`;
 
-        return `
-        ${this.quote(alias)}.${this.quote('_id')} IN (
-            SELECT ${this.quote('_document')}
-            FROM ${this.getSQLTable(`${collection}_perms`)}
-            WHERE ${this.quote('_permissions')} && ${quotedRolesArray}
-              AND ${this.quote('_type')} = ${this.client.quote(type)}
-              ${this.getTenantQuery(collection)}
-            )
-        `.trim();
+        return `EXISTS (
+            SELECT 1
+            FROM ${this.getSQLTable(`${collection}_perms`)} p
+            WHERE p.${this.quote('_document')} = ${this.quote(alias)}.${this.quote('_id')}
+              AND p.${this.quote('_type')} = ${this.client.quote(type)}
+              AND p.${this.quote('_permissions')} && ${quotedRolesArray}
+              ${this.getTenantQuery(collection, 'p')}
+        )`.trim();
     }
 
     /**
