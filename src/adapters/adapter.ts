@@ -1033,37 +1033,18 @@ export class Adapter extends BaseAdapter implements IAdapter {
                 // Initialize main document
                 const mainDoc: any = {};
 
-                // Extract main document fields
-                // TODO: instead use attributes from collection to map exactly. 
+                // Extract main document fields (fields without underscores in the middle)
                 for (const [key, value] of Object.entries(row)) {
-                    if (typeof key === 'string' && !key.includes('_')) {
+                    if (typeof key === 'string' && !key.includes('_') && key.startsWith('$')) {
+                        mainDoc[key] = value;
+                    } else if (typeof key === 'string' && !key.includes('_')) {
                         mainDoc[key] = value;
                     }
                 }
 
                 // Initialize populated relationships
                 if (query.populateQueries) {
-                    for (let i = 0; i < query.populateQueries.length; i++) {
-                        const populateQuery: PopulateQuery = query.populateQueries[i]!;
-                        const relationshipAttr = populateQuery.collection.get('attributes', [])
-                            .find((attr) => attr.get('type') === AttributeEnum.Relationship);
-
-                        if (relationshipAttr) {
-                            const relationshipKey = relationshipAttr.get('key', relationshipAttr.getId());
-                            const options = relationshipAttr.get('options', {}) as RelationOptions;
-                            const relationType = options.relationType;
-                            const side = options.side;
-
-                            if ((relationType === RelationEnum.OneToMany && side === RelationSideEnum.Parent)
-                                || (relationType === RelationEnum.ManyToOne && side === RelationSideEnum.Child)
-                                || relationType === RelationEnum.ManyToMany
-                            ) {
-                                mainDoc[relationshipKey] = [];
-                            } else {
-                                mainDoc[relationshipKey] = null;
-                            }
-                        }
-                    }
+                    this.initializeRelationships(mainDoc, query.populateQueries, query.collection);
                 }
 
                 documentsMap.set(mainId, mainDoc);
@@ -1071,7 +1052,7 @@ export class Adapter extends BaseAdapter implements IAdapter {
 
             // Process populated relationships
             if (query.populateQueries) {
-                this.processPopulatedData(documentsMap.get(mainId), row, query.populateQueries, 0);
+                this.processPopulatedData(documentsMap.get(mainId), query.collection, row, query.populateQueries, 0, '');
             }
         }
 
@@ -1079,60 +1060,98 @@ export class Adapter extends BaseAdapter implements IAdapter {
     }
 
     /**
+     * Initialize relationship fields in the main document
+     */
+    private initializeRelationships(document: Record<string, any>, populateQueries: PopulateQuery[], collection: Doc<Collection>): void {
+        for (const populateQuery of populateQueries) {
+            const relationshipAttr = collection.get('attributes', [])
+                .find((attr) => attr.get('type') === AttributeEnum.Relationship && attr.get('key', attr.getId()) === populateQuery.attribute);
+
+            if (relationshipAttr) {
+                const options = relationshipAttr.get('options', {}) as RelationOptions;
+                const relationType = options.relationType;
+                const side = options.side;
+                const relationshipKey = relationshipAttr.get('key', relationshipAttr.getId());
+
+                if ((relationType === RelationEnum.OneToMany && side === RelationSideEnum.Parent)
+                    || (relationType === RelationEnum.ManyToOne && side === RelationSideEnum.Child)
+                    || relationType === RelationEnum.ManyToMany
+                ) {
+                    document[relationshipKey] = [];
+                } else {
+                    document[relationshipKey] = null;
+                }
+            }
+        }
+    }
+
+    /**
      * Recursively processes populated relationship data
      */
     private processPopulatedData(
         document: Record<string, any>,
+        collection: Doc<Collection>,
         row: Record<string, any>,
         populate: PopulateQuery[],
-        depth: number
+        depth: number,
+        parentPrefix: string = ''
     ): void {
         for (let i = 0; i < populate.length; i++) {
-            const populateQuery: PopulateQuery = populate[i]!;
-            const relationshipAttr: undefined | Doc<Attribute> = populateQuery.collection.get('attributes', [])
-                .find((attr: Doc<Attribute>) => attr.get('type') === AttributeEnum.Relationship);
+            const { attribute, ...populateQuery }: PopulateQuery = populate[i]!;
+            const relationshipAttr = collection.get('attributes', [])
+                .find((attr) => attr.get('type') === AttributeEnum.Relationship && attr.get('key', attr.getId()) === attribute);
 
             if (!relationshipAttr) continue;
 
             const options = relationshipAttr.get('options', {}) as RelationOptions;
             const relationshipKey = relationshipAttr.get('key', relationshipAttr.getId());
             const relationType = options.relationType;
-            const prefix = `${relationshipKey}_`;
             const side = options.side;
+
+            // Build the correct prefix for this relationship level
+            const currentPrefix = parentPrefix ?
+                `${parentPrefix}_${relationshipKey}_` :
+                `${relationshipKey}_`;
 
             // Extract related document data
             const relatedDoc: Record<string, any> = {};
             let hasRelatedData = false;
 
             for (const [key, value] of Object.entries(row)) {
-                if (typeof key === 'string' && key.startsWith(prefix)) {
-                    const cleanKey = key.substring(prefix.length);
-                    relatedDoc[cleanKey] = value;
-                    if (value !== null && value !== undefined) {
-                        hasRelatedData = true;
+                if (typeof key === 'string' && key.startsWith(currentPrefix)) {
+                    const cleanKey = key.substring(currentPrefix.length);
+
+                    // Only include direct fields, not nested relationship fields
+                    if (!cleanKey.includes('_') || cleanKey.startsWith('$')) {
+                        relatedDoc[cleanKey] = value;
+                        if (value !== null && value !== undefined) {
+                            hasRelatedData = true;
+                        }
                     }
                 }
             }
 
             if (hasRelatedData) {
-                // Process nested relationships recursively
+                // Initialize nested relationships if they exist
                 if (populateQuery.populateQueries && populateQuery.populateQueries.length > 0) {
-                    this.processPopulatedData(relatedDoc, row, populateQuery.populateQueries, depth + 1);
+                    this.initializeRelationships(relatedDoc, populateQuery.populateQueries, populateQuery.collection);
+                    // Process nested relationships recursively
+                    this.processPopulatedData(relatedDoc, populateQuery.collection, row, populateQuery.populateQueries, depth + 1, currentPrefix.slice(0, -1));
                 }
 
                 // Add to document based on relationship type
-                if ((relationType === RelationEnum.OneToMany && side === RelationSideEnum.Child)
-                    || (relationType === RelationEnum.ManyToOne && side === RelationSideEnum.Parent)
+                if ((relationType === RelationEnum.OneToMany && side === RelationSideEnum.Parent)
+                    || (relationType === RelationEnum.ManyToOne && side === RelationSideEnum.Child)
                     || relationType === RelationEnum.ManyToMany
                 ) {
-                    // Check if this related document already exists in the array
+                    // Array relationship - check for duplicates
                     document[relationshipKey] ??= [];
                     const relatedId = relatedDoc['$id'] || relatedDoc['$sequence'];
                     if (relatedId && !document[relationshipKey].some((item: any) => (item['$id'] || item['$sequence']) === relatedId)) {
                         document[relationshipKey].push(relatedDoc);
                     }
                 } else {
-                    // OneToOne or ManyToOne - single object
+                    // Single relationship
                     if (!document[relationshipKey]) {
                         document[relationshipKey] = relatedDoc;
                     }
@@ -1247,26 +1266,27 @@ export class Adapter extends BaseAdapter implements IAdapter {
         // Recursively handle populated queries (relationships)
         for (let i = 0; i < populateQueries.length; i++) {
             const populateQuery: PopulateQuery = populateQueries[i]!;
-            const relationshipAttr = populateQuery.collection.get('attributes', [])
-                .find((attr) => attr.get('type') === AttributeEnum.Relationship);
+            const { attribute, ...rest } = populateQuery;
+            const relationshipAttr = collection.get('attributes', [])
+                .find((attr) => attr.get('type') === AttributeEnum.Relationship && attr.get('key', attr.getId()) === attribute);
 
             if (!relationshipAttr) continue;
 
             const relationAlias = `rel_${depth}_${i}`;
             const parentAlias = tableAlias;
             const options = relationshipAttr.get('options', {}) as RelationOptions;
-            const relationType = options.relationType;
-            const relationshipKey = relationshipAttr.get('key', relationshipAttr.getId());
-            const twoWayKey = options.twoWayKey;
             const side = options.side;
+            const relationType = options.relationType;
+            const twoWayKey = options.twoWayKey;
+            const relationshipKey = relationshipAttr.get('key', relationshipAttr.getId());
 
-            const relatedTableName = this.sanitize(populateQuery.collection.getId());
+            const relatedTableName = this.sanitize(options.relatedCollection);
             const relatedTable = this.getSQLTable(relatedTableName);
 
             const joinCondition = this.buildJoinCondition(
                 relationType,
-                relationAlias,
                 parentAlias,
+                relationAlias,
                 relationshipKey,
                 twoWayKey,
                 side
@@ -1284,7 +1304,8 @@ export class Adapter extends BaseAdapter implements IAdapter {
 
             // Recursively handle nested population
             const nestedResult = this.handleConditions({
-                ...populateQuery,
+                attribute,
+                ...rest,
                 depth: depth + 1,
                 tableAlias: relationAlias
             });
@@ -1292,8 +1313,9 @@ export class Adapter extends BaseAdapter implements IAdapter {
             // Prefix the selections to avoid conflicts
             const prefixedSelections = nestedResult.selectionsSql.map(sel => {
                 const parts = sel.split(' AS ');
+                const prefix = (side === RelationSideEnum.Child && options.twoWay) ? twoWayKey : relationshipKey;
                 if (parts.length === 2 && parts[1]) {
-                    return `${parts[0]} AS ${this.quote(`${relationshipKey}_${parts[1].replace(/"/g, '')}`)}`;
+                    return `${parts[0]} AS ${this.quote(`${prefix}_${parts[1].replace(/"/g, '')}`)}`;
                 }
                 return sel;
             });

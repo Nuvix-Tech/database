@@ -229,9 +229,7 @@ export class Database extends Cache {
             Query.offset(offset)
         ];
 
-        // TODO: --
-        // return this.find<Collection>(Database.METADATA, query);
-        return []
+        return this.find<Collection>(Database.METADATA, query);
     }
 
     /**
@@ -1701,7 +1699,7 @@ export class Database extends Cache {
 
 
 
-    async find(collectionId: string, query: ((builder: QueryBuilder) => QueryBuilder) | Query[] = [], forUpdate: boolean = false): Promise<Doc<any>[]> {
+    async find<C>(collectionId: string, query: ((builder: QueryBuilder) => QueryBuilder) | Query[] = [], forUpdate: boolean = false): Promise<Doc<any>[]> {
         const collection = await this.silent(() => this.getCollection(collectionId, true));
 
         if (collection.empty()) {
@@ -1728,6 +1726,7 @@ export class Database extends Cache {
         collection: Doc<Collection>,
         metadata: Partial<Attribute['options']> & {
             populated?: boolean;
+            attribute?: string;
         } = {},
     ): Promise<ProcessedQuery> {
         if (typeof queries === 'function') {
@@ -1776,7 +1775,7 @@ export class Database extends Cache {
             };
         }
 
-        const processedPopulateQueries: ProcessedQuery[] = [];
+        const processedPopulateQueries: PopulateQuery[] = [];
 
         for (const [attribute, values] of populateQueries.entries()) {
             console.log([attribute, values])
@@ -1801,15 +1800,17 @@ export class Database extends Cache {
 
             const processedQueries = await this.processQueries(values, relatedCollection, {
                 populated: true,
+                attribute,
                 ...attributeDoc.get('options', {})
             });
-            processedPopulateQueries.push(processedQueries);
+            processedPopulateQueries.push(processedQueries as PopulateQuery);
         }
 
         return {
             collection,
             selections: selections.map(q => q.getValues() as unknown as string[]).flat(),
             populateQueries: processedPopulateQueries,
+            attribute: metadata.attribute,
             ...rest,
         };
     }
@@ -1820,9 +1821,12 @@ export interface ProcessedQuery
     collection: Doc<Collection>;
     selections: string[];
     populateQueries?: PopulateQuery[]
+    attribute?: string;
 }
 
-export type PopulateQuery = Omit<ProcessedQuery, 'limit' | 'offset'>;
+export type PopulateQuery = Omit<ProcessedQuery, 'limit' | 'offset' | 'attribute'> & {
+    attribute: string;
+};
 
 export type DatabaseOptions = {
     tenant?: number;
