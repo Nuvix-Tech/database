@@ -722,39 +722,34 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
     /**
      * Processes the results from Find to group related data properly
      */
-    protected processFindResults(rows: any[], query: ProcessedQuery): any[] {
+    protected async processFindResults(rows: any[], { ...query }: ProcessedQuery): Promise<any[]> {
         if (!rows.length) return [];
 
         const documentsMap = new Map<string, any>();
+        const internalAttrs = this.getInternalAttributes().map(a => a.$id);
+        const selections = [...internalAttrs, '$collection', ...query.selections];
 
         // Group rows by main document ID
         for (const row of rows) {
             const mainId = row['$id'] || row['$sequence'];
+            if (!mainId) continue;
 
             if (!documentsMap.has(mainId)) {
-                // Initialize main document
-                const mainDoc: any = {};
+                const mainDoc: Record<string, any> = {};
 
-                // Extract main document fields (fields without underscores in the middle)
-                for (const [key, value] of Object.entries(row)) {
-                    if (typeof key === 'string' && !key.includes('_') && key.startsWith('$')) {
-                        mainDoc[key] = value;
-                    } else if (typeof key === 'string' && !key.includes('_')) {
-                        mainDoc[key] = value;
-                    }
+                for (const attr of selections) {
+                    mainDoc[attr] = attr === '$collection' ? query.collection.getId() : row[attr];
                 }
 
-                // Initialize populated relationships
-                if (query.populateQueries) {
+                if (query.populateQueries?.length) {
                     this.initializeRelationships(mainDoc, query.populateQueries, query.collection);
                 }
 
                 documentsMap.set(mainId, mainDoc);
             }
 
-            // Process populated relationships
-            if (query.populateQueries) {
-                this.processPopulatedData(documentsMap.get(mainId), query.collection, row, query.populateQueries, 0, '');
+            if (query.populateQueries?.length) {
+                this.processPopulatedData(documentsMap.get(mainId)!, query.collection, row, query.populateQueries, 0);
             }
         }
 
@@ -810,38 +805,33 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
             const relationType = options.relationType;
             const side = options.side;
 
-            // Build the correct prefix for this relationship level
             const currentPrefix = parentPrefix ?
                 `${parentPrefix}_${relationshipKey}_` :
                 `${relationshipKey}_`;
+            const internalAttrs = this.getInternalAttributes().map(a => a.$id);
+            const selections = [...internalAttrs, '$collection', ...populateQuery.selections];
 
-            // Extract related document data
             const relatedDoc: Record<string, any> = {};
             let hasRelatedData = false;
 
-            for (const [key, value] of Object.entries(row)) {
-                if (typeof key === 'string' && key.startsWith(currentPrefix)) {
-                    const cleanKey = key.substring(currentPrefix.length);
-
-                    // Only include direct fields, not nested relationship fields
-                    if (!cleanKey.includes('_') || cleanKey.startsWith('$')) {
-                        relatedDoc[cleanKey] = value;
-                        if (value !== null && value !== undefined) {
-                            hasRelatedData = true;
-                        }
+            for (const attr of selections) {
+                if (attr === '$collection') relatedDoc[attr] = populateQuery.collection.getId();
+                else {
+                    const key = `${currentPrefix}${attr}`;
+                    const value = row[key];
+                    if (value !== null && value !== undefined) {
+                        hasRelatedData = true;
                     }
+                    relatedDoc[attr] = value;
                 }
             }
 
             if (hasRelatedData) {
-                // Initialize nested relationships if they exist
                 if (populateQuery.populateQueries && populateQuery.populateQueries.length > 0) {
                     this.initializeRelationships(relatedDoc, populateQuery.populateQueries, populateQuery.collection);
-                    // Process nested relationships recursively
                     this.processPopulatedData(relatedDoc, populateQuery.collection, row, populateQuery.populateQueries, depth + 1, currentPrefix.slice(0, -1));
                 }
 
-                // Add to document based on relationship type
                 if ((relationType === RelationEnum.OneToMany && side === RelationSideEnum.Parent)
                     || (relationType === RelationEnum.ManyToOne && side === RelationSideEnum.Child)
                     || relationType === RelationEnum.ManyToMany

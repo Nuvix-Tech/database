@@ -1703,7 +1703,7 @@ export class Database extends Cache {
 
         const rows = await this.adapter.findWithRelations(collectionId, processedQueries);
 
-        const result = this.processFindResults(rows, processedQueries)
+        const result = await this.processFindResults(rows, processedQueries)
 
         return result;
     }
