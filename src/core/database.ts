@@ -1,6 +1,6 @@
 import { AttributeEnum, EventsEnum, IndexEnum, OnDelete, PermissionEnum, RelationEnum, RelationSideEnum } from "./enums.js";
 import { Attribute, Collection, Index } from "@validators/schema.js";
-import { CreateCollection, CreateRelationshipAttribute, Filters, UpdateCollection } from "./types.js";
+import { CreateCollection, CreateRelationshipAttribute, Filters, QueryByType, UpdateCollection } from "./types.js";
 import { Cache } from "./cache.js";
 import { Cache as NuvixCache } from '@nuvix/cache';
 import { Entities, IEntity } from "types.js";
@@ -1418,7 +1418,7 @@ export class Database extends Cache {
         const validator = new Authorization(PermissionEnum.Read);
         const processedQuery = await this.processQueries(query, collection);
 
-        if (!processedQuery.populate?.length) {
+        if (!processedQuery.populateQueries?.length) {
             const documentSecurity = collection.get('documentSecurity', false);
             if (collection.getId() !== Database.METADATA) {
                 if (!validator.$valid([
@@ -1729,8 +1729,8 @@ export class Database extends Cache {
         metadata: Partial<Attribute['options']> & {
             populated?: boolean;
         } = {},
-    ): Promise<ProcessQuery> {
-        if (!Array.isArray(queries)) {
+    ): Promise<ProcessedQuery> {
+        if (typeof queries === 'function') {
             queries = queries(new QueryBuilder()).build();
         }
 
@@ -1745,8 +1745,7 @@ export class Database extends Cache {
             }
         }
 
-        let { populate: _populate, selections } = Query.groupByType(queries);
-        console.log({ _populate }, 'IO')
+        let { populateQueries, selections, ...rest } = Query.groupByType(queries);
         const attributes = collection.get('attributes', []);
 
         if (selections.length > 0) {
@@ -1769,17 +1768,17 @@ export class Database extends Cache {
             selections = [Query.select(attributes.filter(a => a.get('type') !== AttributeEnum.Relationship && a.get('type') !== AttributeEnum.Virtual).map(a => a.get('key', a.getId())))];
         }
 
-        if (!_populate.size) {
+        if (!populateQueries.size) {
             return {
-                queries,
                 collection,
                 selections: selections.map(q => q.getValues() as unknown as string[]).flat(),
+                ...rest,
             };
         }
 
-        const populate: ProcessQuery[] = [];
+        const processedPopulateQueries: ProcessedQuery[] = [];
 
-        for (const [attribute, values] of _populate.entries()) {
+        for (const [attribute, values] of populateQueries.entries()) {
             console.log([attribute, values])
             const attributeDoc = attributes.find(attr => attr.get('$id') === attribute);
             if (!attributeDoc) {
@@ -1804,24 +1803,26 @@ export class Database extends Cache {
                 populated: true,
                 ...attributeDoc.get('options', {})
             });
-            populate.push(processedQueries);
+            processedPopulateQueries.push(processedQueries);
         }
 
         return {
-            queries,
             collection,
             selections: selections.map(q => q.getValues() as unknown as string[]).flat(),
-            populate
+            populateQueries: processedPopulateQueries,
+            ...rest,
         };
     }
 }
 
-export interface ProcessQuery {
-    queries: Query[];
+export interface ProcessedQuery
+    extends Omit<QueryByType, 'selections' | 'populateQueries'> {
     collection: Doc<Collection>;
     selections: string[];
-    populate?: ProcessQuery[]
+    populateQueries?: PopulateQuery[]
 }
+
+export type PopulateQuery = Omit<ProcessedQuery, 'limit' | 'offset'>;
 
 export type DatabaseOptions = {
     tenant?: number;

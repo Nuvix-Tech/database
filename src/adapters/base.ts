@@ -4,7 +4,7 @@ import { IAdapter, IClient } from "./interface.js";
 import { AttributeEnum, CursorEnum, EventsEnum, IndexEnum, OrderEnum, PermissionEnum } from "@core/enums.js";
 import { Find, IncreaseDocumentAttribute } from "./types.js";
 import { Doc } from "@core/doc.js";
-import { Database, ProcessQuery } from "@core/database.js";
+import { Database, ProcessedQuery } from "@core/database.js";
 import { QueryBuilder } from "@utils/query-builder.js";
 import { Query, QueryType } from "@core/query.js";
 import { Entities, IEntity } from "types.js";
@@ -38,7 +38,7 @@ export abstract class BaseAdapter extends EventEmitter {
     readonly $documentSizeLimit: number = 16777216;
     readonly $supportForCasting: boolean = true;
     readonly $supportForNumericCasting: boolean = true;
-       readonly $supportForQueryContains: boolean = true;
+    readonly $supportForQueryContains: boolean = true;
     readonly $supportForIndexArray: boolean = true;
     readonly $supportForCastIndexArray: boolean = true;
     readonly $supportForRelationships: boolean = true;
@@ -191,19 +191,19 @@ export abstract class BaseAdapter extends EventEmitter {
     public async getDocument<C extends (string & keyof Entities)>(
         collection: C,
         id: string,
-        queries?: ProcessQuery | null,
+        queries?: ProcessedQuery | null,
         forUpdate?: boolean
     ): Promise<Doc<Entities[C]>>;
     public async getDocument<C extends Record<string, any>>(
         collection: string,
         id: string,
-        queries?: ProcessQuery | null,
+        queries?: ProcessedQuery | null,
         forUpdate?: boolean
     ): Promise<Doc<Partial<IEntity> & C>>;
     public async getDocument(
         collection: string,
         id: string,
-        { queries, selections }: ProcessQuery,
+        { filters, selections }: ProcessedQuery,
         forUpdate: boolean = false
     ): Promise<Doc<Partial<IEntity> & Record<string, any>>> {
         if (!collection || !id) {
@@ -1027,6 +1027,9 @@ export abstract class BaseAdapter extends EventEmitter {
         return `${condition} (${quotedAlias}${dot}${this.quote('_tenant')} IN (${bindingsStr})${orIsNull})`;
     }
 
+    /**
+     * @deprecated use buildSelection instead
+     */
     protected getAttributeProjection(selections: string[], prefix: string): string {
         if (!selections.length) throw new DatabaseException('Selections are required internally.');
 

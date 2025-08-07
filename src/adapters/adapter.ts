@@ -4,7 +4,7 @@ import { PostgresClient } from "./postgres.js";
 import { AttributeEnum, EventsEnum, IndexEnum, RelationEnum, RelationSideEnum } from "@core/enums.js";
 import { CreateCollectionOptions, IAdapter } from "./interface.js";
 import { DatabaseException } from "@errors/base.js";
-import { Database, ProcessQuery } from "@core/database.js";
+import { Database, PopulateQuery, ProcessedQuery } from "@core/database.js";
 import { Doc } from "@core/doc.js";
 import { NotFoundException } from "@errors/index.js";
 import { Attribute, Collection, RelationOptions } from "@validators/schema.js";
@@ -994,7 +994,7 @@ export class Adapter extends BaseAdapter implements IAdapter {
         return sql;
     }
 
-    public async deepFind(collection: string, query: ProcessQuery, options: {
+    public async deepFind(collection: string, query: ProcessedQuery, options: {
         limit?: number;
         offset?: number;
         orderAttributes?: string[];
@@ -1020,7 +1020,7 @@ export class Adapter extends BaseAdapter implements IAdapter {
     /**
      * Processes the results from deepFind to group related data properly
      */
-    private processDeepFindResults(rows: any[], query: ProcessQuery): any[] {
+    private processDeepFindResults(rows: any[], query: ProcessedQuery): any[] {
         if (!rows.length) return [];
 
         const documentsMap = new Map<string, any>();
@@ -1042,9 +1042,9 @@ export class Adapter extends BaseAdapter implements IAdapter {
                 }
 
                 // Initialize populated relationships
-                if (query.populate) {
-                    for (let i = 0; i < query.populate.length; i++) {
-                        const populateQuery: ProcessQuery = query.populate[i]!;
+                if (query.populateQueries) {
+                    for (let i = 0; i < query.populateQueries.length; i++) {
+                        const populateQuery: PopulateQuery = query.populateQueries[i]!;
                         const relationshipAttr = populateQuery.collection.get('attributes', [])
                             .find((attr) => attr.get('type') === AttributeEnum.Relationship);
 
@@ -1070,8 +1070,8 @@ export class Adapter extends BaseAdapter implements IAdapter {
             }
 
             // Process populated relationships
-            if (query.populate) {
-                this.processPopulatedData(documentsMap.get(mainId), row, query.populate, 0);
+            if (query.populateQueries) {
+                this.processPopulatedData(documentsMap.get(mainId), row, query.populateQueries, 0);
             }
         }
 
@@ -1084,18 +1084,18 @@ export class Adapter extends BaseAdapter implements IAdapter {
     private processPopulatedData(
         document: Record<string, any>,
         row: Record<string, any>,
-        populate: ProcessQuery[],
+        populate: PopulateQuery[],
         depth: number
     ): void {
         for (let i = 0; i < populate.length; i++) {
-            const populateQuery: ProcessQuery = populate[i]!;
+            const populateQuery: PopulateQuery = populate[i]!;
             const relationshipAttr: undefined | Doc<Attribute> = populateQuery.collection.get('attributes', [])
                 .find((attr: Doc<Attribute>) => attr.get('type') === AttributeEnum.Relationship);
 
             if (!relationshipAttr) continue;
 
-            const relationshipKey = relationshipAttr.get('key', relationshipAttr.getId());
             const options = relationshipAttr.get('options', {}) as RelationOptions;
+            const relationshipKey = relationshipAttr.get('key', relationshipAttr.getId());
             const relationType = options.relationType;
             const prefix = `${relationshipKey}_`;
             const side = options.side;
@@ -1116,8 +1116,8 @@ export class Adapter extends BaseAdapter implements IAdapter {
 
             if (hasRelatedData) {
                 // Process nested relationships recursively
-                if (populateQuery.populate && populateQuery.populate.length > 0) {
-                    this.processPopulatedData(relatedDoc, row, populateQuery.populate, depth + 1);
+                if (populateQuery.populateQueries && populateQuery.populateQueries.length > 0) {
+                    this.processPopulatedData(relatedDoc, row, populateQuery.populateQueries, depth + 1);
                 }
 
                 // Add to document based on relationship type
@@ -1147,13 +1147,7 @@ export class Adapter extends BaseAdapter implements IAdapter {
      * @param options - Additional options for the query building
      * @returns Object containing SQL parts and parameters
      */
-    protected buildSql(query: ProcessQuery, options: {
-        limit?: number;
-        offset?: number;
-        orderAttributes?: string[];
-        orderTypes?: string[];
-        cursor?: Record<string, any>;
-        cursorDirection?: string;
+    protected buildSql(query: ProcessedQuery, extra: {
         forUpdate?: boolean;
     } = {}): {
         sql: string;
@@ -1161,35 +1155,26 @@ export class Adapter extends BaseAdapter implements IAdapter {
         joins: string[];
         selections: string[];
     } {
-        const { selections, populate = [], queries, collection } = query;
+        const { selections, populateQueries = [], filters, collection, ...options } = query;
         const mainTableAlias = 'main';
         const collectionName = this.sanitize(collection.getId());
         const mainTable = this.getSQLTable(collectionName);
 
-        // Initialize result structure
-        const result = {
-            sql: '',
-            params: [] as any[],
-            joins: [] as string[],
-            selections: [] as string[]
-        };
+        const result = this.handleConditions({
+            populateQueries,
+            tableAlias: mainTableAlias,
+            depth: 0,
+            collection,
+            filters,
+            selections,
+            ...options,
+        })
+        let orderSql = '';
 
-        // Build selections with main table prefix
-        result.selections = this.buildSelections(selections, mainTableAlias, collection);
+        if (result.orders.length) {
+            orderSql = `ORDER BY ${result.orders.join(', ')}`
+        }
 
-        // Build joins for relationships
-        const joinInfo = this.buildJoins(populate, mainTableAlias, result.params);
-        result.joins = joinInfo.joins;
-        result.selections.push(...joinInfo.selections);
-
-        // Build WHERE conditions
-        const whereInfo = this.buildWhereConditions(queries, mainTableAlias, populate, result.params);
-        result.params.push(...whereInfo.params);
-
-        // Build ORDER BY clause
-        const orderClause = this.buildOrderClause(options.orderAttributes || [], options.orderTypes || [], mainTableAlias);
-
-        // Build pagination
         const limitClause = options.limit ? `LIMIT ?` : '';
         if (options.limit) result.params.push(options.limit);
 
@@ -1197,97 +1182,87 @@ export class Adapter extends BaseAdapter implements IAdapter {
         if (options.offset) result.params.push(options.offset);
 
         // Build cursor conditions if provided
-        const cursorConditions = this.buildCursorConditions(options.cursor, options.cursorDirection, options.orderAttributes || [], mainTableAlias);
+        const cursorConditions = this.buildCursorConditions(options.cursor as any, options.cursorDirection as any, options.orderAttributes || [], mainTableAlias);
         if (cursorConditions.condition) {
-            whereInfo.conditions.push(cursorConditions.condition);
+            result.conditions.push(cursorConditions.condition);
             result.params.push(...cursorConditions.params);
         }
 
-        // Construct final SQL
-        const finalWhereClause = whereInfo.conditions.length > 0 ? `WHERE ${whereInfo.conditions.join(' AND ')}` : '';
-
-        result.sql = `
-            SELECT DISTINCT ${result.selections.join(', ')}
+        const finalWhereClause = result.conditions.length > 0 ? `WHERE ${result.conditions.join(' AND ')}` : '';
+        const sql = `
+            SELECT DISTINCT ${result.selectionsSql.join(', ')}
             FROM ${mainTable} AS ${this.quote(mainTableAlias)}
             ${result.joins.join(' ')}
             ${finalWhereClause}
-            ${orderClause}
+           ${orderSql}
             ${limitClause}
             ${offsetClause}
         `.trim().replace(/\s+/g, ' ');
 
-        return result;
+        return {
+            sql,
+            selections: result.selectionsSql,
+            params: result.params,
+            joins: result.joins,
+        };
     }
 
-    /**
-     * Builds selection clauses for the main table and relationship
-     */
-    private buildSelections(selections: string[], tableAlias: string, collection: Doc<Collection>): string[] {
-        const result: string[] = [];
-        const attributes = collection.get('attributes', []);
-
-        // If no specific selections, include all non-relationship attributes
-        const fieldsToSelect = selections.length > 0 ? selections :
-            attributes
-                .filter((attr: Doc<Attribute>) => attr.get('type') !== AttributeEnum.Relationship && attr.get('type') !== AttributeEnum.Virtual)
-                .map((attr: Doc<Attribute>) => attr.get('key', attr.getId()));
-
-        // Always include internal fields
-        const internalFields = ['$id', '$sequence', '$collection', '$createdAt', '$updatedAt', '$permissions'];
-        const allFields = [...new Set([...internalFields, ...fieldsToSelect])];
-
-        for (const field of allFields) {
-            const dbKey = this.getInternalKeyForAttribute(field);
-            const sanitizedKey = this.sanitize(dbKey);
-            if (field === '$collection') {
-                result.push(`'${collection.getId()}' AS ${this.quote(field)}`);
-            } else
-                result.push(`${this.quote(tableAlias)}.${this.quote(sanitizedKey)} AS ${this.quote(field)}`);
-        }
-
-        // Add tenant field if using shared tables
-        if (this.$sharedTables) {
-            result.push(`${this.quote(tableAlias)}.${this.quote('_tenant')} AS ${this.quote('$tenant')}`);
-        }
-
-        return result;
-    }
 
     /**
-     * Builds JOIN clauses for relationships recursively
+     * Recursively handles building selections, joins, where conditions, and order clauses for main and populated queries.
      */
-    private buildJoins(
-        populate: ProcessQuery[],
-        parentAlias: string,
-        params: any[],
-        depth: number = 0,
-        maxDepth: number = 5
-    ): { joins: string[]; selections: string[] } {
+    private handleConditions(
+        {
+            populateQueries = [],
+            tableAlias,
+            depth = 0,
+            ...rest
+        }: (ProcessedQuery | PopulateQuery) & { tableAlias?: string, depth: number }
+    ) {
+        const conditions: string[] = [];
+        const selectionsSql: string[] = [];
         const joins: string[] = [];
-        const selections: string[] = [];
+        let orders: string[] = [];
+        const params: any[] = [];
+        tableAlias = tableAlias ?? 'main';
 
-        if (depth >= maxDepth) {
-            return { joins, selections };
+        const { collection, filters = [], selections = [], orderAttributes = [], orderTypes = [] } = rest;
+
+        // Build selections for the current table
+        selectionsSql.push(...this.buildSelections(selections, tableAlias, collection));
+
+        // Build WHERE conditions for the current table
+        const whereInfo = this.buildWhereConditions(filters, tableAlias, []);
+        if (whereInfo.conditions.length) {
+            conditions.push(...whereInfo.conditions);
+            params.push(...whereInfo.params);
         }
 
-        for (let i = 0; i < populate.length; i++) {
-            const populateQuery: ProcessQuery = populate[i]!;
-            const relationshipAttr: any = populateQuery.collection.get('attributes', [])
-                .find((attr: any) => attr.get('type') === AttributeEnum.Relationship);
+        // Build ORDER BY clause for the current table
+        const _orders = this.buildOrderClause(orderAttributes, orderTypes, tableAlias);
+        if (_orders.length) {
+            orders.push(..._orders);
+        }
+
+        // Recursively handle populated queries (relationships)
+        for (let i = 0; i < populateQueries.length; i++) {
+            const populateQuery: PopulateQuery = populateQueries[i]!;
+            const relationshipAttr = populateQuery.collection.get('attributes', [])
+                .find((attr) => attr.get('type') === AttributeEnum.Relationship);
 
             if (!relationshipAttr) continue;
 
+            const relationAlias = `rel_${depth}_${i}`;
+            const parentAlias = tableAlias;
             const options = relationshipAttr.get('options', {}) as RelationOptions;
             const relationType = options.relationType;
             const relationshipKey = relationshipAttr.get('key', relationshipAttr.getId());
             const twoWayKey = options.twoWayKey;
             const side = options.side;
 
-            const relationAlias = `rel_${depth}_${i}`;
             const relatedTableName = this.sanitize(populateQuery.collection.getId());
             const relatedTable = this.getSQLTable(relatedTableName);
 
-            // Build JOIN condition based on relationship type
             const joinCondition = this.buildJoinCondition(
                 relationType,
                 relationAlias,
@@ -1300,46 +1275,74 @@ export class Adapter extends BaseAdapter implements IAdapter {
             if (joinCondition) {
                 joins.push(`LEFT JOIN ${relatedTable} AS ${this.quote(relationAlias)} ON ${joinCondition}`);
 
-                // Add permissions check for the joined table
+                // Add permissions check for the joined table if shared tables are enabled
                 if (this.$sharedTables) {
                     joins.push(`AND (${this.quote(relationAlias)}.${this.quote('_tenant')} = ? OR ${this.quote(relationAlias)}.${this.quote('_tenant')} IS NULL)`);
                     params.push(this.$tenantId);
                 }
-
-                // Add selections for the related table
-                const relatedSelections = this.buildSelections(
-                    populateQuery.selections,
-                    relationAlias,
-                    populateQuery.collection
-                );
-
-                // Prefix the selections to avoid conflicts
-                const prefixedSelections = relatedSelections.map(sel => {
-                    const parts = sel.split(' AS ');
-                    if (parts.length === 2 && parts[1]) {
-                        return `${parts[0]} AS ${this.quote(`${relationshipKey}_${parts[1].replace(/"/g, '')}`)}`;
-                    }
-                    return sel;
-                });
-
-                selections.push(...prefixedSelections);
-
-                // Recursively build nested joins
-                if (populateQuery.populate && populateQuery.populate.length > 0) {
-                    const nestedJoins = this.buildJoins(
-                        populateQuery.populate,
-                        relationAlias,
-                        params,
-                        depth + 1,
-                        maxDepth
-                    );
-                    joins.push(...nestedJoins.joins);
-                    selections.push(...nestedJoins.selections);
-                }
             }
+
+            // Recursively handle nested population
+            const nestedResult = this.handleConditions({
+                ...populateQuery,
+                depth: depth + 1,
+                tableAlias: relationAlias
+            });
+
+            // Prefix the selections to avoid conflicts
+            const prefixedSelections = nestedResult.selectionsSql.map(sel => {
+                const parts = sel.split(' AS ');
+                if (parts.length === 2 && parts[1]) {
+                    return `${parts[0]} AS ${this.quote(`${relationshipKey}_${parts[1].replace(/"/g, '')}`)}`;
+                }
+                return sel;
+            });
+
+            // Merge results
+            if (nestedResult.conditions.length) conditions.push(...nestedResult.conditions);
+            if (nestedResult.joins.length) joins.push(...nestedResult.joins);
+            if (prefixedSelections.length) selectionsSql.push(...prefixedSelections);
+            if (nestedResult.orders.length) orders.push(...nestedResult.orders);
+            if (nestedResult.params.length) params.push(...nestedResult.params);
         }
 
-        return { joins, selections };
+        return {
+            conditions,
+            selectionsSql,
+            orders,
+            params,
+            joins
+        };
+    }
+
+    /**
+     * Builds selection clauses for the main table and relationship
+     */
+    private buildSelections(selections: string[], tableAlias: string, collection: Doc<Collection>): string[] {
+        const result: string[] = [];
+        const attributes = collection.get('attributes', []);
+
+        // If no specific selections, include all non-relationship attributes
+        const fieldsToSelect = selections.length > 0 ? selections :
+            attributes
+                .filter((attr) => attr.get('type') !== AttributeEnum.Relationship && attr.get('type') !== AttributeEnum.Virtual)
+                .map((attr) => attr.get('key', attr.getId()));
+
+        const internalFields = ['$id', '$sequence', '$createdAt', '$updatedAt', '$permissions'];
+        const allFields = [...new Set([...internalFields, ...fieldsToSelect])];
+
+        result.push(`'${collection.getId()}' AS ${this.quote('$collection')}`);
+        for (const field of allFields) {
+            const dbKey = this.getInternalKeyForAttribute(field);
+            const sanitizedKey = this.sanitize(dbKey);
+            result.push(`${this.quote(tableAlias)}.${this.quote(sanitizedKey)} AS ${this.quote(field)}`);
+        }
+
+        if (this.$sharedTables) {
+            result.push(`${this.quote(tableAlias)}.${this.quote('_tenant')} AS ${this.quote('$tenant')}`);
+        }
+
+        return result;
     }
 
     /**
@@ -1397,10 +1400,7 @@ export class Adapter extends BaseAdapter implements IAdapter {
     private buildWhereConditions(
         queries: Query[],
         tableAlias: string,
-        populate: ProcessQuery[],
         params: any[],
-        depth: number = 0,
-        maxDepth: number = 5,
     ): { conditions: string[]; params: any[] } {
         const conditions: string[] = [];
         const conditionParams: any[] = [];
@@ -1420,18 +1420,6 @@ export class Adapter extends BaseAdapter implements IAdapter {
             }
         }
 
-        if (populate.length) {
-            console.log('INSIDE POULATE')
-            for (let i = 0; i < populate.length; i++) {
-                const { queries, populate: _pop = [], }: ProcessQuery = populate[i]!;
-                const relationAlias = `rel_${depth}_${i}`;
-                const { conditions: con, params } = this.buildWhereConditions(queries, relationAlias, _pop, conditionParams, depth + 1, maxDepth);
-                if (con.length > 0) {
-                    conditions.push(...con)
-                    conditionParams.push(...params);
-                }
-            }
-        }
         console.log({ conditions, conditionParams })
         return { conditions, params: conditionParams };
     }
@@ -1565,10 +1553,10 @@ export class Adapter extends BaseAdapter implements IAdapter {
         orderAttributes: string[],
         orderTypes: string[],
         tableAlias: string
-    ): string {
+    ): string[] {
         if (orderAttributes.length === 0) {
             // Default order by _id
-            return `ORDER BY ${this.quote(tableAlias)}.${this.quote('_id')} ASC`;
+            return [`${this.quote(tableAlias)}.${this.quote('_id')} ASC`];
         }
 
         const orderParts = orderAttributes.map((attr, index) => {
@@ -1578,7 +1566,7 @@ export class Adapter extends BaseAdapter implements IAdapter {
             return `${this.quote(tableAlias)}.${this.quote(sanitizedKey)} ${orderType}`;
         });
 
-        return `ORDER BY ${orderParts.join(', ')}`;
+        return orderParts;
     }
 
     /**
