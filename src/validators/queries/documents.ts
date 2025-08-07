@@ -8,7 +8,7 @@ import { Select } from "../query/select.js";
 import { Doc } from "@core/doc.js";
 import { Attribute } from "@validators/schema.js";
 import { AttributeEnum } from "@core/enums.js";
-import { Base } from "@validators/query/base.js";
+import { Base, MethodType } from "@validators/query/base.js";
 import { Populate } from "@validators/query/populate.js";
 
 export class Documents extends IndexedQueries {
@@ -25,7 +25,16 @@ export class Documents extends IndexedQueries {
         attributes: Doc<Attribute>[] = [],
         indexes: any[],
         maxValuesCount: number = 100,
-        validators: Base[] | undefined = undefined,
+        allowedValidators: Partial<Record<MethodType, boolean>> = {
+            'limit': true,
+            'cursor': true,
+            'filter': true,
+            'offset': true,
+            'order': true,
+            'populate': true,
+            'select': true,
+        },
+        customValidators: Base[] = [],
         minAllowedDate: Date = new Date("0000-01-01"),
         maxAllowedDate: Date = new Date("9999-12-31"),
     ) {
@@ -53,7 +62,8 @@ export class Documents extends IndexedQueries {
             }),
         );
 
-        validators ??= [
+        const validators: Base[] = [];
+        const defaultValidators = [
             new Limit(),
             new Offset(),
             new Cursor(),
@@ -67,6 +77,14 @@ export class Documents extends IndexedQueries {
             new Select(attributes),
             new Populate(),
         ];
+
+        defaultValidators.forEach((v) => {
+            const method = v.getMethodType();
+            if (allowedValidators[method]) {
+                validators.push(v);
+            }
+        })
+        validators.push(...customValidators);
 
         super(attributes, indexes, validators);
     }

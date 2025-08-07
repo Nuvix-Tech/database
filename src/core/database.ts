@@ -1714,30 +1714,62 @@ export class Database extends Cache {
 
         const processedQueries = await this.processQueries(queries, collection);
 
-        return this.adapter.deepFind(collectionId, processedQueries);
+        return this.adapter.findWithRelations(collectionId, processedQueries);
     }
 
 
 
 
 
+    /**
+     * Processes queries for a collection, validating and authorizing them.
+     */
     async processQueries(
         queries: ((builder: QueryBuilder) => QueryBuilder) | Query[],
         collection: Doc<Collection>,
-        metadata: Partial<Attribute['options']> & {
+        {
+            forPermission = PermissionEnum.Read,
+            allowedValidators = Object.values(MethodType),
+            throwOnUnAuthorization = false,
+            overrideValidators,
+            ...metadata
+        }: Partial<Attribute['options']> & {
             populated?: boolean;
             attribute?: string;
+            allowedValidators?: MethodType[],
+            overrideValidators?: MethodType[],
+            forPermission?: PermissionEnum,
+            throwOnUnAuthorization?: boolean,
         } = {},
     ): Promise<ProcessedQuery> {
         if (typeof queries === 'function') {
             queries = queries(new QueryBuilder()).build();
         }
+        let authorized = true;
+        let skipAuth = false;
+        const validators = overrideValidators ?? allowedValidators;
 
-        if (this.validate && queries.length) {
+        const authorizationValidator = new Authorization(forPermission)
+        skipAuth = authorizationValidator.$valid(collection.getPermissionsByType(forPermission))
+        if (collection.getId() !== Database.METADATA
+            && !skipAuth
+            && !collection.get('documentSecurity', false)
+        ) {
+            if (!metadata.populated) {
+                throw new AuthorizationException(authorizationValidator.$description);
+            }
+            if (throwOnUnAuthorization && metadata.populated) {
+                throw new AuthorizationException(`Collection '${collection.getId()}' not authorized for '${forPermission}'. ${authorizationValidator.$description}`);
+            }
+            authorized = false;
+        }
+
+        if (this.validate && queries.length && authorized) {
             const validator = new Documents(
                 collection.get('attributes', []),
                 collection.get('indexes', []),
                 this.maxQueryValues,
+                Object.fromEntries(validators.map(v => [v, true]))
             );
             if (!validator.$valid(queries)) {
                 throw new QueryException(validator.$description);
@@ -1771,6 +1803,8 @@ export class Database extends Cache {
             return {
                 collection,
                 selections: selections.map(q => q.getValues() as unknown as string[]).flat(),
+                authorized,
+                skipAuth,
                 ...rest,
             };
         }
@@ -1778,7 +1812,6 @@ export class Database extends Cache {
         const processedPopulateQueries: PopulateQuery[] = [];
 
         for (const [attribute, values] of populateQueries.entries()) {
-            console.log([attribute, values])
             const attributeDoc = attributes.find(attr => attr.get('$id') === attribute);
             if (!attributeDoc) {
                 throw new QueryException(`Attribute '${attribute}' not found in collection '${collection.getId()}'.`);
@@ -1801,7 +1834,11 @@ export class Database extends Cache {
             const processedQueries = await this.processQueries(values, relatedCollection, {
                 populated: true,
                 attribute,
-                ...attributeDoc.get('options', {})
+                ...attributeDoc.get('options', {}),
+                allowedValidators: [MethodType.Select, MethodType.Populate, MethodType.Filter, MethodType.Order],
+                overrideValidators,
+                throwOnUnAuthorization,
+                forPermission,
             });
             processedPopulateQueries.push(processedQueries as PopulateQuery);
         }
@@ -1811,6 +1848,8 @@ export class Database extends Cache {
             selections: selections.map(q => q.getValues() as unknown as string[]).flat(),
             populateQueries: processedPopulateQueries,
             attribute: metadata.attribute,
+            authorized,
+            skipAuth,
             ...rest,
         };
     }
@@ -1822,6 +1861,8 @@ export interface ProcessedQuery
     selections: string[];
     populateQueries?: PopulateQuery[]
     attribute?: string;
+    authorized?: boolean;
+    skipAuth: boolean,
 }
 
 export type PopulateQuery = Omit<ProcessedQuery, 'limit' | 'offset' | 'attribute'> & {

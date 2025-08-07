@@ -5,7 +5,7 @@ export class Populate extends Base {
         return true;
     }
 
-    getMethodType(): string {
+    getMethodType(): MethodType {
         return MethodType.Populate;
     }
 }

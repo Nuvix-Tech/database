@@ -1,7 +1,7 @@
 import { Client, PoolConfig } from "pg";
 import { BaseAdapter } from "./base.js";
 import { PostgresClient } from "./postgres.js";
-import { AttributeEnum, EventsEnum, IndexEnum, RelationEnum, RelationSideEnum } from "@core/enums.js";
+import { AttributeEnum, EventsEnum, IndexEnum, PermissionEnum, RelationEnum, RelationSideEnum } from "@core/enums.js";
 import { CreateCollectionOptions, IAdapter } from "./interface.js";
 import { DatabaseException } from "@errors/base.js";
 import { Database, PopulateQuery, ProcessedQuery } from "@core/database.js";
@@ -10,6 +10,7 @@ import { NotFoundException } from "@errors/index.js";
 import { Attribute, Collection, RelationOptions } from "@validators/schema.js";
 import { ColumnInfo, CreateAttribute, CreateIndex, CreateRelationship, UpdateAttribute } from "./types.js";
 import { Query, QueryType } from "@core/query.js";
+import { Authorization } from "@utils/authorization.js";
 
 export class Adapter extends BaseAdapter implements IAdapter {
     protected client: PostgresClient;
@@ -994,22 +995,17 @@ export class Adapter extends BaseAdapter implements IAdapter {
         return sql;
     }
 
-    public async deepFind(collection: string, query: ProcessedQuery, options: {
-        limit?: number;
-        offset?: number;
-        orderAttributes?: string[];
-        orderTypes?: string[];
-        cursor?: Record<string, any>;
-        cursorDirection?: string;
+    public async findWithRelations(collection: string, query: ProcessedQuery, options: {
         forUpdate?: boolean;
     } = {}): Promise<Doc<any>[]> {
         const sqlResult = this.buildSql(query, options);
         console.log('Deep Find SQL:', sqlResult.sql, sqlResult.params);
+
         try {
             const { rows } = await this.client.query(sqlResult.sql, sqlResult.params);
             console.log({ rows })
             // Group related data and construct documents
-            const documents = this.processDeepFindResults(rows, query);
+            const documents = this.processFindResults(rows, query);
 
             return documents.map(doc => Doc.from(doc));
         } catch (e: any) {
@@ -1018,9 +1014,9 @@ export class Adapter extends BaseAdapter implements IAdapter {
     }
 
     /**
-     * Processes the results from deepFind to group related data properly
+     * Processes the results from Find to group related data properly
      */
-    private processDeepFindResults(rows: any[], query: ProcessedQuery): any[] {
+    private processFindResults(rows: any[], query: ProcessedQuery): any[] {
         if (!rows.length) return [];
 
         const documentsMap = new Map<string, any>();
@@ -1245,7 +1241,7 @@ export class Adapter extends BaseAdapter implements IAdapter {
         const params: any[] = [];
         tableAlias = tableAlias ?? 'main';
 
-        const { collection, filters = [], selections = [], orderAttributes = [], orderTypes = [] } = rest;
+        const { collection, filters = [], selections = [], orderAttributes = [], orderTypes = [], skipAuth } = rest;
 
         // Build selections for the current table
         selectionsSql.push(...this.buildSelections(selections, tableAlias, collection));
@@ -1257,6 +1253,19 @@ export class Adapter extends BaseAdapter implements IAdapter {
             params.push(...whereInfo.params);
         }
 
+        if (Authorization.getStatus() && collection.get('documentSecurity', false)) {
+            const roles = Authorization.getRoles();
+            conditions.push(this.getSQLPermissionsCondition({
+                collection: collection.getId(), roles, alias: tableAlias, type: PermissionEnum.Read
+            }));
+            if (this.$sharedTables) params.push(this.$tenantId);
+        }
+
+        if (this.$sharedTables) {
+            params.push(this.$tenantId);
+            conditions.push(this.getTenantQuery(collection.getId(), tableAlias, undefined, ''));
+        }
+
         // Build ORDER BY clause for the current table
         const _orders = this.buildOrderClause(orderAttributes, orderTypes, tableAlias);
         if (_orders.length) {
@@ -1266,7 +1275,8 @@ export class Adapter extends BaseAdapter implements IAdapter {
         // Recursively handle populated queries (relationships)
         for (let i = 0; i < populateQueries.length; i++) {
             const populateQuery: PopulateQuery = populateQueries[i]!;
-            const { attribute, ...rest } = populateQuery;
+            const { attribute, authorized, ...rest } = populateQuery;
+            if (!authorized) continue;
             const relationshipAttr = collection.get('attributes', [])
                 .find((attr) => attr.get('type') === AttributeEnum.Relationship && attr.get('key', attr.getId()) === attribute);
 
@@ -1295,7 +1305,6 @@ export class Adapter extends BaseAdapter implements IAdapter {
             if (joinCondition) {
                 joins.push(`LEFT JOIN ${relatedTable} AS ${this.quote(relationAlias)} ON ${joinCondition}`);
 
-                // Add permissions check for the joined table if shared tables are enabled
                 if (this.$sharedTables) {
                     joins.push(`AND (${this.quote(relationAlias)}.${this.quote('_tenant')} = ? OR ${this.quote(relationAlias)}.${this.quote('_tenant')} IS NULL)`);
                     params.push(this.$tenantId);

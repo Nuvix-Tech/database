@@ -1,3 +1,4 @@
+import { PermissionEnum } from "@core/enums.js";
 import { Validator } from "@validators/interface.js";
 import { AsyncLocalStorage } from "async_hooks";
 
@@ -14,14 +15,14 @@ export class Authorization implements Validator {
     private static globalStatus: boolean = true;
     private static useAsyncLocalStorage: boolean = false;
 
-    protected action: string;
+    protected action: PermissionEnum;
     protected message: string = "Authorization Error";
 
     /**
      * Creates an instance of Authorization for a specific action.
-     * @param action - The action string to check permission for (e.g., "document.create", "user.read").
+     * @param action - The action string to check permission for (e.g., "create", "read").
      */
-    constructor(action: string) {
+    constructor(action: PermissionEnum) {
         this.action = action;
     }
 
