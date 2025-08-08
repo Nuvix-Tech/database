@@ -513,4 +513,8 @@ export class Structure implements Validator {
         this.message = `Attribute "${attributeKey}" must contain at least one of: set, connect, or disconnect operations.`;
         return false;
     }
+
+    setOnCreate(onCreate: boolean): void {
+        this.onCreate = onCreate;
+    }
 }

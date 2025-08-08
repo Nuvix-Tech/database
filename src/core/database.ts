@@ -1558,19 +1558,15 @@ export class Database extends Cache {
         const structure = new Structure(
             collection,
         );
+        structure.setOnCreate(true);
         if (!await structure.$valid(doc)) {
             throw new StructureException(structure.$description);
         }
 
-        const result =
-            // if (this.resolveRelationships) {
-            //     doc = await this.silent(() => this.createDocumentRelationships(collection, doc));
-            // }
-            await this.adapter.createDocument(collection.getId(), doc as any);
-
-        // if (this.resolveRelationships) {
-        //     result = await this.silent(() => this.populateDocumentRelationships(collection, result));
-        // }
+        const result = await this.withTransaction(async () => {
+            doc = await this.silent(() => this.createDocumentRelationships(collection, doc));
+            return this.adapter.createDocument(collection.getId(), doc);
+        });
 
         const castedResult = this.cast(collection, result);
         const decodedResult = await this.decode(await this.processQueries([], collection), castedResult);
@@ -1580,17 +1576,26 @@ export class Database extends Cache {
         return decodedResult as any;
     }
 
-    // TODO: -----------------
     public async createDocumentRelationships(collection: Doc<Collection>, document: Doc<any>): Promise<Doc<any>> {
         const relationships = collection.get('attributes', [])
             .filter(attr => attr.get('type') === AttributeEnum.Relationship);
 
         for (const relationship of relationships) {
-            const relatedCollectionId = relationship.get('options', {}).relatedCollection;
+            const options = relationship.get('options', {}) as RelationOptions;
+            const relatedCollectionId = options.relatedCollection;
             if (!relatedCollectionId) continue;
-
+            
             const relatedCollection = await this.silent(() => this.getCollection(relatedCollectionId, true));
             if (relatedCollection.empty()) continue;
+            const side = options.side;
+            const type = options.relationType;
+
+            switch (type) {
+                case RelationEnum.OneToOne:
+                case RelationEnum.OneToMany:
+                case RelationEnum.ManyToOne:
+                case RelationEnum.ManyToMany:
+            }
 
             const relatedDocumentId = document.get(relationship.get('key'));
             if (!relatedDocumentId) continue;
