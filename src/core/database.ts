@@ -1410,33 +1410,60 @@ export class Database extends Cache {
         if (!collectionId) {
             throw new NotFoundException(`Collection '${collectionId}' not found.`);
         }
-        if (!id) return new Doc();
-        let doc = new Doc();
+        if (!id) {
+            return new Doc();
+        }
+
         const collection = await this.silent(() => this.getCollection(collectionId, true));
-        const validator = new Authorization(PermissionEnum.Read);
-        const processedQuery = await this.processQueries(query, collection);
+        const processedQuery = await this.processQueries(query, collection, {
+            forUpdate,
+            overrideValidators: [MethodType.Populate, MethodType.Select],
+        });
+
+        let doc: Doc<any>;
 
         if (!processedQuery.populateQueries?.length) {
-            const documentSecurity = collection.get('documentSecurity', false);
-            if (collection.getId() !== Database.METADATA) {
-                if (!validator.$valid([
+            // Simple document retrieval without population
+            doc = await this.adapter.getDocument(collection.getId(), id, processedQuery) || new Doc();
+
+            if (!doc.empty() && collection.getId() !== Database.METADATA) {
+                const documentSecurity = collection.get('documentSecurity', false);
+                const readPermissions = [
                     ...collection.getRead(),
-                ])) {
-                    return new Doc();
+                    ...(documentSecurity ? doc.getRead() : []),
+                ];
+
+                const authorization = new Authorization(PermissionEnum.Read);
+                if (!authorization.$valid(readPermissions)) {
+                    throw new AuthorizationException(authorization.$description);
                 }
             }
 
-            doc = await this.adapter.getDocument(collection.getId(), id, processedQuery);
-
-            if (doc.empty()) {
-                return new Doc();
+        } else {
+            // Document retrieval with relationship population
+            const authorization = new Authorization(PermissionEnum.Read);
+            if (collection.getId() !== Database.METADATA && !authorization.$valid(collection.getRead())) {
+                throw new AuthorizationException(authorization.$description);
             }
 
-            doc = this.cast(collection, doc);
-            doc = await this.decode(collection, doc);
+            const queryWithId = {
+                ...processedQuery,
+                filters: [Query.equal('$id', [id])]
+            };
+
+            const documents = await this.adapter.findWithRelations(collectionId, queryWithId);
+            const processedDocuments = this.processFindResults(documents, queryWithId);
+            doc = processedDocuments[0] || new Doc();
         }
 
-        this.trigger(EventsEnum.DocumentRead, doc)
+        if (doc.empty()) {
+            return doc;
+        }
+
+        doc = this.cast(collection, doc);
+        doc = await this.decode(processedQuery, doc);
+
+        this.trigger(EventsEnum.DocumentRead, doc);
         return doc;
     }
 
@@ -1689,23 +1716,54 @@ export class Database extends Cache {
         return decodedDocument;
     }
 
-    async find<C>(collectionId: string, query: ((builder: QueryBuilder) => QueryBuilder) | Query[] = [], forUpdate: boolean = false): Promise<Doc<any>[]> {
+    public find<C extends (string & keyof Entities)>(
+        collectionId: C,
+        query?: ((builder: QueryBuilder) => QueryBuilder) | Query[],
+        forUpdate?: boolean,
+    ): Promise<Doc<Entities[C]>[]>;
+    public find<C extends string>(
+        collectionId: C,
+        query?: ((builder: QueryBuilder) => QueryBuilder) | Query[],
+        forUpdate?: boolean,
+    ): Promise<Doc<Partial<IEntity> & Record<string, any>>[]>;
+    public find<D extends Record<string, any>>(
+        collectionId: string,
+        query?: ((builder: QueryBuilder) => QueryBuilder) | Query[],
+        forUpdate?: boolean,
+    ): Promise<Doc<Partial<IEntity> & D>[]>;
+    public async find(
+        collectionId: string,
+        query: ((builder: QueryBuilder) => QueryBuilder) | Query[] = [],
+        forUpdate: boolean = false,
+    ): Promise<Doc<any>[]> {
+        if (!collectionId) {
+            throw new NotFoundException(`Collection '${collectionId}' not found.`);
+        }
+
         const collection = await this.silent(() => this.getCollection(collectionId, true));
 
-        let queries: Query[] = []
-        if (typeof query === 'function') {
-            queries = query(new QueryBuilder()).build();
-        } else {
-            queries = query;
-        }
+        const queries: Query[] = typeof query === 'function'
+            ? query(new QueryBuilder()).build()
+            : query;
 
         const processedQueries = await this.processQueries(queries, collection);
 
+        if (!processedQueries.authorized) {
+            return [];
+        }
+
         const rows = await this.adapter.findWithRelations(collectionId, processedQueries);
+        const result = this.processFindResults(rows, processedQueries);
 
-        const result = await this.processFindResults(rows, processedQueries)
+        const documents = await Promise.all(
+            result.map(async (doc) => {
+                return this.filter ? await this.decode(processedQueries, doc) : doc;
+            })
+        );
 
-        return result;
+        this.trigger(EventsEnum.DocumentFind, documents);
+
+        return documents;
     }
 
     /**

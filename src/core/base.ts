@@ -590,72 +590,80 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
     }
 
     protected async decode<T extends Record<string, any>>(
-        collection: Doc<Collection>,
-        document: Doc<T>,
-        selections: string[] = []
+        { collection, populateQueries }: ProcessedQuery | PopulateQuery,
+        document: Doc<Record<string, any>>,
     ): Promise<Doc<T>> {
-        const collectionAttributes: (Attribute | Doc<Attribute>)[] = collection.get('attributes') ?? [];
         const internalAttributes = this.getInternalAttributes();
+        const attributes = [
+            ...(collection.get('attributes') ?? []),
+            ...internalAttributes
+        ].map(attr => attr instanceof Doc ? attr.toObject() : attr);
 
-        const preparedAttributes: Attribute[] = [
-            ...collectionAttributes.map(attr => attr instanceof Doc ? attr.toObject() : attr),
-            ...internalAttributes.map(attr => attr instanceof Doc ? attr.toObject() : attr)
-        ];
+        for (const attribute of attributes) {
+            if (attribute.type !== AttributeEnum.Relationship || !attribute.$id) continue;
 
-        for (const attribute of preparedAttributes) {
             const originalKey = attribute.$id;
-            if (!originalKey || attribute.type !== AttributeEnum.Relationship) continue;
-
             const sanitizedKey = this.adapter.sanitize(originalKey);
-            if (originalKey !== sanitizedKey && document.has(sanitizedKey)) {
-                const valueFromSanitized = document.get(sanitizedKey);
 
-                if (!document.has(originalKey) || document.get(originalKey) === undefined || document.get(originalKey) === null) {
-                    document.set(originalKey, valueFromSanitized);
+            if (originalKey !== sanitizedKey && document.has(sanitizedKey)) {
+                const value = document.get(sanitizedKey);
+                if (!document.has(originalKey) || document.get(originalKey) == null) {
+                    document.set(originalKey, value);
                 }
                 document.delete(sanitizedKey);
             }
         }
 
-        for (const attribute of preparedAttributes) {
+        // Decode filters for non-JSON and non-Relationship attributes
+        for (const attribute of attributes) {
             const key = attribute.$id;
-            if (!key
-                || attribute.type === AttributeEnum.Relationship
-                || attribute.type === AttributeEnum.Json
-            ) continue;
+            if (!key || [AttributeEnum.Relationship, AttributeEnum.Json].includes(attribute.type)) continue;
+            if (!document.has(key)) continue;
 
-            const isArrayAttribute = attribute.array ?? false;
-            const attributeFilters = attribute.filters ?? [];
+            const isArray = attribute.array ?? false;
+            const filters = attribute.filters ?? [];
 
-            let value: any = document.get(key);
-            let valuesToProcess: any[];
+            let values = document.get(key);
+            const items = Array.isArray(values) ? values : values != null ? [values] : [];
 
-            if (value === null || value === undefined) {
-                valuesToProcess = [];
-            } else if (Array.isArray(value)) {
-                valuesToProcess = value;
-            } else {
-                valuesToProcess = [value];
-            }
-
-            const processedValues: any[] = [];
-            for (let index = 0; index < valuesToProcess.length; index++) {
-                let node = valuesToProcess[index];
-                for (const filter of attributeFilters.slice().reverse()) {
-                    node = await this.decodeAttribute(filter, node, document as unknown as Doc, key);
+            const processed = await Promise.all(items.map(async (item) => {
+                for (const filter of [...filters].reverse()) {
+                    item = await this.decodeAttribute(filter, item, document as unknown as Doc, key);
                 }
-                processedValues[index] = node;
-            }
+                return item;
+            }));
 
-            const isSelected = selections.length === 0 || selections.includes(key) || selections.includes('*');
-
-            if (isSelected) {
-                document.set(key, isArrayAttribute ? processedValues : (processedValues[0] ?? null));
-            } else {
-                document.delete(key);
-            }
+            document.set(key, isArray ? processed : (processed[0] ?? null));
         }
-        return document;
+
+        // Decode population (relationships)
+        if (populateQueries?.length) {
+            await Promise.all(populateQueries.map(async (populateQuery) => {
+                const attribute = (collection.get('attributes') ?? [])
+                    .find(attr => attr.get('type') === AttributeEnum.Relationship && attr.getId() === populateQuery.attribute);
+                if (!attribute) return;
+
+                const key = attribute.get('key', attribute.getId());
+                const options = attribute.get('options', {}) as RelationOptions;
+                const relationType = options.relationType;
+                const side = options.side;
+                let value = document.get(key, null);
+
+                if (
+                    relationType === RelationEnum.ManyToOne && side === RelationSideEnum.Child ||
+                    relationType === RelationEnum.OneToMany && side === RelationSideEnum.Parent ||
+                    relationType === RelationEnum.ManyToMany
+                ) {
+                    value ??= [];
+                    const resolved = await Promise.all(value.map((v: any) => this.decode(populateQuery, v)));
+                    document.set(key, resolved);
+                } else {
+                    document.set(key, value != null ? await this.decode(populateQuery, value) : null);
+                }
+            }));
+        }
+
+        return document as Doc<T>;
     }
 
     private async encodeAttribute(filter: string, value: any, document: Doc): Promise<any> {
@@ -722,7 +730,7 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
     /**
      * Processes the results from Find to group related data properly
      */
-    protected async processFindResults(rows: any[], { ...query }: ProcessedQuery): Promise<any[]> {
+    protected processFindResults(rows: any[], { ...query }: ProcessedQuery): any[] {
         if (!rows.length) return [];
 
         const documentsMap = new Map<string, any>();
@@ -836,7 +844,7 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
                     || (relationType === RelationEnum.ManyToOne && side === RelationSideEnum.Child)
                     || relationType === RelationEnum.ManyToMany
                 ) {
-                    // Array relationship - check for duplicates
+                    // Array relationship
                     document[relationshipKey] ??= [];
                     const relatedId = relatedDoc['$id'] || relatedDoc['$sequence'];
                     if (relatedId && !document[relationshipKey].some((item: any) => (item['$id'] || item['$sequence']) === relatedId)) {

@@ -28,6 +28,7 @@ export enum QueryType {
     CursorBefore = "cursorBefore",
     And = "and",
     Or = "or",
+    Not = "not",
     /**
      * Populate is used to fetch related documents based on the query.
      */

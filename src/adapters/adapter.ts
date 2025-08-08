@@ -1098,7 +1098,7 @@ export class Adapter extends BaseAdapter implements IAdapter {
         selectionsSql.push(...this.buildSelections(selections, tableAlias, collection));
 
         // Build WHERE conditions for the current table
-        const whereInfo = this.buildWhereConditions(filters, tableAlias, []);
+        const whereInfo = this.buildWhereConditions(filters, tableAlias, collection.getId());
         if (whereInfo.conditions.length) {
             conditions.push(...whereInfo.conditions);
             params.push(...whereInfo.params);
@@ -1291,18 +1291,16 @@ export class Adapter extends BaseAdapter implements IAdapter {
     private buildWhereConditions(
         queries: Query[],
         tableAlias: string,
-        params: any[],
+        collection: string,
     ): { conditions: string[]; params: any[] } {
         const conditions: string[] = [];
         const conditionParams: any[] = [];
 
-        // Add basic tenant filtering for shared tables
         if (this.$sharedTables) {
-            conditions.push(`(${this.quote(tableAlias)}.${this.quote('_tenant')} = ? OR ${this.quote(tableAlias)}.${this.quote('_tenant')} IS NULL)`);
+            conditions.push(this.getTenantQuery(collection, tableAlias, undefined, ''));
             conditionParams.push(this.$tenantId);
         }
 
-        // Process query filters
         for (const query of queries) {
             const condition = this.buildQueryCondition(query, tableAlias);
             if (condition.sql) {
@@ -1311,7 +1309,6 @@ export class Adapter extends BaseAdapter implements IAdapter {
             }
         }
 
-        console.log({ conditions, conditionParams })
         return { conditions, params: conditionParams };
     }
 
@@ -1409,7 +1406,7 @@ export class Adapter extends BaseAdapter implements IAdapter {
                 break;
 
             case QueryType.Search:
-                sql = `to_tsvector('english', ${columnRef}) @@ plainto_tsquery('english', ?)`;
+                sql = `to_tsvector('${Database.FULLTEXT_LANGUAGE}', ${columnRef}) @@ plainto_tsquery('${Database.FULLTEXT_LANGUAGE}', ?)`;
                 params.push(values[0]);
                 break;
 
@@ -1428,9 +1425,12 @@ export class Adapter extends BaseAdapter implements IAdapter {
                 sql = `(${orConditions.map(c => c.sql).filter(Boolean).join(' OR ')})`;
                 orConditions.forEach(c => params.push(...c.params));
                 break;
-
+            case QueryType.Not:
+                const notCondition = this.buildQueryCondition(values[0] as Query, tableAlias);
+                sql = `NOT (${notCondition.sql})`;
+                params.push(...notCondition.params);
+                break;
             default:
-                // Handle other query types as needed
                 break;
         }
 

@@ -203,7 +203,7 @@ export abstract class BaseAdapter extends EventEmitter {
     public async getDocument(
         collection: string,
         id: string,
-        { filters, selections }: ProcessedQuery,
+        { selections }: ProcessedQuery,
         forUpdate: boolean = false
     ): Promise<Doc<Partial<IEntity> & Record<string, any>>> {
         if (!collection || !id) {
@@ -215,7 +215,7 @@ export abstract class BaseAdapter extends EventEmitter {
         const params: any[] = [id];
 
         let sql = `
-            SELECT '${collection}' AS "$collection", ${this.getAttributeProjection(selections, alias)}
+            SELECT ${this.getAttributeProjection(selections, alias, collection)}
             FROM ${table} AS ${alias}
             WHERE ${this.quote(alias)}.${this.quote('_uid')} = ?
             ${this.getTenantQuery(collection, alias)}
@@ -444,7 +444,7 @@ export abstract class BaseAdapter extends EventEmitter {
         const selections = this.getAttributeSelections(queries);
 
         let sql = `
-            SELECT ${this.getAttributeProjection(selections, alias)}
+            SELECT ${this.getAttributeProjection(selections, alias, collection)}
             FROM ${this.getSQLTable(name)} AS ${this.$.quote(alias)}
             ${sqlWhere}
             ${sqlOrder}
@@ -1027,27 +1027,28 @@ export abstract class BaseAdapter extends EventEmitter {
     }
 
     /**
-     * @deprecated use buildSelection instead
+     * Generates a projection string for attributes in a SQL SELECT query.
      */
-    protected getAttributeProjection(selections: string[], prefix: string): string {
+    protected getAttributeProjection(selections: string[], prefix: string, collection: string): string {
         if (!selections.length) throw new DatabaseException('Selections are required internally.');
 
         const projected: string[] = [];
         selections.splice(0, 0,
             "$id",
             "$sequence",
+            '$collection',
             "$createdAt",
             "$updatedAt",
             "$permissions",
         )
 
         for (let key of selections) {
-            if (key === '$collection') continue;
-
-            let dbKey = this.getInternalKeyForAttribute(key);
-            let alias = key;
-
-            projected.push(`${this.quote(prefix)}.${this.quote(dbKey)} AS ${this.quote(alias)}`);
+            if (key === '$collection') {
+                projected.push(`'${collection}' AS ${this.quote(key)}`);
+            } else {
+                let dbKey = this.getInternalKeyForAttribute(key);
+                projected.push(`${this.quote(prefix)}.${this.quote(dbKey)} AS ${this.quote(key)}`);
+            }
         }
 
         return projected.join(', ');

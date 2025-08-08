@@ -215,7 +215,7 @@ export class Doc<T extends Record<string, any> & Partial<IEntity> = IEntity> {
     }
 
     public has<K extends (string & keyof T)>(name: K): boolean {
-        return this._data[name] !== undefined;
+        return Object.hasOwn(this._data, name);
     }
 
     public keys(): (keyof T)[] {
