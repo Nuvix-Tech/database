@@ -753,7 +753,7 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
             }
         }
 
-        return Array.from(documentsMap.values());
+        return Array.from(documentsMap.values()).map(doc => new Doc(doc));
     }
 
     /**

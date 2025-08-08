@@ -1182,7 +1182,7 @@ export class Adapter extends BaseAdapter implements IAdapter {
             // Prefix the selections to avoid conflicts
             const prefixedSelections = nestedResult.selectionsSql.map(sel => {
                 const parts = sel.split(' AS ');
-                const prefix = (side === RelationSideEnum.Child && options.twoWay) ? twoWayKey : relationshipKey;
+                const prefix = relationshipKey;
                 if (parts.length === 2 && parts[1]) {
                     return `${parts[0]} AS ${this.quote(`${prefix}_${parts[1].replace(/"/g, '')}`)}`;
                 }

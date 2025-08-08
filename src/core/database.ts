@@ -1,5 +1,5 @@
 import { AttributeEnum, EventsEnum, IndexEnum, OnDelete, PermissionEnum, RelationEnum, RelationSideEnum } from "./enums.js";
-import { Attribute, Collection, Index } from "@validators/schema.js";
+import { Attribute, Collection, Index, RelationOptions } from "@validators/schema.js";
 import { CreateCollection, CreateRelationshipAttribute, Filters, QueryByType, UpdateCollection } from "./types.js";
 import { Cache } from "./cache.js";
 import { Cache as NuvixCache } from '@nuvix/cache';
@@ -1717,7 +1717,7 @@ export class Database extends Cache {
         {
             forPermission = PermissionEnum.Read,
             allowedValidators = Object.values(MethodType),
-            throwOnUnAuthorization = false,
+            throwOnUnAuthorization = true,
             overrideValidators,
             ...metadata
         }: Partial<Attribute['options']> & {
@@ -1765,8 +1765,9 @@ export class Database extends Cache {
 
         let { populateQueries, selections, ...rest } = Query.groupByType(queries);
         const attributes = collection.get('attributes', []);
+        const hasWildcardSelecton = selections.some(s => (s.getValues() as string[]).includes('*'))
 
-        if (selections.length > 0) {
+        if (selections.length > 0 && !hasWildcardSelecton) {
             const attributeMap = new Map(attributes.map(attr => [attr.get('$id'), attr]));
 
             for (const query of (selections.map(s => s.getValues()).flat())) {
@@ -1790,10 +1791,26 @@ export class Database extends Cache {
             return {
                 collection,
                 selections: selections.map(q => q.getValues() as unknown as string[]).flat(),
+                populateQueries: [],
+                attribute: metadata.attribute,
                 authorized,
                 skipAuth,
                 ...rest,
             };
+        }
+
+        if (populateQueries.has('*')) {
+            if (populateQueries.size > 1) {
+                throw new QueryException(`Cannot use '*' with other populate queries. Use '*' alone to populate all relationships.`);
+            }
+            populateQueries = new Map();
+            for (const attribute of attributes) {
+                if (attribute.get('type') === AttributeEnum.Relationship) {
+                    const options = attribute.get('options', {}) as RelationOptions;
+                    if (!options.twoWay && options.side !== RelationSideEnum.Parent) continue;
+                    populateQueries.set(attribute.get('$id'), []);
+                }
+            }
         }
 
         const processedPopulateQueries: PopulateQuery[] = [];
@@ -1812,7 +1829,13 @@ export class Database extends Cache {
                 throw new QueryException(`Populate query for attribute '${attribute}' must be an array of queries.`);
             }
 
-            const relatedCollectionId = attributeDoc.get('options', {})['relatedCollection'];
+            const options = attributeDoc.get('options', {}) as RelationOptions;
+
+            if (!options.twoWay && options.side !== RelationSideEnum.Parent) {
+                throw new QueryException(`Attribute '${attribute}' is not a parent relationship and cannot be populated.`);
+            }
+
+            const relatedCollectionId = options['relatedCollection'];
             const relatedCollection = await this.silent(() => this.getCollection(relatedCollectionId));
             if (relatedCollection.empty()) {
                 throw new QueryException(`Collection '${relatedCollectionId}' not found for attribute '${attribute}'.`);
@@ -1821,7 +1844,7 @@ export class Database extends Cache {
             const processedQueries = await this.processQueries(values, relatedCollection, {
                 populated: true,
                 attribute,
-                ...attributeDoc.get('options', {}),
+                ...options,
                 allowedValidators: [MethodType.Select, MethodType.Populate, MethodType.Filter, MethodType.Order],
                 overrideValidators,
                 throwOnUnAuthorization,
