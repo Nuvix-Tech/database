@@ -60,6 +60,7 @@ export enum EventsEnum {
     CollectionRead = "collection_read",
     CollectionDelete = "collection_delete",
 
+    DocumentsFind = "documents_find",
     DocumentFind = "document_find",
     DocumentPurge = "document_purge",
     DocumentCreate = "document_create",

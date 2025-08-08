@@ -37,7 +37,8 @@ export type EmitterEventMap = Record<string | symbol, any[]> & {
         Doc<Attribute>,
     ]
     [EventsEnum.DocumentRead]: [Doc<Partial<IEntity & Record<string, any>>>];
-    [EventsEnum.DocumentFind]: [Doc<Partial<IEntity & Record<string, any>>>[]];
+    [EventsEnum.DocumentsFind]: [Doc<Partial<IEntity & Record<string, any>>>[]];
+    [EventsEnum.DocumentFind]: [Doc<Partial<IEntity & Record<string, any>>> | undefined];
     'error': [Error, string | number | symbol, string];
 };
 

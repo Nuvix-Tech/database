@@ -1761,9 +1761,40 @@ export class Database extends Cache {
             })
         );
 
-        this.trigger(EventsEnum.DocumentFind, documents);
+        this.trigger(EventsEnum.DocumentsFind, documents);
 
         return documents;
+    }
+
+    public findOne<C extends (string & keyof Entities)>(
+        collectionId: C,
+        query?: ((builder: QueryBuilder) => QueryBuilder) | Query[],
+    ): Promise<Doc<Entities[C]>>;
+    public findOne<C extends string>(
+        collectionId: C,
+        query?: ((builder: QueryBuilder) => QueryBuilder) | Query[],
+    ): Promise<Doc<Partial<IEntity> & Record<string, any>>>;
+    public findOne<D extends Record<string, any>>(
+        collectionId: string,
+        query?: ((builder: QueryBuilder) => QueryBuilder) | Query[],
+    ): Promise<Doc<Partial<IEntity>>>;
+    public async findOne<C>(collectionId: string, query?: ((builder: QueryBuilder) => QueryBuilder) | Query[]):
+        Promise<Doc<IEntity>> {
+        const queries: Query[] = [Query.limit(1)];
+        if (query && typeof query === 'function') {
+            queries.push(...query(new QueryBuilder()).build());
+        } else {
+            queries.push(...query ?? [])
+        }
+
+        const result = await this.silent(() => this.find(collectionId, queries));
+        this.trigger(EventsEnum.DocumentFind, result[0]);
+
+        if (!result[0]) {
+            return new Doc();
+        }
+
+        return result[0] as Doc;
     }
 
     /**
@@ -1842,8 +1873,10 @@ export class Database extends Cache {
                 }
             }
         } else {
-            selections = [Query.select(attributes.      'user_posts', // new key
-filter(a => a.get('type') !== AttributeEnum.Relationship && a.get('type') !== AttributeEnum.Virtual).map(a => a.get('key', a.getId())))];
+            selections = [Query.select(attributes.filter(a =>
+                a.get('type') !== AttributeEnum.Relationship && a.get('type') !== AttributeEnum.Virtual)
+                .map(a => a.get('key', a.getId())))
+            ];
         }
 
         if (!populateQueries.size) {
