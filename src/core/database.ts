@@ -39,16 +39,25 @@ export class Database extends Cache {
         this.trigger(EventsEnum.DatabaseCreate, database);
     }
 
+    /**
+     * Check is database or collection already exists or not.
+     */
     public async exists(database?: string, collection?: string): Promise<boolean> {
         database ??= this.adapter.$schema;
         return this.adapter.exists(database, collection);
     }
 
+    /**
+     * list of databases.
+     */
     public async list(): Promise<string[]> {
         this.trigger(EventsEnum.DatabaseList, []);
         return [];
     }
 
+    /**
+     * Delete a database.
+     */
     public async delete(database?: string): Promise<void> {
         database ??= this.adapter.$schema;
         await this.adapter.delete(database);
@@ -160,6 +169,9 @@ export class Database extends Cache {
         return createdCollection;
     }
 
+    /**
+     * Update collection permissions & documentSecurity.
+     */
     public async updateCollection(
         { id, documentSecurity, permissions }: UpdateCollection
     ): Promise<Doc<Collection>> {
@@ -184,8 +196,7 @@ export class Database extends Cache {
         collection.set('$permissions', permissions);
         collection.set('documentSecurity', documentSecurity);
 
-        // TODO: --
-        // collection = await this.silent(() => this.updateDocument(Database.METADATA, collection.getId(), collection));
+        collection = await this.silent(() => this.updateDocument(Database.METADATA, collection.getId(), collection));
         this.trigger(EventsEnum.CollectionUpdate, collection);
 
         return collection;
@@ -245,6 +256,9 @@ export class Database extends Cache {
         return this.adapter.getSizeOfCollection(collection.getId());
     }
 
+    /**
+     * Gets the size of a collection on Disk.
+     */
     public async getSizeOfCollectionOnDisk(collectionId: string): Promise<number> {
         if (this.adapter.$sharedTables && !this.adapter.$tenantId) {
             throw new DatabaseException('Missing tenant. Tenant must be set when table sharing is enabled.');
@@ -259,10 +273,16 @@ export class Database extends Cache {
         return this.adapter.getSizeOfCollectionOnDisk(collection.getId());
     }
 
+    /**
+     * Analyze collection.
+     */
     public async analyzeCollection(collection: string): Promise<boolean> {
         return this.adapter.analyzeCollection(collection);
     }
 
+    /**
+     * Delete a collection by ID.
+     */
     public async deleteCollection(id: string): Promise<boolean> {
         const collection = await this.silent(() => this.getDocument(Database.METADATA, id));
 
@@ -299,8 +319,7 @@ export class Database extends Cache {
         if (id === Database.METADATA) {
             deleted = true;
         } else {
-            deleted = false
-            // deleted = await this.silent(() => this.deleteDocument(Database.METADATA, id));
+            deleted = await this.silent(() => this.deleteDocument(Database.METADATA, id));
         }
 
         if (deleted) {
@@ -579,7 +598,6 @@ export class Database extends Cache {
 
             const finalDefault = required === true && defaultValue !== null ? null : defaultValue;
 
-            // Validate attribute type and size constraints
             switch (type) {
                 case AttributeEnum.String:
                     if (!size) {
@@ -609,7 +627,6 @@ export class Database extends Cache {
                     throw new DatabaseException(`Unknown attribute type: ${type}`);
             }
 
-            // Validate format
             if (format && !Structure.hasFormat(format, type)) {
                 throw new DatabaseException(`Format "${format}" not available for attribute type "${type}"`);
             }
@@ -622,7 +639,6 @@ export class Database extends Cache {
                 this.validateDefaultTypes(type, finalDefault);
             }
 
-            // Update attribute properties
             const updatedId = newKey ?? id;
             attribute
                 .set('$id', updatedId)
@@ -640,7 +656,6 @@ export class Database extends Cache {
             attributes[attributeIndex] = attribute;
             collection.set('attributes', attributes);
 
-            // Check document size limit
             if (this.adapter.$documentSizeLimit > 0 &&
                 this.adapter.getAttributeWidth(collection) >= this.adapter.$documentSizeLimit) {
                 throw new LimitException('Row width limit reached. Cannot update attribute.');
@@ -660,7 +675,6 @@ export class Database extends Cache {
                     });
                 }
 
-                // Validate indexes after attribute update
                 if (this.validate) {
                     const validator = new IndexValidator(
                         attributes,
@@ -676,7 +690,6 @@ export class Database extends Cache {
                     });
                 }
 
-                // Update attribute in adapter
                 await this.adapter.updateAttribute({
                     key: id,
                     collection: collectionId,
@@ -1378,7 +1391,9 @@ export class Database extends Cache {
         return deleted;
     }
 
-
+    /**
+     * Get a document by ID.
+     */
     public getDocument<C extends (string & keyof Entities)>(
         collectionId: C,
         id: string,
@@ -1423,7 +1438,6 @@ export class Database extends Cache {
         let doc: Doc<any>;
 
         if (!processedQuery.populateQueries?.length) {
-            // Simple document retrieval without population
             doc = await this.adapter.getDocument(collection.getId(), id, processedQuery) || new Doc();
 
             if (!doc.empty() && collection.getId() !== Database.METADATA) {
@@ -1440,7 +1454,6 @@ export class Database extends Cache {
             }
 
         } else {
-            // Document retrieval with relationship population
             const authorization = new Authorization(PermissionEnum.Read);
             if (collection.getId() !== Database.METADATA && !authorization.$valid(collection.getRead())) {
                 throw new AuthorizationException(authorization.$description);
@@ -1467,6 +1480,9 @@ export class Database extends Cache {
         return doc;
     }
 
+    /**
+     * Create a new document.
+     */
     public async createDocument<D extends Record<string, any>>(
         collectionId: string,
         document: Doc<D>,
@@ -1565,6 +1581,7 @@ export class Database extends Cache {
         return decodedResult as any;
     }
 
+    // TODO: -----------------
     public async createDocumentRelationships(collection: Doc<Collection>, document: Doc<any>): Promise<Doc<any>> {
         const relationships = collection.get('attributes', [])
             .filter(attr => attr.get('type') === AttributeEnum.Relationship);
@@ -1591,7 +1608,9 @@ export class Database extends Cache {
         return document;
     }
 
-
+    /**
+     * Update a document.
+     */
     public async updateDocument<C extends (string & keyof Entities)>(
         collectionId: C,
         id: string,
@@ -1716,6 +1735,9 @@ export class Database extends Cache {
         return decodedDocument;
     }
 
+    /**
+     * find documents.
+     */
     public find<C extends (string & keyof Entities)>(
         collectionId: C,
         query?: ((builder: QueryBuilder) => QueryBuilder) | Query[],
@@ -1766,6 +1788,9 @@ export class Database extends Cache {
         return documents;
     }
 
+    /**
+     * find a single document.
+     */
     public findOne<C extends (string & keyof Entities)>(
         collectionId: C,
         query?: ((builder: QueryBuilder) => QueryBuilder) | Query[],
