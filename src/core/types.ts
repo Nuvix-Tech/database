@@ -44,9 +44,17 @@ export type QueryByType = {
 export type CreateRelationshipAttribute = {
     collectionId: string;
     relatedCollectionId: string;
-    attribute: string;
     type: RelationEnum;
-    relatedAttribute?: string;
     twoWay?: boolean;
+    id?: string;
+    twoWayKey?: string;
     onDelete?: OnDelete;
 }
+export type UpdateRelationshipAttribute = {
+    collectionId: string;
+    id: string;
+    newKey?: string;
+    newTwoWayKey?: string;
+    twoWay?: boolean;
+    onDelete?: OnDelete;
+};

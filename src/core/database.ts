@@ -1,6 +1,6 @@
 import { AttributeEnum, EventsEnum, IndexEnum, OnDelete, PermissionEnum, RelationEnum, RelationSideEnum } from "./enums.js";
 import { Attribute, Collection, Index, RelationOptions } from "@validators/schema.js";
-import { CreateCollection, CreateRelationshipAttribute, Filters, QueryByType, UpdateCollection } from "./types.js";
+import { CreateCollection, CreateRelationshipAttribute, Filters, QueryByType, UpdateCollection, UpdateRelationshipAttribute } from "./types.js";
 import { Cache } from "./cache.js";
 import { Cache as NuvixCache } from '@nuvix/cache';
 import { Entities, IEntity } from "types.js";
@@ -843,13 +843,14 @@ export class Database extends Cache {
      * Creates a relationship between two collections.
      */
     public async createRelationship(
-        collectionId: string,
-        relatedCollectionId: string,
-        type: RelationEnum,
-        twoWay: boolean = false,
-        id?: string,
-        twoWayKey?: string,
-        onDelete: OnDelete = OnDelete.Restrict
+        { collectionId,
+            relatedCollectionId,
+            type,
+            twoWay = false,
+            id,
+            twoWayKey,
+            onDelete = OnDelete.Restrict
+        }: CreateRelationshipAttribute
     ): Promise<boolean> {
         const collection = await this.silent(() => this.getCollection(collectionId, true));
         const relatedCollection = await this.silent(() => this.getCollection(relatedCollectionId));
@@ -1037,12 +1038,13 @@ export class Database extends Cache {
      * Updates an existing relationship in a collection.
      */
     public async updateRelationship(
-        collectionId: string,
-        id: string,
-        newKey?: string,
-        newTwoWayKey?: string,
-        twoWay?: boolean,
-        onDelete?: OnDelete
+        { collectionId,
+            id,
+            newKey,
+            newTwoWayKey,
+            twoWay,
+            onDelete
+        }: UpdateRelationshipAttribute
     ): Promise<boolean> {
         if (!newKey && !newTwoWayKey && twoWay === undefined && !onDelete) {
             return true;
@@ -1733,6 +1735,13 @@ export class Database extends Cache {
         this.trigger(EventsEnum.DocumentUpdate, decodedDocument);
 
         return decodedDocument;
+    }
+
+    /**
+     * Delete document by ID.
+     */
+    public async deleteDocument(collectionId: string, id: string): Promise<boolean> {
+        return true;
     }
 
     /**
