@@ -1558,7 +1558,7 @@ export class Database extends Cache {
         // }
 
         const castedResult = this.cast(collection, result);
-        const decodedResult = await this.decode(collection, castedResult);
+        const decodedResult = await this.decode(await this.processQueries([], collection), castedResult);
 
         this.trigger(EventsEnum.DocumentCreate, decodedResult);
 
@@ -1709,7 +1709,7 @@ export class Database extends Cache {
             return encodedDocument;
         });
 
-        const decodedDocument = await this.decode(collection, updatedDocument);
+        const decodedDocument = await this.decode(await this.processQueries([], collection), updatedDocument);
 
         this.trigger(EventsEnum.DocumentUpdate, decodedDocument);
 

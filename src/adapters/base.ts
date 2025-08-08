@@ -1263,6 +1263,9 @@ export abstract class BaseAdapter extends EventEmitter {
         "$permissions",
     ]
 
+    protected getJunctionTable(coll: number, relColl: number, attr: string, relAttr: string): string {
+        return `_${coll}_${relColl}_${attr}_${relAttr}`;
+    }
 }
 
 export interface Meta {
