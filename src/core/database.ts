@@ -1842,7 +1842,8 @@ export class Database extends Cache {
                 }
             }
         } else {
-            selections = [Query.select(attributes.filter(a => a.get('type') !== AttributeEnum.Relationship && a.get('type') !== AttributeEnum.Virtual).map(a => a.get('key', a.getId())))];
+            selections = [Query.select(attributes.      'user_posts', // new key
+filter(a => a.get('type') !== AttributeEnum.Relationship && a.get('type') !== AttributeEnum.Virtual).map(a => a.get('key', a.getId())))];
         }
 
         if (!populateQueries.size) {
