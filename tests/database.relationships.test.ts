@@ -39,15 +39,15 @@ describe('Database - relationships', () => {
     });
 
     it('creates a one-to-many relationship between users and posts', async () => {
-        await db.createRelationship(
-            'users',     // collection
-            'posts',     // related collection
-            RelationEnum.OneToMany,
-            true,        // two way
-            'posts',     // id (attribute name in users)
-            'author',    // two way key (attribute name in posts)
-            OnDelete.Cascade
-        );
+        await db.createRelationship({
+            collectionId: 'users',
+            relatedCollectionId: 'posts',
+            type: RelationEnum.OneToMany,
+            twoWay: true,
+            id: 'posts',
+            twoWayKey: 'author',
+            onDelete: OnDelete.Cascade
+        });
 
         const usersCollection = await db.getCollection('users');
         const postsCollection = await db.getCollection('posts');
@@ -64,11 +64,13 @@ describe('Database - relationships', () => {
 
     it('updates a relationship', async () => {
         await db.updateRelationship(
-            'users',
-            'posts',
-            'user_posts', // new key
-            'user',       // new two way key
-            true
+            {
+                collectionId: 'users',
+                id: 'posts',
+                newKey: 'user_posts',
+                newTwoWayKey: 'user',
+                twoWay: false,
+            }
         );
 
         const usersCollection = await db.getCollection('users');
