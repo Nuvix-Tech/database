@@ -543,6 +543,7 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
                 continue;
             }
 
+            if (attribute.type === AttributeEnum.Relationship) continue;
             if (internalDateAttributes.includes(key) && typeof value === 'string' && value === '') {
                 document.set(key, null);
                 continue;

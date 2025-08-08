@@ -1557,9 +1557,6 @@ export class Database extends Cache {
 
         const structure = new Structure(
             collection,
-            // this.adapter.getIdAttributeType(),
-            // this.adapter.getMinDateTime(),
-            // this.adapter.getMaxDateTime(),
         );
         if (!await structure.$valid(doc)) {
             throw new StructureException(structure.$description);
