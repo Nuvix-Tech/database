@@ -1778,7 +1778,9 @@ export class Database extends Cache {
                     const oldValue = old.get(key);
 
                     if (relationships.some((rel) => rel.get('key') === key)) {
-                        continue;
+                        if (value !== undefined) {
+                            shouldUpdate = true;
+                        }
                     }
 
                     if (value !== oldValue) {
@@ -1831,6 +1833,95 @@ export class Database extends Cache {
         this.trigger(EventsEnum.DocumentUpdate, decodedDocument);
 
         return decodedDocument;
+    }
+
+
+    private async updateDocumentRelationships(
+        collection: Doc<Collection>,
+        document: Doc<Record<string, any>>,
+    ) {
+        const relationships = collection.get('attributes', [])
+            .filter(attr => attr.get('type') === AttributeEnum.Relationship);
+
+        for (const relationship of relationships) {
+            const options = relationship.get('options', {}) as RelationOptions;
+            const relatedCollectionId = options.relatedCollection;
+            if (!relatedCollectionId) continue;
+
+            const type = options.relationType;
+            const side = options.side;
+            const value = document.get(relationship.get('key'));
+            if (!value || (Array.isArray(value) && value.length === 0)) continue;
+
+            // Prevent infinite recursion
+            const loopKey = `${collection.getId()}::${document.getId()}::${relationship.getId()}`;
+            if (this._relationStack.includes(loopKey)) continue;
+            this._relationStack.push(loopKey);
+
+            try {
+                if (
+                    type === RelationEnum.OneToOne
+                    || (type === RelationEnum.OneToMany && side === RelationSideEnum.Child)
+                    || (type === RelationEnum.ManyToOne && side === RelationSideEnum.Parent)
+                ) {
+                    const relatedDoc = await this.silent(() =>
+                        this.getDocument(options.relatedCollection, value)
+                    );
+
+                    if (relatedDoc.empty() && !this.checkRelationshipsExist) {
+                        throw new RelationshipException(`Related document '${value}' not found`);
+                    }
+
+                    if (type === RelationEnum.OneToOne) {
+                        if (options.side === RelationSideEnum.Child && !options.twoWay) {
+                            throw new DatabaseException(`Cannot update OneToOne from child side without twoWay`);
+                        }
+
+                        if (options.twoWay) {
+                            relatedDoc.set(options.twoWayKey!, document.getId());
+                            await this.silent(() =>
+                                this.skipCheckRelationshipsExist(() => this.updateDocument(options.relatedCollection, value, relatedDoc))
+                            );
+                        }
+                    }
+                }
+
+                if (type === RelationEnum.ManyToMany
+                    || (type === RelationEnum.OneToMany && side === RelationSideEnum.Parent)
+                    || (type === RelationEnum.ManyToOne && side === RelationSideEnum.Child)
+                ) {
+                    // handle object with set, connect , disconnect instead of array
+
+                    const values = Array.isArray(value) ? value : [value];
+                    if (values.length === 0) continue;
+
+                    if (type === RelationEnum.ManyToMany) {
+                        await this.handleManyToMany(
+                            collection,
+                            document,
+                            relationship,
+                            options,
+                            values
+                        );
+                    } else {
+                        for (const childId of values) {
+                            const childDoc = await this.silent(() =>
+                                this.getDocument(options.relatedCollection, childId)
+                            );
+                            if (childDoc.empty() && !this.checkRelationshipsExist) {
+                                throw new RelationshipException(`Child '${childId}' not found`);
+                            }
+                            childDoc.set(options.twoWayKey!, document.getId());
+                            await this.silent(() =>
+                                this.skipCheckRelationshipsExist(() => this.updateDocument(options.relatedCollection, childId, childDoc))
+                            );
+                        }
+                    }
+                }
+            } finally {
+                this._relationStack.pop();
+            }
+        }
     }
 
     /**

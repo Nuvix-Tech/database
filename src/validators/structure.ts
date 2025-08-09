@@ -86,7 +86,7 @@ export class Structure implements Validator {
         collection: Doc<Collection>,
         private readonly minAllowedDate: Date = new Date("0000-01-01"),
         private readonly maxAllowedDate: Date = new Date("9999-12-31"),
-    ) { 
+    ) {
         this.collection = collection.clone();
     }
 
@@ -280,6 +280,7 @@ export class Structure implements Validator {
     protected async checkForInvalidAttributeValues(
         documentStructure: Record<string, unknown>,
     ): Promise<boolean> {
+
         for (const key in documentStructure) {
             if (key === '$permissions') continue;
             const value = documentStructure[key];
@@ -304,10 +305,10 @@ export class Structure implements Validator {
 
             if (type === AttributeEnum.Relationship) {
                 const valid = this.checkForInvalidRelationshipValues(attribute, value);
-                if (!valid) {
+                if (!valid)
                     return false;
-                }
-                continue;
+                else
+                    continue;
             }
 
             const attributeValidators: Validator[] = [];
@@ -417,7 +418,7 @@ export class Structure implements Validator {
                     this.message = `Attribute "${attr.key}" must be a string or null for OneToOne relation.`;
                     return false;
                 }
-                return true;
+                break;
             case RelationEnum.ManyToMany:
                 return this.checkForInvalidManyValues(value, attr.key);
             case RelationEnum.OneToMany:
@@ -429,7 +430,7 @@ export class Structure implements Validator {
                         this.message = `Attribute "${attr.key}" must be a string or null for OneToMany relation on child side.`;
                         return false;
                     }
-                    return true;
+                    break;
                 }
                 this.message = `Unknown relation side "${side}" for attribute "${attr.key}".`;
                 return false;
@@ -439,7 +440,7 @@ export class Structure implements Validator {
                         this.message = `Attribute "${attr.key}" must be a string or null for ManyToOne relation on parent side.`;
                         return false;
                     }
-                    return true;
+                    break;
                 }
                 if (side === RelationSideEnum.Child) {
                     return this.checkForInvalidManyValues(value, attr.key);
@@ -450,6 +451,7 @@ export class Structure implements Validator {
                 this.message = `Unknown relation type "${type}" for attribute "${attr.key}".`;
                 return false;
         }
+        return true;
     }
 
     private checkForInvalidManyValues(value: any, attributeKey: string): boolean {
@@ -501,17 +503,16 @@ export class Structure implements Validator {
                 }
             }
 
+            if ('set' in value && ('connect' in value || 'disconnect' in value)) {
+                this.message = `Attribute "${attributeKey}" must not contain both "set" and "connect"/"disconnect" operations.`;
+                return false;
+            }
+
+            if (this.onCreate && !('set' in value)) {
+                this.message = `Attribute "${attributeKey}" must contain "set" operation on creation.`;
+                return false;
+            }
             return true;
-        }
-
-        if ('set' in value && ('connect' in value || 'disconnect' in value)) {
-            this.message = `Attribute "${attributeKey}" must not contain both "set" and "connect"/"disconnect" operations.`;
-            return false;
-        }
-
-        if (this.onCreate && !('set' in value)) {
-            this.message = `Attribute "${attributeKey}" must contain "set" operation on creation.`;
-            return false;
         }
 
         this.message = `Attribute "${attributeKey}" must contain at least one of: set, connect, or disconnect operations.`;
