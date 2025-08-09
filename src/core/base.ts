@@ -135,7 +135,8 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
     protected validate: boolean = true;
     protected preserveDates: boolean = false;
     protected maxQueryValues: number = 100;
-    protected globalCollections: Record<string, boolean> = {}
+    protected globalCollections: Record<string, boolean> = {};
+    protected resolveRelationships: boolean = true;
 
     constructor(adapter: Adapter, cache: Cache, options: Options = {}) {
         super();
@@ -261,6 +262,17 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
             return await callback();
         } finally {
             this.validate = initial;
+        }
+    }
+
+    public async skipRelationships<T>(callback: Callback<T>): Promise<T> {
+        const previous = this.resolveRelationships;
+        this.resolveRelationships = false;
+
+        try {
+            return callback();
+        } finally {
+            this.resolveRelationships = previous;
         }
     }
 

@@ -58,3 +58,9 @@ export type UpdateRelationshipAttribute = {
     twoWay?: boolean;
     onDelete?: OnDelete;
 };
+
+export type ToManyRelationValue = {
+    set?: string[],
+    connect?: string[],
+    disconnect?: string[]
+}
