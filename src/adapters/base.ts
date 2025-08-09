@@ -803,6 +803,7 @@ export abstract class BaseAdapter extends EventEmitter {
         return `${this.sanitize(coll)}_${this.sanitize(id)}`;
     }
 
+    /**@deprecated */
     protected getSQLCondition(query: Query, binds: any[]): string {
         query.setAttribute(this.getInternalKeyForAttribute(query.getAttribute()));
 
@@ -894,6 +895,7 @@ export abstract class BaseAdapter extends EventEmitter {
         });
     }
 
+    /**@deprecated */
     protected getSQLOperator(method: string): string {
         switch (method) {
             case QueryType.Equal:
@@ -977,6 +979,7 @@ export abstract class BaseAdapter extends EventEmitter {
     }
 
     /**
+     * @deprecated
      * Builds SQL conditions recursively and mutates the provided `binds` array with bound values.
      * @returns SQL condition string with placeholders.
     */
@@ -1068,6 +1071,7 @@ export abstract class BaseAdapter extends EventEmitter {
         return `"${name}"`;
     }
 
+    /**@deprecated */
     protected getAttributeSelections(queries: QueryBuilder | Array<Query>): string[] {
         const selections: string[] = [];
         queries = Array.isArray(queries) ? queries : queries.build();
@@ -1270,7 +1274,7 @@ export abstract class BaseAdapter extends EventEmitter {
         "$permissions",
     ]
 
-    protected getJunctionTable(coll: number, relColl: number, attr: string, relAttr: string): string {
+    public getJunctionTable(coll: number, relColl: number, attr: string, relAttr: string): string {
         return `_${coll}_${relColl}_${attr}_${relAttr}`;
     }
 }

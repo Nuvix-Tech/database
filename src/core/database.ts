@@ -1562,6 +1562,7 @@ export class Database extends Cache {
         if (!await structure.$valid(doc)) {
             throw new StructureException(structure.$description);
         }
+        structure.setOnCreate(false);
 
         const result = await this.withTransaction(async () => {
             doc = await this.silent(() => this.createDocumentRelationships(collection, doc));
@@ -1737,7 +1738,12 @@ export class Database extends Cache {
                 throw new DatabaseException(`Related document '${relatedId}' not found in collection '${options.relatedCollection}'`);
             }
 
-            const junctionCollection = this.getJunctionTable(collection.getSequence(), relatedCollection.getSequence(), relatedCollection.getId(), options.twoWayKey!)
+            const parentColl = options.side === RelationSideEnum.Parent ? collection : relatedCollection;
+            const childColl = options.side === RelationSideEnum.Parent ? relatedCollection : collection;
+            const parentAttr = options.side === RelationSideEnum.Parent ? relationship.getId() : options.twoWayKey!;
+            const childAttr = options.side === RelationSideEnum.Parent ? options.twoWayKey! : relationship.getId();
+
+            const junctionCollection = this.getJunctionTable(parentColl.getSequence(), childColl.getSequence(), parentAttr, childAttr)
             const doc = new Doc({
                 $id: ID.unique(),
                 [relationship.getId()]: document.getId(), // FK to current document
@@ -1858,7 +1864,7 @@ export class Database extends Cache {
             }
 
             if (shouldUpdate) {
-                mergedDocument['$updatedAt']= newUpdatedAt === null || !this.preserveDates ? time : newUpdatedAt;
+                mergedDocument['$updatedAt'] = newUpdatedAt === null || !this.preserveDates ? time : newUpdatedAt;
             }
 
             const structureValidator = new Structure(collection);

@@ -312,7 +312,7 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
     }
 
     protected getJunctionTable(coll: number, relColl: number, attr: string, relAttr: string): string {
-        return `_${coll}_${relColl}_${attr}_${relAttr}`;
+        return this.adapter.getJunctionTable(coll, relColl, attr, relAttr);
     }
 
     protected async validateAttribute(
