@@ -1,7 +1,7 @@
 import { Adapter } from '@adapters/adapter.js';
 import { Database } from '@core/database.js';
 import { Authorization } from '@utils/authorization.js';
-import { Cache as NuvixCache } from '@nuvix/cache';
+import { Memory, Cache as NuvixCache } from '@nuvix/cache';
 import { PoolConfig } from 'pg';
 
 export function createTestAdapter(meta?: Partial<{
@@ -34,7 +34,7 @@ export function createTestDb(meta?: Partial<{
     namespace: string;
 }>): Database {
     const adapter = createTestAdapter(meta);
-    const cache = new NuvixCache({ name: 'memory' } as any);
+    const cache = new NuvixCache(new Memory());
     Authorization.setDefaultStatus(false); // disable auth by default in tests
     return new Database(adapter, cache);
 }

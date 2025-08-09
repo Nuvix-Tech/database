@@ -535,6 +535,7 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
     }
 
     protected async encode<T extends Record<string, any>>(collection: Doc<Collection>, document: Doc<T>): Promise<Doc<T>> {
+        collection = collection.clone();
         const attributes: (Attribute | Doc<Attribute>)[] = collection.get('attributes') ?? [];
         const internalDateAttributes = ['$createdAt', '$updatedAt'];
 

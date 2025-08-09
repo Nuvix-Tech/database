@@ -116,7 +116,7 @@ export class Adapter extends BaseAdapter implements IAdapter {
 
             const uniqueClause = isFulltext ? '' : (indexType === IndexEnum.Unique ? 'UNIQUE ' : '');
 
-            const pgIndexId = `"${this.getIndexName(name, this.sanitize(indexId))}"`;
+            const pgIndexId = this.getSQLIndex(name, this.sanitize(indexId));
             const sql = `CREATE ${uniqueClause}INDEX ${pgIndexId} ON ${mainTable} ${usingClause} (${attributesForSql});`;
 
             indexSql.push(sql);
@@ -151,16 +151,16 @@ export class Adapter extends BaseAdapter implements IAdapter {
 
         const postTableIndexes: string[] = [];
         if (this.$sharedTables) {
-            postTableIndexes.push(`CREATE UNIQUE INDEX "${name}_uid_tenant" ON ${mainTable} ("_uid", ${tenantCol});`);
-            postTableIndexes.push(`CREATE INDEX "${name}_created_at_tenant" ON ${mainTable} (${tenantCol}, "_createdAt");`);
-            postTableIndexes.push(`CREATE INDEX "${name}_updated_at_tenant" ON ${mainTable} (${tenantCol}, "_updatedAt");`);
-            postTableIndexes.push(`CREATE INDEX "${name}_tenant_id" ON ${mainTable} (${tenantCol}, "_id");`);
+            postTableIndexes.push(`CREATE UNIQUE INDEX ${this.getSQLIndex(name, 'uid_tenant')} ON ${mainTable} ("_uid", ${tenantCol});`);
+            postTableIndexes.push(`CREATE INDEX ${this.getSQLIndex(name, 'created_at_tenant')} ON ${mainTable} (${tenantCol}, "_createdAt");`);
+            postTableIndexes.push(`CREATE INDEX ${this.getSQLIndex(name, 'updated_at_tenant')} ON ${mainTable} (${tenantCol}, "_updatedAt");`);
+            postTableIndexes.push(`CREATE INDEX ${this.getSQLIndex(name, 'tenant_id')} ${mainTable} (${tenantCol}, "_id");`);
         } else {
-            postTableIndexes.push(`CREATE UNIQUE INDEX "${name}_uid" ON ${mainTable} ("_uid");`);
-            postTableIndexes.push(`CREATE INDEX "${name}_created_at" ON ${mainTable} ("_createdAt");`);
-            postTableIndexes.push(`CREATE INDEX "${name}_updated_at" ON ${mainTable} ("_updatedAt");`);
+            postTableIndexes.push(`CREATE UNIQUE INDEX ${this.getSQLIndex(name, 'uid')} ON ${mainTable} ("_uid");`);
+            postTableIndexes.push(`CREATE INDEX ${this.getSQLIndex(name, 'created_at')} ON ${mainTable} ("_createdAt");`);
+            postTableIndexes.push(`CREATE INDEX ${this.getSQLIndex(name, 'updated_at')} ON ${mainTable} ("_updatedAt");`);
         }
-        postTableIndexes.push(`CREATE INDEX "${name}_permissions_gin_idx" ON ${mainTable} USING GIN ("_permissions");`);
+        postTableIndexes.push(`CREATE INDEX ${this.getSQLIndex(name, 'permissions_gin_idx')} ON ${mainTable} USING GIN ("_permissions");`);
 
         tableSql = this.trigger(EventsEnum.CollectionCreate, tableSql);
 
@@ -180,13 +180,13 @@ export class Adapter extends BaseAdapter implements IAdapter {
             permissionsTableColumns.splice(1, 0, `${tenantCol} BIGINT DEFAULT NULL`);
             permissionsPrimaryKeyDefinition = `PRIMARY KEY ("_id", ${tenantCol})`;
 
-            postPermissionsTableIndexes.push(`CREATE UNIQUE INDEX "${name}_perms_index1" ON ${permissionsTableName} ("_document", ${tenantCol}, "_type");`);
-            postPermissionsTableIndexes.push(`CREATE INDEX "${name}_perms_tenant" ON ${permissionsTableName} (${tenantCol});`);
+            postPermissionsTableIndexes.push(`CREATE UNIQUE INDEX ${this.getSQLIndex(`${name}_perms`, 'index1')} ON ${permissionsTableName} ("_document", ${tenantCol}, "_type");`);
+            postPermissionsTableIndexes.push(`CREATE INDEX ${this.getSQLIndex(`${name}_perms`, 'tenant')} ON ${permissionsTableName} (${tenantCol});`);
         } else {
             permissionsPrimaryKeyDefinition = `PRIMARY KEY ("_id")`;
-            postPermissionsTableIndexes.push(`CREATE UNIQUE INDEX "${name}_perms_index1" ON ${permissionsTableName} ("_document", "_type");`);
+            postPermissionsTableIndexes.push(`CREATE UNIQUE INDEX ${this.getSQLIndex(`${name}_perms`, 'index1')} ON ${permissionsTableName} ("_document", "_type");`);
         }
-        postPermissionsTableIndexes.push(`CREATE INDEX "${name}_perms_permissions_gin_idx" ON ${permissionsTableName} USING GIN ("_permissions");`);
+        postPermissionsTableIndexes.push(`CREATE INDEX ${this.getSQLIndex(`${name}_perms`, 'permissions_gin_idx')} ON ${permissionsTableName} USING GIN ("_permissions");`);
 
         const permissionsColumnsAndConstraints = permissionsTableColumns.join(',\n');
         let permissionsTable = `
@@ -711,8 +711,8 @@ export class Adapter extends BaseAdapter implements IAdapter {
     }
 
     public async renameIndex(collectionId: string, oldName: string, newName: string): Promise<boolean> {
-        const currentPgIndexName = `"${this.sanitize(this.getIndexName(collectionId, oldName))}"`;
-        const newPgIndexName = `"${this.sanitize(this.getIndexName(collectionId, newName))}"`;
+        const currentPgIndexName = this.getSQLIndex(collectionId, oldName);
+        const newPgIndexName = this.getSQLIndex(collectionId, newName);
 
         let sql = `ALTER INDEX ${currentPgIndexName} RENAME TO ${newPgIndexName};`;
         sql = this.trigger(EventsEnum.IndexRename, sql);
@@ -768,7 +768,7 @@ export class Adapter extends BaseAdapter implements IAdapter {
         }
 
         const pgTable = this.getSQLTable(collectionId);
-        const pgIndexId = this.quote(this.getIndexName(collectionId, name));
+        const pgIndexId = this.getSQLIndex(collectionId, name);
         const uniqueClause = isUnique ? 'UNIQUE' : '';
 
         let attributesForSql = preparedAttributes.join(', ');
@@ -790,7 +790,7 @@ export class Adapter extends BaseAdapter implements IAdapter {
     }
 
     public async deleteIndex(collection: string, id: string): Promise<boolean> {
-        const pgIndexName = this.quote(this.getIndexName(collection, id));
+        const pgIndexName = this.getSQLIndex(collection, id);
 
         let sql = `DROP INDEX IF EXISTS ${pgIndexName};`;
         sql = this.trigger(EventsEnum.IndexDelete, sql);

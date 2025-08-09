@@ -7,7 +7,7 @@ import { Entities, IEntity } from "types.js";
 import { QueryBuilder } from "@utils/query-builder.js";
 import { Query, QueryType } from "./query.js";
 import { Doc } from "./doc.js";
-import { AuthorizationException, DatabaseException, DependencyException, DuplicateException, IndexException, LimitException, NotFoundException, QueryException, RelationshipException, StructureException } from "@errors/index.js";
+import { AuthorizationException, ConflictException, DatabaseException, DependencyException, DuplicateException, IndexException, LimitException, NotFoundException, QueryException, RelationshipException, StructureException } from "@errors/index.js";
 import { Permission } from "@utils/permission.js";
 import { Role } from "@utils/role.js";
 import { Permissions } from "@validators/permissions.js";
@@ -1761,7 +1761,7 @@ export class Database extends Cache {
         id: string,
         document: Entities[C]
     ): Promise<Doc<Entities[C]>>;
-    public async updateDocument<D extends Record<string, any>>(
+    public async updateDocument<D extends Doc<Record<string, any>>>(
         collectionId: string,
         id: string,
         document: D
@@ -1769,14 +1769,14 @@ export class Database extends Cache {
     public async updateDocument(
         collectionId: string,
         id: string,
-        document: any
+        document: Doc<Record<string, any>>
     ): Promise<Doc<any>> {
         if (!id) {
             throw new DatabaseException('Must define $id attribute');
         }
 
         const collection = await this.silent(() => this.getCollection(collectionId));
-        const newUpdatedAt = document.$updatedAt;
+        const newUpdatedAt = document.updatedAt();
         const updatedDocument = await this.withTransaction(async () => {
             const time = new Date().toISOString();
             const old = await this.silent(() =>
@@ -1785,9 +1785,9 @@ export class Database extends Cache {
 
             let skipPermissionsUpdate = true;
 
-            if (document.$permissions) {
+            if (document.getPermissions()) {
                 const originalPermissions = old.get('$permissions', []);
-                const currentPermissions = document.$permissions;
+                const currentPermissions = document.getPermissions();
 
                 originalPermissions.sort();
                 currentPermissions.sort();
@@ -1795,9 +1795,9 @@ export class Database extends Cache {
                 skipPermissionsUpdate = JSON.stringify(originalPermissions) === JSON.stringify(currentPermissions);
             }
 
-            const createdAt = document.$createdAt;
+            const createdAt = document.updatedAt();
 
-            const mergedDocument = {
+            const mergedDocument: Record<string, any> = {
                 ...old.toObject(),
                 ...(document instanceof Doc ? document.toObject() : document),
                 $collection: old.get('$collection'),
@@ -1805,7 +1805,7 @@ export class Database extends Cache {
             };
 
             if (this.adapter.$sharedTables) {
-                mergedDocument.$tenant = old.get('$tenant');
+                mergedDocument['$tenant'] = old.get('$tenant');
             }
 
             const relationships = collection
@@ -1822,6 +1822,7 @@ export class Database extends Cache {
                     const oldValue = old.get(key);
 
                     if (relationships.some((rel) => rel.get('key') === key)) {
+                        // $recheck
                         if (JSON.stringify(value) !== JSON.stringify(oldValue)) {
                             shouldUpdate = true;
                             break;
@@ -1857,7 +1858,7 @@ export class Database extends Cache {
             }
 
             if (shouldUpdate) {
-                mergedDocument.$updatedAt = newUpdatedAt === null || !this.preserveDates ? time : newUpdatedAt;
+                mergedDocument['$updatedAt']= newUpdatedAt === null || !this.preserveDates ? time : newUpdatedAt;
             }
 
             const structureValidator = new Structure(collection);
@@ -1867,7 +1868,7 @@ export class Database extends Cache {
 
             const encodedDocument = await this.encode(collection, new Doc(mergedDocument));
 
-            await this.adapter.updateDocument(collection.getId(), encodedDocument, skipPermissionsUpdate);
+            await this.adapter.updateDocument(collection.getId(), encodedDocument as Doc<IEntity>, skipPermissionsUpdate);
             await this.purgeCachedDocument(collection.getId(), encodedDocument);
 
             return encodedDocument;
@@ -1884,7 +1885,45 @@ export class Database extends Cache {
      * Delete document by ID.
      */
     public async deleteDocument(collectionId: string, id: string): Promise<boolean> {
-        return true;
+        const collection = await this.silent(() => this.getCollection(collectionId));
+
+        const deleted = await this.withTransaction(async () => {
+            const document = await this.silent(() =>
+                this.getDocument(collection.getId(), id, [], true)
+            );
+
+            if (document.empty()) {
+                return false;
+            }
+
+            const validator = new Authorization(PermissionEnum.Delete);
+
+            if (collection.getId() !== Database.METADATA) {
+                const documentSecurity = collection.get('documentSecurity', false);
+                if (!validator.$valid([
+                    ...collection.getDelete(),
+                    ...(documentSecurity ? document.getDelete() : [])
+                ])) {
+                    throw new AuthorizationException(validator.$description);
+                }
+            }
+
+            // Check if document was updated after the request timestamp
+            const oldUpdatedAt = new Date(document.updatedAt()!);
+            if (this.timestamp && oldUpdatedAt > this.timestamp) {
+                throw new ConflictException('Document was updated after the request timestamp');
+            }
+
+            const result = await this.adapter.deleteDocument(collection.getId(), id);
+
+            await this.purgeCachedDocument(collection.getId(), id);
+
+            return result;
+        });
+
+        this.trigger(EventsEnum.DocumentDelete, { collectionId, id });
+
+        return deleted;
     }
 
     /**

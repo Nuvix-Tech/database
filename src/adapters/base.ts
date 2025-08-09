@@ -796,6 +796,9 @@ export abstract class BaseAdapter extends EventEmitter {
         }
     }
 
+    /**
+     * @deprecated use getSQLIndex
+     */
     protected getIndexName(coll: string, id: string): string {
         return `${this.sanitize(coll)}_${this.sanitize(id)}`;
     }
@@ -922,7 +925,11 @@ export abstract class BaseAdapter extends EventEmitter {
         if (!name) {
             throw new DatabaseException("Failed to get SQL table: name is empty");
         }
-        return `${this.$.quote(this.$schema)}.${this.$.quote(`${this.$namespace}_${name}`)}`;
+        return `${this.quote(this.$schema)}.${this.quote(`${this._meta.namespace}_${name}`)}`;
+    }
+
+    protected getSQLIndex(table: string, name: string): string {
+        return this.quote(`${this._meta.namespace}_${table}_${name}`);
     }
 
     protected getSQLIndexType(type: IndexEnum): string {

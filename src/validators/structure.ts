@@ -73,6 +73,7 @@ export class Structure implements Validator {
     protected message: string = "Invalid document structure.";
     protected keys: Record<string, Attribute> = {};
     private onCreate: boolean = false;
+    protected readonly collection: Doc<Collection>;
 
     /**
      * Structure constructor.
@@ -82,10 +83,12 @@ export class Structure implements Validator {
      * @param maxAllowedDate - The maximum date allowed for datetime attributes.
      */
     constructor(
-        protected readonly collection: Doc<Collection>,
+        collection: Doc<Collection>,
         private readonly minAllowedDate: Date = new Date("0000-01-01"),
         private readonly maxAllowedDate: Date = new Date("9999-12-31"),
-    ) { }
+    ) { 
+        this.collection = collection.clone();
+    }
 
     /**
      * Get the registry of custom validation formats.

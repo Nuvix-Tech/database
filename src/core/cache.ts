@@ -14,7 +14,7 @@ export class Cache extends Base {
 
     }
 
-    public async purgeCachedDocument(collection: string, doc: Doc<any>) {
+    public async purgeCachedDocument(collection: string, doc: Doc<any> | string) {
 
     }
 

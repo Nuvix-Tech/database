@@ -1,6 +1,7 @@
 import { DatabaseException } from "@errors/base.js";
 import { Permission } from "@utils/permission.js";
 import { IEntity, IEntityInput } from "types.js";
+import chalk from 'chalk';
 
 type IsReferenceObject<T> =
     T extends { $id: string }
@@ -402,8 +403,41 @@ export class Doc<T extends Record<string, any> & Partial<IEntity> = IEntity> {
     }
 
     [Symbol.for('nodejs.util.inspect.custom')]() {
-        const obj = this._data;
-        return `Doc (${JSON.stringify(obj, null, 2)})`;
+        const formatValue = (value: any, depth: number = 0): string => {
+            if (value instanceof Doc) {
+                return chalk.cyan(`Doc(${formatValue(value._data, depth + 1)})`);
+            } else if (Array.isArray(value)) {
+                return chalk.green(
+                    `[${value
+                        .map((item) => formatValue(item, depth + 1))
+                        .join(', ')}]`
+                );
+            } else if (typeof value === 'object' && value !== null) {
+                const indent = '  '.repeat(depth + 1);
+                const entries = Object.entries(value)
+                    .map(
+                        ([key, val]) =>
+                            `${indent}${chalk.yellow(key)}: ${formatValue(
+                                val,
+                                depth + 1
+                            )}`
+                    )
+                    .join(',\n');
+                return `{\n${entries}\n${'  '.repeat(depth)}}`;
+            } else if (typeof value === 'string') {
+                return chalk.magenta(`"${value}"`);
+            } else if (typeof value === 'number') {
+                return chalk.blue(value.toString());
+            } else if (typeof value === 'boolean') {
+                return chalk.red(value.toString());
+            } else if (value === null) {
+                return chalk.gray('null');
+            } else {
+                return String(value);
+            }
+        };
+
+        return `Doc ${formatValue(this._data)}`;
     }
 }
 
