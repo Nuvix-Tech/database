@@ -11,6 +11,7 @@ import { Attribute, Collection, RelationOptions } from "@validators/schema.js";
 import { ColumnInfo, CreateAttribute, CreateIndex, UpdateAttribute } from "./types.js";
 import { Query, QueryType } from "@core/query.js";
 import { Authorization } from "@utils/authorization.js";
+import { Logger } from "@utils/logger.js";
 
 export class Adapter extends BaseAdapter implements IAdapter {
     protected client: PostgresClient;
@@ -999,11 +1000,10 @@ export class Adapter extends BaseAdapter implements IAdapter {
         forUpdate?: boolean;
     } = {}): Promise<Record<string, any>[]> {
         const sqlResult = this.buildSql(query, options);
-        console.log('Deep Find SQL:', sqlResult.sql, sqlResult.params);
+        Logger.debug('Deep Find SQL:', sqlResult.sql, sqlResult.params);
 
         try {
             const { rows } = await this.client.query(sqlResult.sql, sqlResult.params);
-            console.log({ rows })
             return rows;
         } catch (e: any) {
             throw this.processException(e, `Failed to execute deep find query for collection '${collection}'`);
@@ -1101,7 +1101,11 @@ export class Adapter extends BaseAdapter implements IAdapter {
             params.push(...whereInfo.params);
         }
 
-        if (Authorization.getStatus() && collection.get('documentSecurity', false) && tableAlias === 'main') {
+        if (
+            tableAlias === 'main'
+            && Authorization.getStatus()
+            && collection.get('documentSecurity', false)
+        ) {
             const roles = Authorization.getRoles();
             conditions.push(this.getSQLPermissionsCondition({
                 collection: collection.getId(), roles, alias: tableAlias, type: PermissionEnum.Read
@@ -1273,8 +1277,8 @@ export class Adapter extends BaseAdapter implements IAdapter {
             case RelationEnum.ManyToMany: {
                 if (!junctionCollection) throw new DatabaseException('junction collection is required for many to many relation.');
                 const junctionTable = this.getSQLTable(junctionCollection);
-                const parentJoinKey = this.client.quote(parentRelCol);
-                const relationJoinKey = this.client.quote(relationRelCol);
+                const parentJoinKey = this.quote(this.sanitize(relationshipKey));
+                const relationJoinKey = this.quote(this.sanitize(twoWayKey));
 
                 return `EXISTS (
                     SELECT 1

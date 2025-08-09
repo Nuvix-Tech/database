@@ -177,8 +177,9 @@ export class Structure implements Validator {
      * @param document - The document `unknown` to validate.
      * @returns {boolean} True if the document is valid, false otherwise.
      */
-    public async $valid(document: unknown): Promise<boolean> {
+    public async $valid(document: unknown, onCreate: boolean = false): Promise<boolean> {
         this.message = "Invalid document structure.";
+        this.onCreate = onCreate;
 
         if (!(document instanceof Doc)) {
             this.message = "Value must be an instance of Doc.";
@@ -517,7 +518,4 @@ export class Structure implements Validator {
         return false;
     }
 
-    setOnCreate(onCreate: boolean): void {
-        this.onCreate = onCreate;
-    }
 }

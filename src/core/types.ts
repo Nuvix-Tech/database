@@ -59,8 +59,13 @@ export type UpdateRelationshipAttribute = {
     onDelete?: OnDelete;
 };
 
-export type ToManyRelationValue = {
+export type RelationshipUpdates = {
     set?: string[],
     connect?: string[],
     disconnect?: string[]
+}
+
+export interface RelationshipContext {
+    visited: Set<string>;
+    skipRelationships ?: boolean;
 }

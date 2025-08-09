@@ -1558,14 +1558,12 @@ export class Database extends Cache {
         const structure = new Structure(
             collection,
         );
-        structure.setOnCreate(true);
-        if (!await structure.$valid(doc)) {
+        if (!await structure.$valid(doc, true)) {
             throw new StructureException(structure.$description);
         }
-        structure.setOnCreate(false);
 
         const result = await this.withTransaction(async () => {
-            doc = await this.silent(() => this.createDocumentRelationships(collection, doc));
+            doc = await this.silent(() => this.createOrUpdateRelationships(collection, doc));
             return this.adapter.createDocument(collection.getId(), doc);
         });
 
@@ -1577,7 +1575,10 @@ export class Database extends Cache {
         return decodedResult as any;
     }
 
-    private async createDocumentRelationships(collection: Doc<Collection>, document: Doc<any>): Promise<Doc<any>> {
+    private async createOrUpdateRelationships(
+        collection: Doc<Collection>,
+        document: Doc<any>
+    ): Promise<Doc<any>> {
         const relationships = collection.get('attributes', [])
             .filter(attr => attr.get('type') === AttributeEnum.Relationship);
 
@@ -1587,133 +1588,84 @@ export class Database extends Cache {
             if (!relatedCollectionId) continue;
 
             const type = options.relationType;
+            const side = options.side;
             const value = document.get(relationship.get('key'));
-
-            // If value is null or empty, skip
             if (!value || (Array.isArray(value) && value.length === 0)) continue;
 
-            switch (type) {
-                case RelationEnum.OneToOne:
-                    await this.handleOneToOne(document, relationship, options, value);
-                    break;
+            // Prevent infinite recursion
+            const loopKey = `${collection.getId()}::${document.getId()}::${relationship.getId()}`;
+            if (this._relationStack.includes(loopKey)) continue;
+            this._relationStack.push(loopKey);
 
-                case RelationEnum.OneToMany:
-                    await this.handleOneToMany(document, relationship, options, value);
-                    break;
+            try {
+                if (
+                    type === RelationEnum.OneToOne
+                    || (type === RelationEnum.OneToMany && side === RelationSideEnum.Child)
+                    || (type === RelationEnum.ManyToOne && side === RelationSideEnum.Parent)
+                ) {
+                    const relatedDoc = await this.silent(() =>
+                        this.getDocument(options.relatedCollection, value)
+                    );
 
-                case RelationEnum.ManyToOne:
-                    await this.handleManyToOne(document, relationship, options, value);
-                    break;
+                    if (relatedDoc.empty() && !this.checkRelationshipsExist) {
+                        throw new RelationshipException(`Related document '${value}' not found`);
+                    }
 
-                case RelationEnum.ManyToMany:
-                    await this.handleManyToMany(collection, document, relationship, options, value);
-                    break;
+                    if (type === RelationEnum.OneToOne) {
+                        if (options.side === RelationSideEnum.Child && !options.twoWay) {
+                            throw new DatabaseException(`Cannot update OneToOne from child side without twoWay`);
+                        }
+
+                        if (options.twoWay) {
+                            relatedDoc.set(options.twoWayKey!, document.getId());
+                            await this.silent(() =>
+                                this.skipCheckRelationshipsExist(() => this.updateDocument(options.relatedCollection, value, relatedDoc))
+                            );
+                        }
+                    }
+                }
+
+                if (type === RelationEnum.ManyToMany
+                    || (type === RelationEnum.OneToMany && side === RelationSideEnum.Parent)
+                    || (type === RelationEnum.ManyToOne && side === RelationSideEnum.Child)
+                ) {
+                    const values = Array.isArray(value) ? value : [value];
+                    if (values.length === 0) continue;
+
+                    if (type === RelationEnum.ManyToMany) {
+                        await this.handleManyToMany(
+                            collection,
+                            document,
+                            relationship,
+                            options,
+                            values
+                        );
+                    } else {
+                        for (const childId of values) {
+                            const childDoc = await this.silent(() =>
+                                this.getDocument(options.relatedCollection, childId)
+                            );
+                            if (childDoc.empty() && !this.checkRelationshipsExist) {
+                                throw new RelationshipException(`Child '${childId}' not found`);
+                            }
+                            childDoc.set(options.twoWayKey!, document.getId());
+                            await this.silent(() =>
+                                this.skipCheckRelationshipsExist(() => this.updateDocument(options.relatedCollection, childId, childDoc))
+                            );
+                        }
+                    }
+                    document.delete(relationship.get('key'));
+                }
+            } finally {
+                this._relationStack.pop();
             }
         }
-
         return document;
-    }
+    };
 
-    private async handleOneToOne(
-        document: Doc<any>,
-        relationship: Doc<Attribute>,
-        options: RelationOptions,
-        value: string
-    ) {
-        if (options.side === RelationSideEnum.Child && !options.twoWay) {
-            throw new DatabaseException('OneToOne relationship cannot be created from child side without twoWay option.');
-        }
-
-        const relatedDocument = await this.silent(() =>
-            this.getDocument(options.relatedCollection, value)
-        );
-
-        if (relatedDocument.empty()) {
-            throw new DatabaseException(`Related document not found in collection '${options.relatedCollection}' for relationship '${relationship.getId()}'`);
-        }
-
-        if (options.twoWay) {
-            relatedDocument.set(options.twoWayKey!, document.getId());
-            await this.updateDocument(options.relatedCollection, relatedDocument.getId(), relatedDocument);
-        }
-    }
-
-    private async handleOneToMany(
-        document: Doc<any>,
-        relationship: Doc<Attribute>,
-        options: RelationOptions,
-        values: string | string[]
-    ) {
-        if (!values || (!Array.isArray(values) && values.length === 0)) {
-            return;
-        }
-
-        if (options.side === RelationSideEnum.Parent) {
-            // Parent side is virtual → update each child doc to set FK
-            // TODO: Handle multiple child IDs using batch processing
-            for (const childId of values) {
-                const childDoc = await this.silent(() =>
-                    this.getDocument(options.relatedCollection, childId)
-                );
-                if (childDoc.empty()) {
-                    throw new RelationshipException(`Child document '${childId}' not found`);
-                }
-                childDoc.set(options.twoWayKey!, document.getId());
-                await this.silent(() => this.updateDocument(options.relatedCollection, childDoc.getId(), childDoc));
-            }
-            document.delete(relationship.get('key'))
-        } else {
-            if (!options.twoWay)
-                throw new RelationshipException('OneToMany relationship cannot be created from the child side without the twoWay option.');
-
-            // Child side physically stores FK → just validate parent exists
-            const parentDoc = await this.silent(() =>
-                this.getDocument(options.relatedCollection, values as string)
-            );
-            if (parentDoc.empty()) {
-                throw new RelationshipException(`Parent document '${values}' not found`);
-            }
-        }
-    }
-
-    private async handleManyToOne(
-        document: Doc<any>,
-        relationship: Doc<Attribute>,
-        options: RelationOptions,
-        values: string | string[]
-    ) {
-        if (!values || (Array.isArray(values) && values.length === 0)) {
-            return;
-        };
-        if (options.side === RelationSideEnum.Parent) {
-            // Parent physically stores FK → validate child exists
-            const childDoc = await this.silent(() =>
-                this.getDocument(options.relatedCollection, values as string)
-            );
-            if (childDoc.empty()) {
-                throw new RelationshipException(`Child document '${values}' not found`);
-            }
-        } else {
-            if (!options.twoWay) {
-                throw new RelationshipException('ManyToOne relationship cannot be created from child side without twoWay option.');
-            }
-            // Child side is virtual → update each parent doc to point to this child
-            // TODO: Handle multiple parent IDs using batch processing
-            const parentIds = Array.isArray(values) ? values : [values];
-            for (const parentId of parentIds) {
-                const parentDoc = await this.silent(() =>
-                    this.getDocument(options.relatedCollection, parentId)
-                );
-                if (parentDoc.empty()) {
-                    throw new RelationshipException(`Parent document '${parentId}' not found`);
-                }
-                parentDoc.set(options.twoWayKey!, document.getId());
-                await this.silent(() => this.updateDocument(options.relatedCollection, parentDoc.getId(), parentDoc));
-            }
-            document.delete(relationship.get('key'))
-        }
-    }
-
+    /**
+     * Many-to-Many handling 
+     */
     private async handleManyToMany(
         collection: Doc<Collection>,
         document: Doc<any>,
@@ -1722,40 +1674,38 @@ export class Database extends Cache {
         values: string[]
     ) {
         if (!Array.isArray(values)) {
-            throw new RelationshipException(`ManyToMany relationship value must be an array for '${relationship.getId()}'`);
+            throw new RelationshipException(`ManyToMany '${relationship.getId()}' must be array`);
         }
+
         const relatedCollection = await this.silent(() =>
             this.getCollection(options.relatedCollection, true)
         );
 
-        // TODO: handle multiple data in batch processing
+        const parentColl = options.side === RelationSideEnum.Parent ? collection : relatedCollection;
+        const childColl = options.side === RelationSideEnum.Parent ? relatedCollection : collection;
+        const parentAttr = options.side === RelationSideEnum.Parent ? relationship.getId() : options.twoWayKey!;
+        const childAttr = options.side === RelationSideEnum.Parent ? options.twoWayKey! : relationship.getId();
+        const junctionCollection = this.getJunctionTable(parentColl.getSequence(), childColl.getSequence(), parentAttr, childAttr);
+
         for (const relatedId of values) {
-            const relatedDocument = await this.silent(() =>
+            const relatedDoc = await this.silent(() =>
                 this.getDocument(options.relatedCollection, relatedId)
             );
-
-            if (relatedDocument.empty()) {
-                throw new DatabaseException(`Related document '${relatedId}' not found in collection '${options.relatedCollection}'`);
+            if (relatedDoc.empty()) {
+                throw new DatabaseException(`Related doc '${relatedId}' not found`);
             }
 
-            const parentColl = options.side === RelationSideEnum.Parent ? collection : relatedCollection;
-            const childColl = options.side === RelationSideEnum.Parent ? relatedCollection : collection;
-            const parentAttr = options.side === RelationSideEnum.Parent ? relationship.getId() : options.twoWayKey!;
-            const childAttr = options.side === RelationSideEnum.Parent ? options.twoWayKey! : relationship.getId();
-
-            const junctionCollection = this.getJunctionTable(parentColl.getSequence(), childColl.getSequence(), parentAttr, childAttr)
-            const doc = new Doc({
+            const linkDoc = new Doc({
                 $id: ID.unique(),
-                [relationship.getId()]: document.getId(), // FK to current document
-                [options.twoWayKey!]: relatedId, // FK to related document
+                [relationship.getId()]: document.getId(),
+                [options.twoWayKey!]: relatedId,
                 $permissions: [
                     Permission.read(Role.any()),
                     Permission.create(Role.any()),
                     Permission.delete(Role.any())
                 ]
-            })
-            await this.silent(() => this.createDocument(junctionCollection, doc));
-            document.delete(relationship.get('key'))
+            });
+            await this.silent(() => this.createDocument(junctionCollection, linkDoc));
         }
     }
 
@@ -1765,17 +1715,17 @@ export class Database extends Cache {
     public async updateDocument<C extends (string & keyof Entities)>(
         collectionId: C,
         id: string,
-        document: Entities[C]
+        document: Entities[C],
     ): Promise<Doc<Entities[C]>>;
     public async updateDocument<D extends Doc<Record<string, any>>>(
         collectionId: string,
         id: string,
-        document: D
+        document: D,
     ): Promise<D>;
     public async updateDocument(
         collectionId: string,
         id: string,
-        document: Doc<Record<string, any>>
+        document: Doc<Record<string, any>>,
     ): Promise<Doc<any>> {
         if (!id) {
             throw new DatabaseException('Must define $id attribute');
@@ -1792,7 +1742,7 @@ export class Database extends Cache {
             let skipPermissionsUpdate = true;
 
             if (document.getPermissions()) {
-                const originalPermissions = old.get('$permissions', []);
+                const originalPermissions = old.getPermissions();
                 const currentPermissions = document.getPermissions();
 
                 originalPermissions.sort();
@@ -1828,11 +1778,6 @@ export class Database extends Cache {
                     const oldValue = old.get(key);
 
                     if (relationships.some((rel) => rel.get('key') === key)) {
-                        // $recheck
-                        if (JSON.stringify(value) !== JSON.stringify(oldValue)) {
-                            shouldUpdate = true;
-                            break;
-                        }
                         continue;
                     }
 
@@ -1866,15 +1811,16 @@ export class Database extends Cache {
             if (shouldUpdate) {
                 mergedDocument['$updatedAt'] = newUpdatedAt === null || !this.preserveDates ? time : newUpdatedAt;
             }
-
+            let doc = new Doc(mergedDocument);
             const structureValidator = new Structure(collection);
-            if (!structureValidator.$valid(new Doc(mergedDocument))) {
+            if (!structureValidator.$valid(doc)) {
                 throw new StructureException(structureValidator.$description);
             }
 
-            const encodedDocument = await this.encode(collection, new Doc(mergedDocument));
+            const encodedDocument = await this.encode(collection, doc);
 
-            await this.adapter.updateDocument(collection.getId(), encodedDocument as Doc<IEntity>, skipPermissionsUpdate);
+            doc = await this.createOrUpdateRelationships(collection, encodedDocument);
+            await this.adapter.updateDocument(collection.getId(), doc as Doc<IEntity>, skipPermissionsUpdate);
             await this.purgeCachedDocument(collection.getId(), encodedDocument);
 
             return encodedDocument;
@@ -1938,22 +1884,22 @@ export class Database extends Cache {
     public find<C extends (string & keyof Entities)>(
         collectionId: C,
         query?: ((builder: QueryBuilder) => QueryBuilder) | Query[],
-        forUpdate?: boolean,
+        forPermission?: PermissionEnum,
     ): Promise<Doc<Entities[C]>[]>;
     public find<C extends string>(
         collectionId: C,
         query?: ((builder: QueryBuilder) => QueryBuilder) | Query[],
-        forUpdate?: boolean,
+        forPermission?: PermissionEnum,
     ): Promise<Doc<Partial<IEntity> & Record<string, any>>[]>;
     public find<D extends Record<string, any>>(
         collectionId: string,
         query?: ((builder: QueryBuilder) => QueryBuilder) | Query[],
-        forUpdate?: boolean,
+        forPermission?: PermissionEnum,
     ): Promise<Doc<Partial<IEntity> & D>[]>;
     public async find(
         collectionId: string,
         query: ((builder: QueryBuilder) => QueryBuilder) | Query[] = [],
-        forUpdate: boolean = false,
+        forPermission: PermissionEnum = PermissionEnum.Read,
     ): Promise<Doc<any>[]> {
         if (!collectionId) {
             throw new NotFoundException(`Collection '${collectionId}' not found.`);
@@ -1965,7 +1911,7 @@ export class Database extends Cache {
             ? query(new QueryBuilder()).build()
             : query;
 
-        const processedQueries = await this.processQueries(queries, collection);
+        const processedQueries = await this.processQueries(queries, collection, { forPermission });
 
         if (!processedQueries.authorized) {
             return [];
