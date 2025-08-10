@@ -147,10 +147,10 @@ export class Doc<T extends Record<string, any> & Partial<IEntity> = IEntity> {
 
     public getCollection(): string {
         const collection = this.get("$collection");
-        if (typeof collection !== "string") {
-            throw new DocException("$collection must be a string");
-        }
-        return collection;
+        // if (typeof collection !== "string") {
+        //     throw new DocException("$collection must be a string");
+        // }
+        return collection as string;
     }
 
     public createdAt(): Date | null {

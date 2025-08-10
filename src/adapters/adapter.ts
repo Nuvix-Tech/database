@@ -846,7 +846,6 @@ export class Adapter extends BaseAdapter implements IAdapter {
             `;
 
             sql = this.trigger(EventsEnum.DocumentCreate, sql);
-            console.log({ values })
             const { rows } = await this.client.query(sql, values);
 
             // Set $sequence from insertId
@@ -1138,7 +1137,7 @@ export class Adapter extends BaseAdapter implements IAdapter {
         const collectionName = this.sanitize(collection.getId());
         const mainTable = this.getSQLTable(collectionName);
 
-        const conditions = this.handleConditions({
+        const { params, ...conditions} = this.handleConditions({
             populateQueries,
             tableAlias: mainTableAlias,
             depth: 0,
@@ -1158,10 +1157,10 @@ export class Adapter extends BaseAdapter implements IAdapter {
             ${conditions.joins.join(' ')}
             ${finalWhereClause}
             RETURNING ${conditions.selectionsSql.join(', ')}
-        `.trim().replace(/\s+/g, ' ');
+        `.trim();
 
         try {
-            const { rows } = await this.client.query(sql, conditions.params);
+            const { rows } = await this.client.query(sql, params);
 
             if (rows.length === 0) {
                 return [];
@@ -1175,17 +1174,17 @@ export class Adapter extends BaseAdapter implements IAdapter {
                 ${this.getTenantQuery(collectionId)}
             `;
 
-            const params = [...sequences];
+            const permsParams = [...sequences];
             if (this.$sharedTables) {
                 params.push(this.$tenantId);
             }
 
-            permsSql = this.trigger(EventsEnum.PermissionsDelete, sql);
-            await this.client.query(permsSql, params);
+            permsSql = this.trigger(EventsEnum.PermissionsDelete, permsSql);
+            await this.client.query(permsSql, permsParams);
 
             return rows.map(r => r.$id);
         } catch (e: any) {
-            throw this.processException(e, `Failed to delete documents from collection '${collection}'`);
+            throw this.processException(e, `Failed to delete documents from collection '${collection.getId()}'`);
         }
     }
 
@@ -1243,7 +1242,6 @@ export class Adapter extends BaseAdapter implements IAdapter {
         forPermission?: PermissionEnum;
     } = {}): Promise<Record<string, any>[]> {
         const sqlResult = this.buildSql(query, { ...options, forPermission });
-        Logger.debug('Deep Find SQL:', sqlResult.sql, sqlResult.params);
 
         try {
             const { rows } = await this.client.query(sqlResult.sql, sqlResult.params);

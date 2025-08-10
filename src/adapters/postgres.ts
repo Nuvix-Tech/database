@@ -89,6 +89,7 @@ export class PostgresClient implements IClient {
         values?: QueryConfigValues<I>,
     ): Promise<QueryResult<R>>;
     public query(sql: any, values?: any): Promise<any> {
+        console.log('Executing SQL:', { sql, values });
         if (typeof sql === 'string' && values && Array.isArray(values)) {
             let paramIndex = 1;
             const convertedSql = sql.replace(/\?/g, () => `$${paramIndex++}`);

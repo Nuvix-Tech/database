@@ -139,6 +139,7 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
     protected resolveRelationships: boolean = true;
     protected checkRelationshipsExist: boolean = true;
     protected readonly _relationStack: string[] = [];
+    protected readonly _relationDeleteStack: string[] = [];
 
     constructor(adapter: Adapter, cache: Cache, options: Options = {}) {
         super();

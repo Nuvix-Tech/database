@@ -1563,7 +1563,7 @@ export class Database extends Cache {
         }
 
         const result = await this.withTransaction(async () => {
-            doc = await this.silent(() => this.createOrUpdateRelationships(collection, doc));
+            doc = await this.silent(() => this.createRelationships(collection, doc));
             return this.adapter.createDocument(collection.getId(), doc);
         });
 
@@ -1575,7 +1575,7 @@ export class Database extends Cache {
         return decodedResult as any;
     }
 
-    private async createOrUpdateRelationships(
+    private async createRelationships(
         collection: Doc<Collection>,
         document: Doc<any>
     ): Promise<Doc<any>> {
@@ -1590,7 +1590,7 @@ export class Database extends Cache {
             const type = options.relationType;
             const side = options.side;
             const value = document.get(relationship.get('key'));
-            if (!value === undefined) continue;
+            if (!value) continue;
 
             // Prevent infinite recursion
             const loopKey = `${collection.getId()}::${document.getId()}::${relationship.getId()}`;
@@ -1821,7 +1821,7 @@ export class Database extends Cache {
         }
 
         const updatedDocuments = await this.withTransaction(async () => {
-            const resolvedDocuments = await Promise.all(createdDocuments.map(doc => this.createOrUpdateRelationships(collection, doc)));
+            const resolvedDocuments = await Promise.all(createdDocuments.map(doc => this.createRelationships(collection, doc)));
             return this.adapter.createDocuments(collection.getId(), resolvedDocuments);
         });
         // const castedDocuments = updatedDocuments.map(doc => this.cast(collection, doc));
@@ -1943,7 +1943,7 @@ export class Database extends Cache {
 
             const encodedDocument = await this.encode(collection, doc);
 
-            doc = await this.createOrUpdateRelationships(collection, encodedDocument);
+            doc = await this.updateDocumentRelationships(collection, encodedDocument);
             await this.adapter.updateDocument(collection.getId(), doc as Doc<IEntity>, skipPermissionsUpdate);
             await this.purgeCachedDocument(collection.getId(), encodedDocument);
 
@@ -2003,8 +2003,9 @@ export class Database extends Cache {
                             throw new DatabaseException(`Cannot update OneToOne from child side without twoWay`);
                         }
 
+                        console.log({ relatedDoc, value, d: document.getId() })
                         if (options.twoWay) {
-                            relatedDoc.set(options.twoWayKey!, document.getId());
+                            relatedDoc.set(options.twoWayKey!, value);
                             await this.silent(() =>
                                 this.skipCheckRelationshipsExist(() => this.updateDocument(options.relatedCollection, value, relatedDoc))
                             );
@@ -2096,6 +2097,7 @@ export class Database extends Cache {
                 this._relationStack.pop();
             }
         }
+        return document;
     }
 
     /**
@@ -2114,11 +2116,7 @@ export class Database extends Cache {
         }
 
         batchSize = Math.min(1000, Math.max(1, batchSize));
-        const collection = await this.silent(() => this.getCollection(collectionId));
-
-        if (collection.empty()) {
-            throw new DatabaseException('Collection not found');
-        }
+        const collection = await this.silent(() => this.getCollection(collectionId, true));
 
         const documentSecurity = collection.get('documentSecurity', false);
         const authorization = new Authorization(PermissionEnum.Update);
@@ -2225,12 +2223,12 @@ export class Database extends Cache {
                     }
 
                     document.set('$skipPermissionsUpdate', skipPermissionsUpdate);
-                    await this.silent(() =>
+                    const newDocument = await this.silent(() =>
                         this.updateDocumentRelationships(collection, document)
                     );
 
                     const merged = new Doc({
-                        ...document.toObject(),
+                        ...newDocument.toObject(),
                         ...encodedUpdates.toObject(),
                     });
 
@@ -2327,6 +2325,7 @@ export class Database extends Cache {
                 throw new ConflictException('Document was updated after the request timestamp');
             }
 
+            await this.silent(() => this.deleteDocumentRelationships(collection, document))
             const result = await this.adapter.deleteDocument(collection.getId(), document);
 
             await this.purgeCachedDocument(collection.getId(), id);
@@ -2352,14 +2351,165 @@ export class Database extends Cache {
         const deletedIds = await this.withTransaction(async () => {
             const processedQueries = await this.processQueries(queries, collection, { forPermission: PermissionEnum.Delete })
             const result = await this.adapter.deleteDocuments(collection.getId(), processedQueries);
-
-            // TODO: handle document relationships;
-
+            for (const id of result) {
+                await this.silent(() => this.deleteDocumentRelationships(collection, new Doc({
+                    $id: id,
+                    $collection: collection.getId(),
+                })));
+            }
             return result;
         });
 
         // TODO: flush documents cache
         return deletedIds;
+    }
+
+    private async deleteDocumentRelationships(
+        collection: Doc<Collection>,
+        document: Doc<Record<string, any>>
+    ) {
+        const relationships = collection.get('attributes', [])
+            .filter(attr => attr.get('type') === AttributeEnum.Relationship);
+
+        for (const relationship of relationships) {
+            const options = relationship.get('options', {}) as RelationOptions;
+            const relatedCollectionId = options.relatedCollection;
+            if (!relatedCollectionId) continue;
+
+            const loopKey = `${collection.getId()}::${document.getId()}::${relationship.getId()}`;
+            if (this._relationStack.includes(loopKey)) continue;
+            this._relationStack.push(loopKey);
+
+            try {
+                await this.handleOnDelete(
+                    collection,
+                    document,
+                    relationship,
+                    options
+                );
+            } finally {
+                this._relationStack.pop();
+            }
+        }
+    }
+
+    private async handleOnDelete(
+        collection: Doc<Collection>,
+        document: Doc<Record<string, any>>,
+        relationship: Doc<Attribute>,
+        options: RelationOptions
+    ): Promise<void> {
+        const type = options.relationType;
+        const side = options.side;
+        const onDelete = options.onDelete;
+
+        let targetCollectionId: string | undefined;
+        let targetField: string | null = null;
+        let isManyToMany = false;
+
+        // Identify relation mapping
+        if (type === RelationEnum.ManyToMany) {
+            isManyToMany = true;
+        } else if (type === RelationEnum.OneToOne) {
+            if (side === RelationSideEnum.Parent) {
+                targetCollectionId = options.relatedCollection;
+                targetField = options.twoWayKey!;
+            } else {
+                targetCollectionId = collection.getId();
+                targetField = relationship.getId();
+            }
+        } else if (type === RelationEnum.OneToMany) {
+            if (side === RelationSideEnum.Parent) {
+                targetCollectionId = options.relatedCollection;
+                targetField = options.twoWayKey!;
+            } else {
+                targetCollectionId = collection.getId();
+                targetField = relationship.getId();
+            }
+        } else if (type === RelationEnum.ManyToOne) {
+            if (side === RelationSideEnum.Parent) {
+                targetCollectionId = collection.getId();
+                targetField = relationship.getId();
+            } else {
+                targetCollectionId = options.relatedCollection;
+                targetField = options.twoWayKey!;
+            }
+        }
+
+        if (isManyToMany) {
+            const relatedCollection = await this.getCollection(options.relatedCollection, true);
+            const parentColl = side === RelationSideEnum.Parent ? collection : relatedCollection;
+            const childColl = side === RelationSideEnum.Parent ? relatedCollection : collection;
+            const parentAttr = side === RelationSideEnum.Parent ? relationship.getId() : options.twoWayKey!;
+            const childAttr = side === RelationSideEnum.Parent ? options.twoWayKey! : relationship.getId();
+            const junctionCollection = this.getJunctionTable(
+                parentColl.getSequence(),
+                childColl.getSequence(),
+                parentAttr,
+                childAttr
+            );
+
+            if (onDelete === OnDelete.Restrict) {
+                const count = await Authorization.skip(() => this.count(
+                    junctionCollection,
+                    [Query.equal(parentAttr, [document.getId()])],
+                    1
+                ));
+                if (count > 0) {
+                    throw new RelationshipException(
+                        `Cannot delete: related entries exist in "${relatedCollection.getId()}".`
+                    );
+                }
+            } else if (onDelete === OnDelete.SetNull) {
+                await Authorization.skip(() => this.deleteDocuments(
+                    junctionCollection,
+                    [Query.equal(parentAttr, [document.getId()])]
+                ));
+            } else if (onDelete === OnDelete.Cascade) {
+                const relatedIds = (await this.find(
+                    junctionCollection,
+                    qb => qb.equal(parentAttr, document.getId()),
+                )).map(doc => doc.get(childAttr));
+
+                await this.deleteDocuments(
+                    junctionCollection,
+                    [Query.equal(parentAttr, [document.getId()])]
+                );
+
+                await this.deleteDocuments(
+                    relatedCollection.getId(),
+                    qb => qb.equal('$id', ...relatedIds)
+                );
+            }
+            return;
+        }
+
+        // Non-ManyToMany 
+        if (!targetCollectionId || !targetField) return;
+
+        if (onDelete === OnDelete.Restrict) {
+            const count = await Authorization.skip(() => this.count(
+                targetCollectionId,
+                [Query.equal(targetField, [document.getId()])],
+                1
+            ));
+            if (count > 0) {
+                throw new RelationshipException(
+                    `Cannot delete: related entries exist in "${targetCollectionId}".`
+                );
+            }
+        } else if (onDelete === OnDelete.SetNull) {
+            await Authorization.skip(() => this.updateDocuments(
+                targetCollectionId,
+                new Doc({ [targetField]: null }),
+                [Query.equal(targetField, [document.getId()])]
+            ));
+        } else if (onDelete === OnDelete.Cascade) {
+            await this.deleteDocuments(
+                targetCollectionId,
+                qb => qb.equal(targetField, document.getId()),
+            );
+        }
     }
 
     /**
@@ -2447,6 +2597,65 @@ export class Database extends Cache {
         }
 
         return result[0] as Doc;
+    }
+
+    /**
+     * Count documents in a collection.
+     */
+    public async count(
+        collectionId: string,
+        query: ((builder: QueryBuilder) => QueryBuilder) | Query[] = [],
+        max?: number
+    ): Promise<number> {
+        const collection = await this.silent(() => this.getCollection(collectionId));
+
+        const queries: Query[] = typeof query === 'function'
+            ? query(new QueryBuilder()).build()
+            : query;
+
+        const authorization = new Authorization(PermissionEnum.Read);
+        let skipAuth = false;
+        if (authorization.$valid(collection.getRead())) {
+            skipAuth = true;
+        }
+
+        const processedQueries = await this.processQueries(queries, collection, {
+            forPermission: PermissionEnum.Read,
+            overrideValidators: [MethodType.Filter]
+        });
+
+        const getCount = () => this.adapter.count(collection.getId(), processedQueries.filters, max);
+        const count = skipAuth ? await Authorization.skip(getCount) : await getCount();
+
+        this.trigger(EventsEnum.DocumentCount, count);
+
+        return count;
+    }
+
+    /**
+     * Sum an attribute for all documents in a collection.
+     */
+    public async sum(
+        collectionId: string,
+        attribute: string,
+        query: ((builder: QueryBuilder) => QueryBuilder) | Query[] = [],
+        max?: number
+    ): Promise<number> {
+        const collection = await this.silent(() => this.getCollection(collectionId));
+        const queries: Query[] = typeof query === 'function'
+            ? query(new QueryBuilder()).build()
+            : query ?? [];
+
+        const processedQueries = await this.processQueries(queries, collection, {
+            forPermission: PermissionEnum.Read,
+            overrideValidators: [MethodType.Filter]
+        });
+
+        const sum = await this.adapter.sum(collection.getId(), attribute, processedQueries.filters, max);
+
+        this.trigger(EventsEnum.DocumentSum, sum);
+
+        return sum;
     }
 
     /**

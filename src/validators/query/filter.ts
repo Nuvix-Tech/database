@@ -273,7 +273,7 @@ export class Filter extends Base {
         switch (attributeType) {
             case AttributeEnum.String:
             case AttributeEnum.Relationship:
-                validator = new Text(attributeSchema.size, 0);
+                validator = new Text(attributeSchema.size ?? 0, 0);
                 break;
             case AttributeEnum.Integer:
                 validator = new Integer();
@@ -284,7 +284,7 @@ export class Filter extends Base {
             case AttributeEnum.Boolean:
                 validator = new Boolean();
                 break;
-            case AttributeEnum.Datetime:
+            case AttributeEnum.Timestamptz:
                 validator = new DatetimeValidator(this.minAllowedDate, this.maxAllowedDate);
                 break;
             default:
