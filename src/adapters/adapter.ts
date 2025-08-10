@@ -887,6 +887,110 @@ export class Adapter extends BaseAdapter implements IAdapter {
     }
 
     /**
+     * Create multiple documents in a collection.
+     */
+    public async createDocuments<D extends Doc>(collection: string, documents: D[]): Promise<D[]> {
+        if (documents.length === 0) {
+            return [];
+        }
+
+        const name = this.sanitize(collection);
+        const allColumns = new Set<string>();
+        const allValues: any[] = [];
+        const documentRows: any[][] = [];
+
+        // collect all unique columns and prepare document data
+        for (const document of documents) {
+            const attributes: Record<string, any> = { ...document.getAll() };
+            attributes['_createdAt'] = document.createdAt();
+            attributes['_updatedAt'] = document.updatedAt();
+            attributes['_permissions'] = document.getPermissions();
+            attributes['_uid'] = document.getId();
+
+            if (this.$sharedTables) {
+                attributes['_tenant'] = document.getTenant();
+            }
+
+            if (document.getSequence()) {
+                attributes['_id'] = document.getSequence();
+            }
+
+            const rowData: Record<string, any> = {};
+
+            Object.entries(attributes).forEach(([attribute, value]) => {
+                if (this.$internalAttrs.includes(attribute)) return;
+                const column = this.sanitize(attribute);
+                allColumns.add(column);
+                rowData[column] = value;
+            });
+
+            documentRows.push([document, rowData]);
+        }
+
+        const columns = Array.from(allColumns);
+        const quotedColumns = columns.map(col => this.quote(col));
+
+        // build values array with consistent column order
+        const valueRows: string[] = [];
+        for (const [_, rowData] of documentRows) {
+            const values: any[] = [];
+            for (const column of columns) {
+                values.push(rowData[column] ?? null);
+                allValues.push(rowData[column] ?? null);
+            }
+            valueRows.push(`(${values.map(() => '?').join(', ')})`);
+        }
+
+        let sql = `
+            INSERT INTO ${this.getSQLTable(name)} (${quotedColumns.join(', ')})
+            VALUES ${valueRows.join(', ')}
+            RETURNING _id, _uid
+        `;
+
+        sql = this.trigger(EventsEnum.DocumentCreate, sql);
+
+        try {
+            const { rows } = await this.client.query(sql, allValues);
+
+            // Set $sequence from returned IDs
+            for (let i = 0; i < documents.length; i++) {
+                documents[i]!.set('$sequence', rows[i]['_id']);
+            }
+
+            // Handle permissions in batch
+            const permissions: any[] = [];
+            for (const document of documents) {
+                for (const type of Database.PERMISSIONS || []) {
+                    const perms = document.getPermissionsByType(type);
+                    if (perms && perms.length) {
+                        const row: any[] = [type, perms, document.getSequence()];
+                        if (this.$sharedTables) {
+                            row.push(document.getTenant());
+                        }
+                        permissions.push(row);
+                    }
+                }
+            }
+
+            if (permissions.length) {
+                const columnsPerm = ['_type', '_permissions', '_document'];
+                if (this.$sharedTables) columnsPerm.push('_tenant');
+                const placeholdersPerm = '(' + columnsPerm.map(() => '?').join(', ') + ')';
+                const sqlPermissions = `
+                    INSERT INTO ${this.getSQLTable(name + '_perms')} (${columnsPerm.join(', ')})
+                    VALUES ${permissions.map(() => placeholdersPerm).join(', ')}
+                `;
+                const valuesPerm = permissions.flat();
+                await this.client.query(sqlPermissions, valuesPerm);
+            }
+
+            return documents;
+        } catch (e: any) {
+            throw this.processException(e, 'Failed to create documents');
+        }
+    }
+
+    /**
      * Updates an existing document in the specified collection.
      */
     public async updateDocument<D extends Doc>(collection: string, document: D, skipPermissions: boolean = false): Promise<D> {

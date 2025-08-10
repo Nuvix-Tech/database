@@ -1712,6 +1712,92 @@ export class Database extends Cache {
     }
 
     /**
+     * Create multiple documents in a collection.
+     */
+    public async createDocuments<C extends (string & keyof Entities)>(
+        collectionId: C,
+        documents: Doc<Entities[C]>[],
+    ): Promise<Doc<Entities[C]>[]>;
+    public async createDocuments<D extends Doc<Record<string, any>>>(
+        collectionId: string,
+        documents: D[],
+    ): Promise<D[]>;
+    public async createDocuments<D extends Doc<Record<string, any>>>(
+        collectionId: string,
+        documents: D[],
+    ): Promise<Doc[]> {
+        if (!documents || documents.length === 0) {
+            return [];
+        }
+        if (collectionId === Database.METADATA) {
+            throw new DatabaseException('Cannot create documents in metadata collection');
+        }
+
+        const collection = await this.silent(() => this.getCollection(collectionId, true));
+        if (collection.getId() !== Database.METADATA) {
+            const authorization = new Authorization(PermissionEnum.Create);
+            if (!authorization.$valid(collection.getCreate())) {
+                throw new AuthorizationException(authorization.$description);
+            }
+        }
+
+        const time = new Date().toISOString();
+        const createdDocuments: Doc<any>[] = [];
+        for (const document of documents) {
+            let doc: Doc<any> = document instanceof Doc ? document : new Doc(document);
+
+            const createdAt = doc.get('$createdAt');
+            const updatedAt = doc.get('$updatedAt');
+
+            doc.set('$id', doc.getId() ?? ID.unique())
+                .set('$collection', collection.getId())
+                .set('$createdAt', (createdAt === null || createdAt === undefined || !this.preserveDates) ? time : createdAt)
+                .set('$updatedAt', (updatedAt === null || updatedAt === undefined || !this.preserveDates) ? time : updatedAt);
+
+            if (this.adapter.$sharedTables) {
+                if (this.adapter.$tenantPerDocument) {
+                    if (
+                        collection.getId() !== Database.METADATA
+                        && doc.getTenant() === null
+                    ) {
+                        throw new DatabaseException('Missing tenant. Tenant must be set when tenant per document is enabled.');
+                    }
+                } else {
+                    doc.set('$tenant', this.adapter.$tenantId);
+                }
+            }
+
+            doc = await this.encode(collection, doc);
+
+            if (this.validate) {
+                const validator = new Permissions();
+                if (!validator.$valid(doc.get('$permissions', []))) {
+                    throw new DatabaseException(validator.$description);
+                }
+            }
+
+            const structure = new Structure(
+                collection,
+            );
+            if (!await structure.$valid(doc, true)) {
+                throw new StructureException(structure.$description);
+            }
+
+            createdDocuments.push(doc);
+        }
+
+        const updatedDocuments = await this.withTransaction(async () => {
+            const resolvedDocuments = await Promise.all(createdDocuments.map(doc => this.createOrUpdateRelationships(collection, doc)));
+            return this.adapter.createDocuments(collection.getId(), resolvedDocuments);
+        });
+        // const castedDocuments = updatedDocuments.map(doc => this.cast(collection, doc));
+        const processedQueries = await this.processQueries([], collection)
+        const decodedDocuments = await Promise.all(updatedDocuments.map((doc) => this.decode(processedQueries, doc)));
+
+        return decodedDocuments as any[];
+    }
+
+    /**
      * Update a document.
      */
     public async updateDocument<C extends (string & keyof Entities)>(
@@ -1971,6 +2057,9 @@ export class Database extends Cache {
         return deleted;
     }
 
+    /**
+     * Delete multiple documents in a collection.
+     */
     public async deleteDocuments(collectionId: string, query?: Query[] | ((qb: QueryBuilder) => QueryBuilder)): Promise<string[]> {
         const collection = await this.silent(() => this.getCollection(collectionId));
         let queries: Query[];
