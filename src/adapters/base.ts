@@ -1,16 +1,16 @@
 import { DatabaseException } from "@errors/base.js";
 import { EventEmitter } from "stream";
 import { IAdapter, IClient } from "./interface.js";
-import { AttributeEnum, CursorEnum, EventsEnum, IndexEnum, OrderEnum, PermissionEnum } from "@core/enums.js";
-import { Find, IncreaseDocumentAttribute } from "./types.js";
+import { AttributeEnum, EventsEnum, IndexEnum, PermissionEnum, RelationEnum, RelationSideEnum } from "@core/enums.js";
+import { IncreaseDocumentAttribute } from "./types.js";
 import { Doc } from "@core/doc.js";
-import { Database, ProcessedQuery } from "@core/database.js";
+import { Database, PopulateQuery, ProcessedQuery } from "@core/database.js";
 import { QueryBuilder } from "@utils/query-builder.js";
 import { Query, QueryType } from "@core/query.js";
 import { Entities, IEntity } from "types.js";
 import { Logger } from "@utils/logger.js";
 import { Authorization } from "@utils/authorization.js";
-import { Collection } from "@validators/schema.js";
+import { Collection, RelationOptions } from "@validators/schema.js";
 
 export abstract class BaseAdapter extends EventEmitter {
     public readonly type: string = 'base';
@@ -188,6 +188,9 @@ export abstract class BaseAdapter extends EventEmitter {
         return rows[0].count > 0;
     }
 
+    /**
+     * Retrieves a document from the specified collection by its ID.
+     */
     public async getDocument<C extends (string & keyof Entities)>(
         collection: C,
         id: string,
@@ -236,6 +239,9 @@ export abstract class BaseAdapter extends EventEmitter {
         return new Doc(document);
     }
 
+    /**
+     * Deletes a document from the specified collection by its ID.
+     */
     public async deleteDocument(
         collection: string,
         id: string
@@ -285,6 +291,9 @@ export abstract class BaseAdapter extends EventEmitter {
         }
     }
 
+    /**
+     * Increases a numeric attribute of a document by a specified value.
+     */
     public async increaseDocumentAttribute({
         collection,
         id,
@@ -329,183 +338,9 @@ export abstract class BaseAdapter extends EventEmitter {
         }
     }
 
-    public async find<D extends Doc>({
-        collection,
-        query = [],
-        options = {}
-    }: Find): Promise<D[]> {
-        const {
-            limit = 25,
-            offset,
-            orderAttributes = [],
-            orderTypes = [],
-            cursor = {},
-            cursorDirection = CursorEnum.After,
-            permission = PermissionEnum.Read
-        } = options;
-
-        const name = this.sanitize(collection);
-        const roles = Authorization.getRoles();
-        const where: string[] = [];
-        const orders: string[] = [];
-        const params: (string | number | undefined | null)[] = [];
-        const alias = Query.DEFAULT_ALIAS;
-
-        const queries = [...(Array.isArray(query) ? query : query(new QueryBuilder()).build())];
-
-        const cursorWhere: string[] = [];
-
-        orderAttributes.forEach((originalAttribute, i) => {
-            let attribute = this.getInternalKeyForAttribute(originalAttribute);
-            attribute = this.sanitize(attribute);
-
-            let orderType = orderTypes[i] ?? OrderEnum.Asc;
-            let direction = orderType;
-
-            if (cursorDirection === CursorEnum.Before) {
-                direction = (direction === OrderEnum.Asc)
-                    ? OrderEnum.Desc
-                    : OrderEnum.Asc;
-            }
-
-            orders.push(`${this.$.quote(attribute)} ${direction}`);
-
-            // Build pagination WHERE clause only if we have a cursor
-            if (cursor && Object.keys(cursor).length) {
-                // Special case: No tie breaks. only 1 attribute and it's a unique primary key
-                if (orderAttributes.length === 1 && i === 0 && originalAttribute === '$sequence') {
-                    const operator = (direction === OrderEnum.Desc)
-                        ? QueryType.LessThan
-                        : QueryType.GreaterThan;
-
-                    cursorWhere.push(`${this.$.quote(alias)}.${this.$.quote(attribute)} ${this.getSQLOperator(operator)} ?`);
-                    params.push(cursor[originalAttribute]);
-                    return;
-                }
-
-                const conditions: string[] = [];
-
-                // Add equality conditions for previous attributes
-                for (let j = 0; j < i; j++) {
-                    const prevOriginal = orderAttributes[j]!;
-                    const prevAttr = this.sanitize(this.getInternalKeyForAttribute(prevOriginal));
-
-                    conditions.push(`${this.$.quote(alias)}.${this.$.quote(prevAttr)} = ?`);
-                    params.push(cursor[prevOriginal]);
-                }
-
-                // Add comparison for current attribute
-                const operator = (direction === OrderEnum.Desc)
-                    ? QueryType.LessThan
-                    : QueryType.GreaterThan;
-
-                conditions.push(`${this.$.quote(alias)}.${this.$.quote(attribute)} ${this.getSQLOperator(operator)} ?`);
-                params.push(cursor[originalAttribute]);
-
-                cursorWhere.push(`(${conditions.join(' AND ')})`);
-            }
-        });
-
-        if (cursorWhere.length) {
-            where.push('(' + cursorWhere.join(' OR ') + ')');
-        }
-
-        const conditions = this.getSQLConditions(queries, params);
-        if (conditions) {
-            where.push(conditions);
-        }
-
-        if (Authorization.getStatus()) {
-            where.push(this.getSQLPermissionsCondition({
-                collection: name, roles, alias, type: permission
-            }));
-            if (this.$sharedTables) params.push(this.$tenantId);
-        }
-
-        if (this.$sharedTables) {
-            params.push(this.$tenantId);
-            where.push(this.getTenantQuery(collection, alias, undefined, ''));
-        }
-
-        const sqlWhere = where.length ? 'WHERE ' + where.join(' AND ') : '';
-        const sqlOrder = 'ORDER BY ' + orders.join(', ');
-
-        let sqlLimit = '';
-        if (limit !== null && limit !== undefined) {
-            params.push(limit);
-            sqlLimit = 'LIMIT ?';
-        }
-
-        if (offset !== null && offset !== undefined) {
-            params.push(offset);
-            sqlLimit += ' OFFSET ?';
-        }
-
-        const selections = this.getAttributeSelections(queries);
-
-        let sql = `
-            SELECT ${this.getAttributeProjection(selections, alias, collection)}
-            FROM ${this.getSQLTable(name)} AS ${this.$.quote(alias)}
-            ${sqlWhere}
-            ${sqlOrder}
-            ${sqlLimit}
-        `;
-        sql = this.trigger(EventsEnum.DocumentFind, sql);
-
-        try {
-            const { rows } = await this.client.query(sql, params);
-
-            const results = rows.map((document: any, index: number) => {
-                if ('_uid' in document) {
-                    document['$id'] = document['_uid'];
-                    delete document['_uid'];
-                }
-                if ('_id' in document) {
-                    document['$sequence'] = document['_id'];
-                    delete document['_id'];
-                }
-                if ('_tenant' in document) {
-                    document['$tenant'] = document['_tenant'];
-                    delete document['_tenant'];
-                }
-                if ('_createdAt' in document) {
-                    document['$createdAt'] = document['_createdAt'];
-                    delete document['_createdAt'];
-                }
-                if ('_updatedAt' in document) {
-                    document['$updatedAt'] = document['_updatedAt'];
-                    delete document['_updatedAt'];
-                }
-                if ('_permissions' in document) {
-                    const _permissions = document['_permissions'];
-                    try {
-                        if (typeof _permissions === 'string') {
-                            document['$permissions'] = JSON.parse(document['_permissions'] ?? '[]');
-                        } else if (Array.isArray(_permissions)) {
-                            document['$permissions'] = _permissions;
-                        } else {
-                            this.$logger.warn(`Unexpected type for _permissions: ${typeof _permissions}. Expected string or array.`);
-                            document['$permissions'] = [];
-                        }
-                    } catch {
-                        document['$permissions'] = [];
-                    }
-                    delete document['_permissions'];
-                }
-
-                return Doc.from(document);
-            });
-
-            if (cursorDirection === CursorEnum.Before) {
-                results.reverse();
-            }
-
-            return results as any;
-        } catch (e: any) {
-            throw this.processException(e, 'Failed to find documents');
-        }
-    }
-
+    /**
+     * Counts the number of documents in a collection based on the provided queries.
+     */
     public async count(
         collection: string,
         queries: ((b: QueryBuilder) => QueryBuilder) | Array<Query> = [],
@@ -566,6 +401,9 @@ export abstract class BaseAdapter extends EventEmitter {
         }
     }
 
+    /**
+     * Sums a specific attribute across documents in a collection.
+     */
     public async sum(
         collection: string,
         attribute: string,
@@ -627,18 +465,21 @@ export abstract class BaseAdapter extends EventEmitter {
         }
     }
 
+    /**
+     * update permissions for a document
+     */
     protected async updatePermissions(
         collection: string,
         document: Doc,
     ) {
-        let removePermissions: { sql: string, params: any[] } = { sql: '', params: [] };
-        let addPermissions: { sql: string, params: any[] } = { sql: '', params: [] };
+        const operations: { sql: string, params: any[] }[] = [];
 
+        // Get current permissions grouped by type
         const sqlParams: any[] = [document.getId()];
         let sql = `
-			SELECT _type, _permission
-			FROM ${this.getSQLTable(collection + '_perms')}
-			WHERE _document = ?
+            SELECT _type, _permissions
+            FROM ${this.getSQLTable(collection + '_perms')}
+            WHERE _document = ?
             ${this.getTenantQuery(collection)}
         `;
         sql = this.trigger(EventsEnum.PermissionsRead, sql);
@@ -649,98 +490,83 @@ export abstract class BaseAdapter extends EventEmitter {
 
         const { rows } = await this.client.query<any>(sql, sqlParams);
 
-        const initial: Record<string, string[]> = {};
-        for (const type of Database.PERMISSIONS) {
-            initial[type] = [];
+        const existingPermissions: Record<string, string[]> = {};
+        for (const row of rows) {
+            existingPermissions[row._type] = Array.isArray(row._permissions) ? row._permissions : [];
         }
 
-        const permissions = rows.reduce((carry: Record<string, string[]>, item: any) => {
-            const type = item._type;
-            if (!carry[type]) {
-                carry[type] = [];
-            }
-            carry[type].push(item._permission);
-            return carry;
-        }, initial);
-
-        const removals: Record<string, string[]> = {};
+        // Process each permission type
         for (const type of Database.PERMISSIONS) {
-            const diff = permissions[type]!.filter((perm: string) => !document.getPermissionsByType(type).includes(perm));
-            if (diff.length > 0) {
-                removals[type] = diff;
-            }
-        }
+            const newPermissions = document.getPermissionsByType(type);
+            const currentPermissions = existingPermissions[type] || [];
+            const hasChanged = JSON.stringify(newPermissions.sort()) !== JSON.stringify(currentPermissions.sort());
 
-        const additions: Record<string, string[]> = {};
-        for (const type of Database.PERMISSIONS) {
-            const diff = document.getPermissionsByType(type).filter((perm: string) => !permissions[type]!.includes(perm));
-            if (diff.length > 0) {
-                additions[type] = diff;
-            }
-        }
-
-        if (Object.keys(removals).length > 0) {
-            let removeQuery = ' AND (';
-            const removeParams: any[] = [document.getId()];
-            if (this.$sharedTables) {
-                removeParams.push(this.$tenantId);
+            if (!hasChanged) {
+                continue;
             }
 
-            const typeConditions: string[] = [];
-            for (const [type, perms] of Object.entries(removals)) {
-                const placeholders = perms.map(() => '?').join(', ');
-                typeConditions.push(`(_type = ? AND _permission IN (${placeholders}))`);
-                removeParams.push(type);
-                removeParams.push(...perms);
-            }
-            removeQuery += typeConditions.join(' OR ');
-            removeQuery += ')';
-
-            let removeSQL = `
+            if (newPermissions.length === 0) {
+                // Delete the row if no permissions
+                if (currentPermissions.length > 0) {
+                    const deleteParams: any[] = [document.getId(), type];
+                    let deleteSql = `
                         DELETE FROM ${this.getSQLTable(collection + '_perms')}
-                        WHERE _document = ?
+                        WHERE _document = ? AND _type = ?
                         ${this.getTenantQuery(collection)}
                     `;
-            removeSQL += removeQuery;
-            removeSQL = this.trigger(EventsEnum.PermissionsDelete, removeSQL);
 
-            removePermissions = { sql: removeSQL, params: removeParams };
-        }
-
-        // Query to add permissions
-        if (Object.keys(additions).length > 0) {
-            const values: string[] = [];
-            const addParams: any[] = [];
-
-            for (const [type, perms] of Object.entries(additions)) {
-                for (const permission of perms) {
                     if (this.$sharedTables) {
-                        values.push('(?, ?, ?, ?)');
-                        addParams.push(document.getId(), type, permission, this.$tenantId);
-                    } else {
-                        values.push('(?, ?, ?)');
-                        addParams.push(document.getId(), type, permission);
+                        deleteParams.push(this.$tenantId);
                     }
+
+                    deleteSql = this.trigger(EventsEnum.PermissionsDelete, deleteSql);
+                    operations.push({ sql: deleteSql, params: deleteParams });
+                }
+            } else {
+                if (currentPermissions.length > 0) {
+                    // Update existing row
+                    const updateParams: any[] = [newPermissions, document.getId(), type];
+                    let updateSql = `
+                        UPDATE ${this.getSQLTable(collection + '_perms')}
+                        SET _permissions = ?
+                        WHERE _document = ? AND _type = ?
+                        ${this.getTenantQuery(collection)}
+                    `;
+
+                    if (this.$sharedTables) {
+                        updateParams.push(this.$tenantId);
+                    }
+
+                    updateSql = this.trigger(EventsEnum.PermissionsUpdate, updateSql);
+                    operations.push({ sql: updateSql, params: updateParams });
+                } else {
+                    // Insert new row
+                    const insertParams: any[] = [document.getId(), type, newPermissions];
+                    let insertSql = `
+                        INSERT INTO ${this.getSQLTable(collection + '_perms')} 
+                        (_document, _type, _permissions
+                    `;
+
+                    if (this.$sharedTables) {
+                        insertSql += ', _tenant)';
+                        insertParams.push(this.$tenantId);
+                    } else {
+                        insertSql += ')';
+                    }
+
+                    insertSql += ' VALUES (?, ?, ?)';
+
+                    if (this.$sharedTables) {
+                        insertSql = insertSql.replace('VALUES (?, ?, ?)', 'VALUES (?, ?, ?, ?)');
+                    }
+
+                    insertSql = this.trigger(EventsEnum.PermissionsCreate, insertSql);
+                    operations.push({ sql: insertSql, params: insertParams });
                 }
             }
-
-            let addSQL = `
-                INSERT INTO ${this.getSQLTable(collection + '_perms')} (_document, _type, _permission
-            `;
-
-            if (this.$sharedTables) {
-                addSQL += ', _tenant)';
-            } else {
-                addSQL += ')';
-            }
-
-            addSQL += ` VALUES ${values.join(', ')}`;
-            addSQL = this.trigger(EventsEnum.PermissionsCreate, addSQL);
-
-            addPermissions = { sql: addSQL, params: addParams };
         }
 
-        return { addPermissions, removePermissions };
+        return operations;
     }
 
     protected getSQLType(type: AttributeEnum, size?: number, array?: boolean): string {
@@ -824,7 +650,7 @@ export abstract class BaseAdapter extends EventEmitter {
 
             case QueryType.Search:
                 binds.push(this.getFulltextValue(query.getValue() as string));
-                return `MATCH(${alias}.${attribute}) AGAINST (? IN BOOLEAN MODE)`;
+                return `to_tsvector('${Database.FULLTEXT_LANGUAGE}', ${alias}.${attribute}) @@ plainto_tsquery('${Database.FULLTEXT_LANGUAGE}', ?)`;
 
             case QueryType.Between:
                 const values = query.getValues();
@@ -835,10 +661,11 @@ export abstract class BaseAdapter extends EventEmitter {
             case QueryType.IsNotNull:
                 return `${alias}.${attribute} ${this.getSQLOperator(method)}`;
 
+            // @ts-ignore
             case QueryType.Contains:
                 if (this.$supportForJSONOverlaps && query.onArray()) {
                     binds.push(JSON.stringify(query.getValues()));
-                    return `JSON_OVERLAPS(${alias}.${attribute}, ?)`;
+                    return `${alias}.${attribute} @> ?::jsonb`;
                 }
             // Fall through to default case
 
@@ -1276,6 +1103,518 @@ export abstract class BaseAdapter extends EventEmitter {
 
     public getJunctionTable(coll: number, relColl: number, attr: string, relAttr: string): string {
         return `_${coll}_${relColl}_${attr}_${relAttr}`;
+    }
+
+    /**
+    * Builds a comprehensive SQL query with joins and filters for n-level relationships
+    */
+    protected buildSql(query: ProcessedQuery, extra: {
+        forUpdate?: boolean;
+    } = {}): {
+        sql: string;
+        params: any[];
+        joins: string[];
+        selections: string[];
+    } {
+        const { selections, populateQueries = [], filters, collection, ...options } = query;
+        const mainTableAlias = 'main';
+        const collectionName = this.sanitize(collection.getId());
+        const mainTable = this.getSQLTable(collectionName);
+
+        const result = this.handleConditions({
+            populateQueries,
+            tableAlias: mainTableAlias,
+            depth: 0,
+            collection,
+            filters,
+            selections,
+            ...options,
+        })
+        let orderSql = '';
+
+        if (result.orders.length) {
+            orderSql = `ORDER BY ${result.orders.join(', ')}`
+        }
+
+        const limitClause = options.limit ? `LIMIT ?` : '';
+        if (options.limit) result.params.push(options.limit);
+
+        const offsetClause = options.offset ? `OFFSET ?` : '';
+        if (options.offset) result.params.push(options.offset);
+
+        // TODO: recheck
+        const cursorConditions = this.buildCursorConditions(options.cursor as any, options.cursorDirection, options.orderAttributes || [], mainTableAlias);
+        if (cursorConditions.condition) {
+            result.conditions.push(cursorConditions.condition);
+            result.params.push(...cursorConditions.params);
+        }
+
+        const finalWhereClause = result.conditions.length > 0 ? `WHERE ${result.conditions.join(' AND ')}` : '';
+        const sql = `
+            SELECT DISTINCT ${result.selectionsSql.join(', ')}
+            FROM ${mainTable} AS ${this.quote(mainTableAlias)}
+            ${result.joins.join(' ')}
+            ${finalWhereClause}
+           ${orderSql}
+            ${limitClause}
+            ${offsetClause}
+        `.trim().replace(/\s+/g, ' ');
+
+        return {
+            sql,
+            selections: result.selectionsSql,
+            params: result.params,
+            joins: result.joins,
+        };
+    }
+
+    /**
+     * Recursively handles building selections, joins, where conditions, and order clauses for main and populated queries.
+     */
+    protected handleConditions(
+        {
+            populateQueries = [],
+            tableAlias,
+            depth = 0,
+            ...rest
+        }: (ProcessedQuery | PopulateQuery) & { tableAlias?: string, depth: number }
+    ) {
+        const conditions: string[] = [];
+        const selectionsSql: string[] = [];
+        const joins: string[] = [];
+        let orders: string[] = [];
+        const params: any[] = [];
+        tableAlias = tableAlias ?? 'main';
+
+        const { collection, filters = [], selections = [], orderAttributes = [], orderTypes = [], skipAuth } = rest;
+
+        selectionsSql.push(...this.buildSelections(selections, tableAlias, collection));
+        const whereInfo = this.buildWhereConditions(filters, tableAlias, collection.getId());
+        if (whereInfo.conditions.length) {
+            conditions.push(...whereInfo.conditions);
+            params.push(...whereInfo.params);
+        }
+
+        if (
+            tableAlias === 'main'
+            && Authorization.getStatus()
+            && collection.get('documentSecurity', false)
+        ) {
+            const roles = Authorization.getRoles();
+            conditions.push(this.getSQLPermissionsCondition({
+                collection: collection.getId(), roles, alias: tableAlias, type: PermissionEnum.Read
+            }));
+            if (this.$sharedTables) params.push(this.$tenantId);
+        }
+
+        if (this.$sharedTables) {
+            params.push(this.$tenantId);
+            conditions.push(this.getTenantQuery(collection.getId(), tableAlias, undefined, ''));
+        }
+
+        const _orders = this.buildOrderClause(orderAttributes, orderTypes, tableAlias);
+        if (_orders.length) {
+            orders.push(..._orders);
+        }
+
+        // Recursively handle populated queries (relationships)
+        for (let i = 0; i < populateQueries.length; i++) {
+            const populateQuery: PopulateQuery = populateQueries[i]!;
+            const { attribute, authorized, ...rest } = populateQuery;
+            if (!authorized) continue;
+            const relationshipAttr = collection.get('attributes', [])
+                .find((attr) => attr.get('type') === AttributeEnum.Relationship && attr.get('key', attr.getId()) === attribute);
+
+            if (!relationshipAttr) continue;
+
+            const relationAlias = `rel_${depth}_${i}`;
+            const parentAlias = tableAlias;
+            const options = relationshipAttr.get('options', {}) as RelationOptions;
+            const side = options.side;
+            const relationType = options.relationType;
+            const twoWayKey = options.twoWayKey;
+            const relationshipKey = relationshipAttr.get('key', relationshipAttr.getId());
+
+            const relatedTableName = this.sanitize(options.relatedCollection);
+            const relatedTable = this.getSQLTable(relatedTableName);
+            let junctionCollection = ''
+            if (relationType === RelationEnum.ManyToMany) {
+                const parent = side === RelationSideEnum.Parent;
+                const coll = parent ? collection.getSequence() : populateQuery.collection.getSequence();
+                const relColl = parent ? populateQuery.collection.getSequence() : collection.getSequence();
+                const attr = parent ? relationshipAttr.getId() : twoWayKey!;
+                const relAttr = parent ? twoWayKey! : relationshipAttr.getId();
+                junctionCollection = this.getJunctionTable(coll, relColl, attr, relAttr)
+            }
+
+            const joinCondition = this.buildJoinCondition(
+                relationType,
+                parentAlias,
+                relationAlias,
+                relationshipKey,
+                twoWayKey,
+                side,
+                junctionCollection
+            );
+
+            if (joinCondition) {
+                joins.push(`LEFT JOIN ${relatedTable} AS ${this.quote(relationAlias)} ON ${joinCondition}`);
+
+                // TODO: recheck
+                if (Authorization.getStatus() && rest.collection.get('documentSecurity', false)) {
+                    const roles = Authorization.getRoles();
+                    joins.push(`AND ${this.getSQLPermissionsCondition({
+                        collection: relatedTableName, roles, alias: relationAlias, type: PermissionEnum.Read
+                    })}`);
+                    if (this.$sharedTables) params.push(this.$tenantId);
+                }
+
+                if (this.$sharedTables) {
+                    joins.push(this.getTenantQuery(relatedTableName, relationAlias));
+                    params.push(this.$tenantId);
+                }
+            }
+
+            const nestedResult = this.handleConditions({
+                attribute,
+                ...rest,
+                depth: depth + 1,
+                tableAlias: relationAlias
+            });
+
+            // Prefix the selections to avoid conflicts
+            const prefixedSelections = nestedResult.selectionsSql.map(sel => {
+                const parts = sel.split(' AS ');
+                const prefix = relationshipKey;
+                if (parts.length === 2 && parts[1]) {
+                    return `${parts[0]} AS ${this.quote(`${prefix}_${parts[1].replace(/"/g, '')}`)}`;
+                }
+                return sel;
+            });
+
+            if (nestedResult.conditions.length) conditions.push(...nestedResult.conditions);
+            if (nestedResult.joins.length) joins.push(...nestedResult.joins);
+            if (prefixedSelections.length) selectionsSql.push(...prefixedSelections);
+            if (nestedResult.orders.length) orders.push(...nestedResult.orders);
+            if (nestedResult.params.length) params.push(...nestedResult.params);
+        }
+
+        return {
+            conditions,
+            selectionsSql,
+            orders,
+            params,
+            joins
+        };
+    }
+
+    /**
+     * Builds selection clauses for the main table and relationship
+     */
+    protected buildSelections(selections: string[], tableAlias: string, collection: Doc<Collection>): string[] {
+        const result: string[] = [];
+        const internalFields = ['$id', '$sequence', '$createdAt', '$updatedAt', '$permissions'];
+        const allFields = [...new Set([...internalFields, ...selections])];
+
+        for (const field of allFields) {
+            const dbKey = this.getInternalKeyForAttribute(field);
+            const sanitizedKey = this.sanitize(dbKey);
+            result.push(`${this.quote(tableAlias)}.${this.quote(sanitizedKey)} AS ${this.quote(field)}`);
+        }
+
+        if (this.$sharedTables) {
+            result.push(`${this.quote(tableAlias)}.${this.quote('_tenant')} AS ${this.quote('$tenant')}`);
+        }
+
+        return result;
+    }
+
+    /**
+     * Builds JOIN condition based on relationship type
+     */
+    protected buildJoinCondition(
+        relationType: RelationEnum,
+        parentAlias: string,
+        relationAlias: string,
+        relationshipKey: string,
+        twoWayKey: string = '',
+        side: RelationSideEnum,
+        junctionCollection: string
+    ): string | null {
+        const parentUidCol = `${this.quote(parentAlias)}.${this.quote('_uid')}`;
+        const relationUidCol = `${this.quote(relationAlias)}.${this.quote('_uid')}`;
+        const parentRelCol = `${this.quote(parentAlias)}.${this.quote(this.sanitize(relationshipKey))}`;
+        const relationRelCol = `${this.quote(relationAlias)}.${this.quote(this.sanitize(twoWayKey))}`;
+
+        switch (relationType) {
+            case RelationEnum.OneToOne:
+                if (side === RelationSideEnum.Parent) {
+                    return `${parentRelCol} = ${relationUidCol}`;
+                } else {
+                    return `${parentUidCol} = ${relationRelCol}`;
+                }
+
+            case RelationEnum.OneToMany:
+                if (side === RelationSideEnum.Parent) {
+                    return `${parentUidCol} = ${relationRelCol}`;
+                } else {
+                    return `${parentRelCol} = ${relationUidCol}`;
+                }
+
+            case RelationEnum.ManyToOne:
+                if (side === RelationSideEnum.Child) {
+                    return `${parentUidCol} = ${relationRelCol}`;
+                } else {
+                    return `${parentRelCol} = ${relationUidCol}`;
+                }
+
+            case RelationEnum.ManyToMany: {
+                if (!junctionCollection) throw new DatabaseException('junction collection is required for many to many relation.');
+                const junctionTable = this.getSQLTable(junctionCollection);
+                const parentJoinKey = this.quote(this.sanitize(relationshipKey));
+                const relationJoinKey = this.quote(this.sanitize(twoWayKey));
+
+                return `EXISTS (
+                    SELECT 1
+                    FROM ${junctionTable} AS jt
+                    WHERE jt.${parentJoinKey} = ${parentUidCol}
+                      AND jt.${relationJoinKey} = ${relationUidCol}
+                      ${this.getTenantQuery(junctionCollection)}
+                )`;
+            }
+            default:
+                return null;
+        }
+    }
+
+    /**
+     * Builds WHERE conditions from queries
+     */
+    protected buildWhereConditions(
+        queries: Query[],
+        tableAlias: string,
+        collection: string,
+    ): { conditions: string[]; params: any[] } {
+        const conditions: string[] = [];
+        const conditionParams: any[] = [];
+
+        if (this.$sharedTables) {
+            conditions.push(this.getTenantQuery(collection, tableAlias, undefined, ''));
+            conditionParams.push(this.$tenantId);
+        }
+
+        for (const query of queries) {
+            const condition = this.buildQueryCondition(query, tableAlias);
+            if (condition.sql) {
+                conditions.push(condition.sql);
+                conditionParams.push(...condition.params);
+            }
+        }
+
+        return { conditions, params: conditionParams };
+    }
+
+    /**
+     * Builds a single query condition
+     */
+    private buildQueryCondition(query: Query, tableAlias: string): { sql: string; params: any[] } {
+        const method = query.getMethod();
+        const attribute = query.getAttribute();
+        const values = query.getValues();
+        const params: any[] = [];
+
+        if (method === QueryType.Select || method === QueryType.Populate) {
+            return { sql: '', params: [] };
+        }
+
+        const dbKey = this.getInternalKeyForAttribute(attribute);
+        const sanitizedKey = this.sanitize(dbKey);
+        const columnRef = `${this.quote(tableAlias)}.${this.quote(sanitizedKey)}`;
+
+        let sql = '';
+
+        switch (method) {
+            case QueryType.Equal:
+                if (values.length === 1) {
+                    sql = `${columnRef} = ?`;
+                    params.push(values[0]);
+                } else {
+                    sql = `${columnRef} IN (${values.map(() => '?').join(', ')})`;
+                    params.push(...values);
+                }
+                break;
+
+            case QueryType.NotEqual:
+                if (values.length === 1) {
+                    sql = `${columnRef} != ?`;
+                    params.push(values[0]);
+                } else {
+                    sql = `${columnRef} NOT IN (${values.map(() => '?').join(', ')})`;
+                    params.push(...values);
+                }
+                break;
+
+            case QueryType.LessThan:
+                sql = `${columnRef} < ?`;
+                params.push(values[0]);
+                break;
+
+            case QueryType.LessThanEqual:
+                sql = `${columnRef} <= ?`;
+                params.push(values[0]);
+                break;
+
+            case QueryType.GreaterThan:
+                sql = `${columnRef} > ?`;
+                params.push(values[0]);
+                break;
+
+            case QueryType.GreaterThanEqual:
+                sql = `${columnRef} >= ?`;
+                params.push(values[0]);
+                break;
+
+            case QueryType.Contains:
+                if (query.onArray()) {
+                    sql = `${columnRef} @> ?::jsonb`;
+                    params.push(JSON.stringify(values));
+                } else {
+                    sql = `${columnRef} LIKE ?`;
+                    params.push(`%${this.escapeWildcards(values[0] as string)}%`);
+                }
+                break;
+
+            case QueryType.StartsWith:
+                sql = `${columnRef} LIKE ?`;
+                params.push(`${this.escapeWildcards(values[0] as string)}%`);
+                break;
+
+            case QueryType.EndsWith:
+                sql = `${columnRef} LIKE ?`;
+                params.push(`%${this.escapeWildcards(values[0] as string)}`);
+                break;
+
+            case QueryType.IsNull:
+                sql = `${columnRef} IS NULL`;
+                break;
+
+            case QueryType.IsNotNull:
+                sql = `${columnRef} IS NOT NULL`;
+                break;
+
+            case QueryType.Between:
+                sql = `${columnRef} BETWEEN ? AND ?`;
+                params.push(values[0], values[1]);
+                break;
+
+            case QueryType.Search:
+                sql = `to_tsvector('${Database.FULLTEXT_LANGUAGE}', ${columnRef}) @@ plainto_tsquery('${Database.FULLTEXT_LANGUAGE}', ?)`;
+                params.push(values[0]);
+                break;
+
+            case QueryType.And:
+                const andConditions = (values as Query[]).map(subQuery =>
+                    this.buildQueryCondition(subQuery, tableAlias)
+                );
+                sql = `(${andConditions.map(c => c.sql).filter(Boolean).join(' AND ')})`;
+                andConditions.forEach(c => params.push(...c.params));
+                break;
+
+            case QueryType.Or:
+                const orConditions = (values as Query[]).map(subQuery =>
+                    this.buildQueryCondition(subQuery, tableAlias)
+                );
+                sql = `(${orConditions.map(c => c.sql).filter(Boolean).join(' OR ')})`;
+                orConditions.forEach(c => params.push(...c.params));
+                break;
+            case QueryType.Not:
+                const notCondition = this.buildQueryCondition(values[0] as Query, tableAlias);
+                sql = `NOT (${notCondition.sql})`;
+                params.push(...notCondition.params);
+                break;
+            default:
+                break;
+        }
+
+        return { sql, params };
+    }
+
+    /**
+     * Builds ORDER BY clause
+     */
+    protected buildOrderClause(
+        orderAttributes: string[],
+        orderTypes: string[],
+        tableAlias: string
+    ): string[] {
+        if (orderAttributes.length === 0) {
+            // Default order by _id
+            return [`${this.quote(tableAlias)}.${this.quote('_id')} ASC`];
+        }
+
+        const orderParts = orderAttributes.map((attr, index) => {
+            const dbKey = this.getInternalKeyForAttribute(attr);
+            const sanitizedKey = this.sanitize(dbKey);
+            const orderType = orderTypes[index] || 'ASC';
+            return `${this.quote(tableAlias)}.${this.quote(sanitizedKey)} ${orderType}`;
+        });
+
+        return orderParts;
+    }
+
+    /**
+     * Builds cursor conditions for pagination
+     */
+    protected buildCursorConditions(
+        cursor: Record<string, any> = {},
+        cursorDirection: string | null,
+        orderAttributes: string[],
+        tableAlias: string
+    ): { condition: string; params: any[] } {
+        if (!cursor || Object.keys(cursor).length === 0 || orderAttributes.length === 0) {
+            return { condition: '', params: [] };
+        }
+        cursorDirection ??= 'AFTER';
+        const conditions: string[] = [];
+        const params: any[] = [];
+        const operator = cursorDirection === 'AFTER' ? '>' : '<';
+
+        if (orderAttributes.length === 1 && orderAttributes[0] === '$sequence') {
+            // single unique attribute
+            const attr = orderAttributes[0];
+            const dbKey = this.getInternalKeyForAttribute(attr);
+            const sanitizedKey = this.sanitize(dbKey);
+            conditions.push(`${this.quote(tableAlias)}.${this.quote(sanitizedKey)} ${operator} ?`);
+            params.push(cursor[attr]);
+        } else {
+            // multiple attributes
+            for (let i = 0; i < orderAttributes.length; i++) {
+                const attr = orderAttributes[i];
+                if (!attr) continue;
+                const dbKey = this.getInternalKeyForAttribute(attr);
+                const sanitizedKey = this.sanitize(dbKey);
+
+                const equalityConditions = orderAttributes
+                    .slice(0, i)
+                    .filter((prevAttr): prevAttr is string => prevAttr !== undefined)
+                    .map(prevAttr => {
+                        const prevDbKey = this.getInternalKeyForAttribute(prevAttr);
+                        const prevSanitizedKey = this.sanitize(prevDbKey);
+                        params.push(cursor[prevAttr]);
+                        return `${this.quote(tableAlias)}.${this.quote(prevSanitizedKey)} = ?`;
+                    });
+
+                equalityConditions.push(`${this.quote(tableAlias)}.${this.quote(sanitizedKey)} ${operator} ?`);
+                params.push(cursor[attr]);
+
+                conditions.push(`(${equalityConditions.join(' AND ')})`);
+            }
+        }
+
+        return {
+            condition: conditions.length > 0 ? `(${conditions.join(' OR ')})` : '',
+            params
+        };
     }
 }
 

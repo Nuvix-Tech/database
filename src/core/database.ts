@@ -1466,7 +1466,7 @@ export class Database extends Cache {
                 filters: [Query.equal('$id', [id])]
             };
 
-            const documents = await this.adapter.findWithRelations(collectionId, queryWithId);
+            const documents = await this.adapter.find(collectionId, queryWithId);
             const processedDocuments = this.processFindResults(documents, queryWithId);
             doc = processedDocuments[0] || new Doc();
         }
@@ -1969,6 +1969,203 @@ export class Database extends Cache {
         return deleted;
     }
 
+
+    /**
+     * Update multiple documents in a collection.
+     */
+    public async updateDocuments(
+        collectionId: string,
+        updates: Doc<Partial<IEntity>>,
+        queries: Query[] = [],
+        batchSize: number = 1000,
+        onNext?: (doc: Doc<any>) => void | Promise<void>,
+        onError?: (error: Error) => void | Promise<void>,
+    ): Promise<number> {
+        if (updates.empty()) {
+            return 0;
+        }
+
+        batchSize = Math.min(1000, Math.max(1, batchSize));
+        const collection = await this.silent(() => this.getCollection(collectionId));
+
+        if (collection.empty()) {
+            throw new DatabaseException('Collection not found');
+        }
+
+        const documentSecurity = collection.get('documentSecurity', false);
+        const authorization = new Authorization(PermissionEnum.Update);
+        const skipAuth = authorization.$valid(collection.getUpdate());
+
+        if (!skipAuth && !documentSecurity && collection.getId() !== Database.METADATA) {
+            throw new AuthorizationException(authorization.$description);
+        }
+
+        const attributes = collection.get('attributes', []);
+        const indexes = collection.get('indexes', []);
+
+        if (this.validate) {
+            const validator = new Documents(
+                attributes,
+                indexes,
+                this.maxQueryValues,
+            );
+
+            if (!validator.$valid(queries)) {
+                throw new QueryException(validator.$description);
+            }
+        }
+
+        const grouped = Query.groupByType(queries);
+        let { limit, cursor } = grouped;
+
+        if (cursor && cursor.getCollection() !== collection.getId()) {
+            throw new DatabaseException("Cursor document must be from the same Collection.");
+        }
+
+        // Prepare updates document
+        const updatesClone = updates.clone();
+        updatesClone.delete('$id');
+        updatesClone.delete('$tenant');
+
+        if (updatesClone.createdAt() === null || !this.preserveDates) {
+            updatesClone.delete('$createdAt');
+        } else {
+            updatesClone.set('$createdAt', updatesClone.createdAt());
+        }
+
+        if (this.adapter.$sharedTables) {
+            updatesClone.set('$tenant', this.adapter.$tenantId);
+        }
+
+        const updatedAt = updatesClone.updatedAt();
+        const time = new Date().toISOString();
+        updatesClone.set('$updatedAt', updatedAt === null || !this.preserveDates ? time : updatedAt);
+
+        const encodedUpdates = await this.encode(collection, updatesClone);
+
+        // Validate structure
+        const validator = new Structure(collection);
+        if (!validator.$valid(encodedUpdates, false)) {
+            throw new StructureException(validator.$description);
+        }
+
+        const originalLimit = limit as number;
+        let last = cursor as Doc<any>;
+        let modified = 0;
+
+        while (true) {
+            let currentBatchSize = batchSize;
+            if (limit && (limit as number) < batchSize) {
+                currentBatchSize = limit as number;
+            } else if (limit) {
+                limit = (limit as number) - batchSize;
+            }
+
+            const batchQueries = [Query.limit(currentBatchSize)];
+
+            if (last) {
+                batchQueries.push(Query.cursorAfter(last));
+            }
+
+            const batch = await this.silent(() =>
+                this.find(collection.getId(), [...batchQueries, ...queries], PermissionEnum.Update)
+            );
+
+            if (batch.length === 0) {
+                break;
+            }
+
+            const currentPermissions = encodedUpdates.getPermissions();
+            currentPermissions.sort();
+
+            await this.withTransaction(async () => {
+                const processedBatch: Doc<any>[] = [];
+
+                for (let index = 0; index < batch.length; index++) {
+                    const document = batch[index]!;
+                    let skipPermissionsUpdate = true;
+
+                    if (encodedUpdates.has('$permissions')) {
+                        if (!document.has('$permissions')) {
+                            throw new QueryException('Permission document missing in select');
+                        }
+
+                        const originalPermissions = document.getPermissions();
+                        originalPermissions.sort();
+
+                        skipPermissionsUpdate = JSON.stringify(originalPermissions) === JSON.stringify(currentPermissions);
+                    }
+
+                    document.set('$skipPermissionsUpdate', skipPermissionsUpdate);
+                    await this.silent(() =>
+                        this.updateDocumentRelationships(collection, document)
+                    );
+
+                    const merged = new Doc({
+                        ...document.toObject(),
+                        ...encodedUpdates.toObject(),
+                    });
+
+                    // Check if document was updated after the request timestamp
+                    const oldUpdatedAt = new Date(document.updatedAt()!);
+                    if (this.timestamp && oldUpdatedAt > this.timestamp) {
+                        throw new ConflictException('Document was updated after the request timestamp');
+                    }
+
+                    const encodedDocument = await this.encode(collection, merged);
+                    processedBatch.push(encodedDocument);
+                }
+
+                await this.adapter.updateDocuments(
+                    collection.getId(),
+                    encodedUpdates,
+                    processedBatch
+                );
+            });
+
+            for (const doc of batch) {
+                doc.delete('$skipPermissionsUpdate');
+
+                await this.purgeCachedDocument(collection.getId(), doc.getId());
+                const decodedDoc = await this.decode(await this.processQueries([], collection), doc);
+
+                try {
+                    if (onNext) {
+                        const result = onNext(decodedDoc);
+                        if (result instanceof Promise) {
+                            await result;
+                        }
+                    }
+                } catch (error) {
+                    if (onError) {
+                        const errorResult = onError(error as Error);
+                        if (errorResult instanceof Promise) {
+                            await errorResult;
+                        }
+                    } else {
+                        throw error;
+                    }
+                }
+                modified++;
+            }
+
+            if (batch.length < currentBatchSize) {
+                break;
+            } else if (originalLimit && modified === originalLimit) {
+                break;
+            }
+
+            last = batch[batch.length - 1]!;
+        }
+
+        this.trigger(EventsEnum.DocumentsUpdate, new Doc({
+            $collection: collection.getId(),
+            modified: modified
+        }));
+
+        return modified;
+    }
+
     /**
      * find documents.
      */
@@ -2008,7 +2205,7 @@ export class Database extends Cache {
             return [];
         }
 
-        const rows = await this.adapter.findWithRelations(collectionId, processedQueries);
+        const rows = await this.adapter.find(collectionId, processedQueries);
         const result = this.processFindResults(rows, processedQueries);
 
         const documents = await Promise.all(

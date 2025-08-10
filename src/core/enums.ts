@@ -78,6 +78,7 @@ export enum EventsEnum {
 
     PermissionsCreate = "permissions_create",
     PermissionsRead = "permissions_read",
+    PermissionsUpdate = "permissions_update",
     PermissionsDelete = "permissions_delete",
 
     AttributeCreate = "attribute_create",

@@ -1,6 +1,7 @@
 import { QueryException } from "@errors/index.js";
 import { Logger } from "@utils/logger.js";
 import { QueryByType } from "./types.js";
+import { Doc } from "./doc.js";
 
 /**
  * Defines the types of operations a query can perform.
@@ -466,8 +467,8 @@ export class Query {
      * @param value - The cursor value (typically a document ID).
      * @returns {Query}
      */
-    public static cursorAfter(value: string): Query {
-        return new Query(QueryType.CursorAfter, "", [value]);
+    public static cursorAfter(value: string | Doc): Query {
+        return new Query(QueryType.CursorAfter, "", [value as any]);
     }
 
     /**
@@ -475,8 +476,8 @@ export class Query {
      * @param value - The cursor value (typically a document ID).
      * @returns {Query}
      */
-    public static cursorBefore(value: string): Query {
-        return new Query(QueryType.CursorBefore, "", [value]);
+    public static cursorBefore(value: string | Doc): Query {
+        return new Query(QueryType.CursorBefore, "", [value as any]);
     }
 
     /**
@@ -573,7 +574,7 @@ export class Query {
         let offset: number | null = null;
         const orderAttributes: string[] = [];
         const orderTypes: ('ASC' | 'DESC')[] = [];
-        let cursor: string | number | null = null;
+        let cursor: Doc | null = null;
         let cursorDirection: 'AFTER' | 'BEFORE' | null = null;
 
         for (const query of queries) {
@@ -602,7 +603,7 @@ export class Query {
                 case QueryType.CursorAfter:
                 case QueryType.CursorBefore:
                     // Ensure cursor value is string or number
-                    if (cursor === null && (typeof values[0] === 'string' || typeof values[0] === 'number')) {
+                    if (cursor === null && (values[0] instanceof Doc)) {
                         cursor = values[0];
                         cursorDirection =
                             method === QueryType.CursorAfter ? "AFTER" : "BEFORE";

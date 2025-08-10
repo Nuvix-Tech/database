@@ -4,6 +4,7 @@ import type { Doc } from "./doc.js";
 import { Permission } from "@utils/permission.js";
 import { Query } from "./query.js";
 import { OnDelete, RelationEnum, RelationSideEnum } from "./enums.js";
+import { IEntity } from "types.js";
 
 export type FilterValue = string | number | boolean | Date | null | undefined | object | any[] | Record<string, any> | FilterValue[];
 
@@ -35,7 +36,7 @@ export type QueryByType = {
     offset: number | null;
     orderAttributes: string[];
     orderTypes: ('ASC' | 'DESC')[];
-    cursor: string | number | null;
+    cursor: Doc<IEntity> | null;
     cursorDirection: 'AFTER' | 'BEFORE' | null;
     populateQueries: Map<string, Query[]>;
 }
