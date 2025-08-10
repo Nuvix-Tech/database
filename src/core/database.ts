@@ -2099,75 +2099,6 @@ export class Database extends Cache {
     }
 
     /**
-     * Delete document by ID.
-     */
-    public async deleteDocument(collectionId: string, id: string): Promise<boolean> {
-        const collection = await this.silent(() => this.getCollection(collectionId));
-
-        const deleted = await this.withTransaction(async () => {
-            const document = await this.silent(() =>
-                this.getDocument(collection.getId(), id, [], true)
-            );
-
-            if (document.empty()) {
-                return false;
-            }
-
-            const validator = new Authorization(PermissionEnum.Delete);
-
-            if (collection.getId() !== Database.METADATA) {
-                const documentSecurity = collection.get('documentSecurity', false);
-                if (!validator.$valid([
-                    ...collection.getDelete(),
-                    ...(documentSecurity ? document.getDelete() : [])
-                ])) {
-                    throw new AuthorizationException(validator.$description);
-                }
-            }
-
-            // Check if document was updated after the request timestamp
-            const oldUpdatedAt = new Date(document.updatedAt()!);
-            if (this.timestamp && oldUpdatedAt > this.timestamp) {
-                throw new ConflictException('Document was updated after the request timestamp');
-            }
-
-            const result = await this.adapter.deleteDocument(collection.getId(), document);
-
-            await this.purgeCachedDocument(collection.getId(), id);
-
-            return result;
-        });
-
-        this.trigger(EventsEnum.DocumentDelete, { collectionId, id });
-
-        return deleted;
-    }
-
-    /**
-     * Delete multiple documents in a collection.
-     */
-    public async deleteDocuments(collectionId: string, query?: Query[] | ((qb: QueryBuilder) => QueryBuilder)): Promise<string[]> {
-        const collection = await this.silent(() => this.getCollection(collectionId));
-        let queries: Query[];
-        if (typeof query === 'function') {
-            queries = query(new QueryBuilder()).build();
-        } else queries = query ?? [];
-
-        const deletedIds = await this.withTransaction(async () => {
-            const processedQueries = await this.processQueries(queries, collection, { forPermission: PermissionEnum.Delete })
-            const result = await this.adapter.deleteDocuments(collection.getId(), processedQueries);
-
-            // TODO: handle document relationships;
-
-            return result;
-        });
-
-        // TODO: flush documents cache
-        return deletedIds;
-    }
-
-
-    /**
      * Update multiple documents in a collection.
      */
     public async updateDocuments(
@@ -2361,6 +2292,74 @@ export class Database extends Cache {
         }));
 
         return modified;
+    }
+
+    /**
+     * Delete document by ID.
+     */
+    public async deleteDocument(collectionId: string, id: string): Promise<boolean> {
+        const collection = await this.silent(() => this.getCollection(collectionId));
+
+        const deleted = await this.withTransaction(async () => {
+            const document = await Authorization.skip(() => this.silent(() =>
+                this.getDocument(collection.getId(), id, [], true)
+            ));
+
+            if (document.empty()) {
+                return false;
+            }
+
+            const validator = new Authorization(PermissionEnum.Delete);
+
+            if (collection.getId() !== Database.METADATA) {
+                const documentSecurity = collection.get('documentSecurity', true);
+                if (!validator.$valid([
+                    ...collection.getDelete(),
+                    ...(documentSecurity ? document.getDelete() : [])
+                ])) {
+                    throw new AuthorizationException(validator.$description);
+                }
+            }
+
+            // Check if document was updated after the request timestamp
+            const oldUpdatedAt = new Date(document.updatedAt()!);
+            if (this.timestamp && oldUpdatedAt > this.timestamp) {
+                throw new ConflictException('Document was updated after the request timestamp');
+            }
+
+            const result = await this.adapter.deleteDocument(collection.getId(), document);
+
+            await this.purgeCachedDocument(collection.getId(), id);
+
+            return result;
+        });
+
+        this.trigger(EventsEnum.DocumentDelete, { collectionId, id });
+
+        return deleted;
+    }
+
+    /**
+     * Delete multiple documents in a collection.
+     */
+    public async deleteDocuments(collectionId: string, query?: Query[] | ((qb: QueryBuilder) => QueryBuilder)): Promise<string[]> {
+        const collection = await this.silent(() => this.getCollection(collectionId));
+        let queries: Query[];
+        if (typeof query === 'function') {
+            queries = query(new QueryBuilder()).build();
+        } else queries = query ?? [];
+
+        const deletedIds = await this.withTransaction(async () => {
+            const processedQueries = await this.processQueries(queries, collection, { forPermission: PermissionEnum.Delete })
+            const result = await this.adapter.deleteDocuments(collection.getId(), processedQueries);
+
+            // TODO: handle document relationships;
+
+            return result;
+        });
+
+        // TODO: flush documents cache
+        return deletedIds;
     }
 
     /**
