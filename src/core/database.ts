@@ -2476,7 +2476,7 @@ export class Database extends Cache {
                     [Query.equal(parentAttr, [document.getId()])]
                 );
 
-                await this.deleteDocuments(
+                relatedIds.length && await this.deleteDocuments(
                     relatedCollection.getId(),
                     qb => qb.equal('$id', ...relatedIds)
                 );
