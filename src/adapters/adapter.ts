@@ -1060,7 +1060,7 @@ export class Adapter extends BaseAdapter implements IAdapter {
             const { rows } = await this.client.query(sql, conditions.params);
 
             if (rows.length === 0) {
-                return 0;
+                return [];
             }
 
             const sequences = rows.map(row => row.$sequence);

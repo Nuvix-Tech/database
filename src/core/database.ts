@@ -1971,6 +1971,26 @@ export class Database extends Cache {
         return deleted;
     }
 
+    public async deleteDocuments(collectionId: string, query?: Query[] | ((qb: QueryBuilder) => QueryBuilder)): Promise<string[]> {
+        const collection = await this.silent(() => this.getCollection(collectionId));
+        let queries: Query[];
+        if (typeof query === 'function') {
+            queries = query(new QueryBuilder()).build();
+        } else queries = query ?? [];
+
+        const deletedIds = await this.withTransaction(async () => {
+            const processedQueries = await this.processQueries(queries, collection, { forPermission: PermissionEnum.Delete })
+            const result = await this.adapter.deleteDocuments(collection.getId(), processedQueries);
+
+            // TODO: handle document relationships;
+
+            return result;
+        });
+
+        // TODO: flush documents cache
+        return deletedIds;
+    }
+
 
     /**
      * Update multiple documents in a collection.
