@@ -411,112 +411,120 @@ export class Structure implements Validator {
         const options = attr.options as RelationOptions;
         const type = options.relationType;
         const side = options.side;
+        const key = attr.key;
 
-        switch (type) {
-            case RelationEnum.OneToOne:
-                if (!value && typeof value !== "string") {
-                    this.message = `Attribute "${attr.key}" must be a string or null for OneToOne relation.`;
-                    return false;
-                }
-                break;
-            case RelationEnum.ManyToMany:
-                return this.checkForInvalidManyValues(value, attr.key);
-            case RelationEnum.OneToMany:
-                if (side === RelationSideEnum.Parent) {
-                    return this.checkForInvalidManyValues(value, attr.key);
-                }
-                if (side === RelationSideEnum.Child) {
-                    if (!value && typeof value !== "string") {
-                        this.message = `Attribute "${attr.key}" must be a string or null for OneToMany relation on child side.`;
-                        return false;
-                    }
-                    break;
-                }
-                this.message = `Unknown relation side "${side}" for attribute "${attr.key}".`;
-                return false;
-            case RelationEnum.ManyToOne:
-                if (side === RelationSideEnum.Parent) {
-                    if (!value && typeof value !== "string") {
-                        this.message = `Attribute "${attr.key}" must be a string or null for ManyToOne relation on parent side.`;
-                        return false;
-                    }
-                    break;
-                }
-                if (side === RelationSideEnum.Child) {
-                    return this.checkForInvalidManyValues(value, attr.key);
-                }
-                this.message = `Unknown relation side "${side}" for attribute "${attr.key}".`;
-                return false;
-            default:
-                this.message = `Unknown relation type "${type}" for attribute "${attr.key}".`;
-                return false;
-        }
-        return true;
-    }
-
-    private checkForInvalidManyValues(value: any, attributeKey: string): boolean {
-        if (!value || typeof value !== 'object') {
-            this.message = `Attribute "${attributeKey}" must be an object for to-many relation operations.`;
-            return false;
-        }
-
-        if ('set' in value || 'connect' in value || 'disconnect' in value) {
-            // Validate set operation
-            if ('set' in value) {
-                if (!Array.isArray(value.set)) {
-                    this.message = `Attribute "${attributeKey}.set" must be an array of document IDs.`;
-                    return false;
-                }
-                for (const id of value.set) {
-                    if (typeof id !== 'string' || id.trim() === '') {
-                        this.message = `Attribute "${attributeKey}.set" contains invalid document ID.`;
-                        return false;
-                    }
-                }
-            }
-
-            // Validate connect operation
-            if ('connect' in value) {
-                if (!Array.isArray(value.connect)) {
-                    this.message = `Attribute "${attributeKey}.connect" must be an array of document IDs.`;
-                    return false;
-                }
-                for (const id of value.connect) {
-                    if (typeof id !== 'string' || id.trim() === '') {
-                        this.message = `Attribute "${attributeKey}.connect" contains invalid document ID.`;
-                        return false;
-                    }
-                }
-            }
-
-            // Validate disconnect operation
-            if ('disconnect' in value) {
-                if (!Array.isArray(value.disconnect)) {
-                    this.message = `Attribute "${attributeKey}.disconnect" must be an array of document IDs.`;
-                    return false;
-                }
-                for (const id of value.disconnect) {
-                    if (typeof id !== 'string' || id.trim() === '') {
-                        this.message = `Attribute "${attributeKey}.disconnect" contains invalid document ID.`;
-                        return false;
-                    }
-                }
-            }
-
-            if ('set' in value && ('connect' in value || 'disconnect' in value)) {
-                this.message = `Attribute "${attributeKey}" must not contain both "set" and "connect"/"disconnect" operations.`;
-                return false;
-            }
-
-            if (this.onCreate && !('set' in value)) {
-                this.message = `Attribute "${attributeKey}" must contain "set" operation on creation.`;
+        const mustBeStringOrNull = (val: any, msgContext: string) => {
+            if (!(typeof val === "string" || val === null)) {
+                this.message = `Attribute "${key}" must be a string document ID or null for ${msgContext}.`;
                 return false;
             }
             return true;
-        }
+        };
 
-        this.message = `Attribute "${attributeKey}" must contain at least one of: set, connect, or disconnect operations.`;
-        return false;
+        switch (type) {
+            case RelationEnum.OneToOne:
+                return mustBeStringOrNull(value, "OneToOne relation");
+
+            case RelationEnum.ManyToMany:
+                return this.checkForInvalidManyValues(value, key);
+
+            case RelationEnum.OneToMany:
+                if (side === RelationSideEnum.Parent) {
+                    return this.checkForInvalidManyValues(value, key);
+                }
+                if (side === RelationSideEnum.Child) {
+                    return mustBeStringOrNull(value, "OneToMany relation (child side)");
+                }
+                this.message = `Unknown relation side "${side}" for attribute "${key}".`;
+                return false;
+
+            case RelationEnum.ManyToOne:
+                if (side === RelationSideEnum.Parent) {
+                    return mustBeStringOrNull(value, "ManyToOne relation (parent side)");
+                }
+                if (side === RelationSideEnum.Child) {
+                    return this.checkForInvalidManyValues(value, key);
+                }
+                this.message = `Unknown relation side "${side}" for attribute "${key}".`;
+                return false;
+
+            default:
+                this.message = `Unknown relation type "${type}" for attribute "${key}".`;
+                return false;
+        }
     }
 
+    private checkForInvalidManyValues(value: any, attributeKey: string): boolean {
+        if (!value || typeof value !== "object") {
+            this.message = `Attribute "${attributeKey}" must be an object containing to-many relation operations.`;
+            return false;
+        }
+
+        const hasSet = "set" in value;
+        const hasConnect = "connect" in value;
+        const hasDisconnect = "disconnect" in value;
+
+        // Validate 'set'
+        if (hasSet) {
+            if (!(Array.isArray(value.set) || value.set === null)) {
+                this.message = `Attribute "${attributeKey}.set" must be either null or an array of document IDs.`;
+                return false;
+            }
+            if (Array.isArray(value.set)) {
+                for (const id of value.set) {
+                    if (typeof id !== "string" || id.trim() === "") {
+                        this.message = `Attribute "${attributeKey}.set" contains an invalid document ID.`;
+                        return false;
+                    }
+                }
+            }
+        }
+
+        // Validate 'connect'
+        if (hasConnect) {
+            if (!Array.isArray(value.connect)) {
+                this.message = `Attribute "${attributeKey}.connect" must be an array of document IDs.`;
+                return false;
+            }
+            for (const id of value.connect) {
+                if (typeof id !== "string" || id.trim() === "") {
+                    this.message = `Attribute "${attributeKey}.connect" contains an invalid document ID.`;
+                    return false;
+                }
+            }
+        }
+
+        // Validate 'disconnect'
+        if (hasDisconnect) {
+            if (!Array.isArray(value.disconnect)) {
+                this.message = `Attribute "${attributeKey}.disconnect" must be an array of document IDs.`;
+                return false;
+            }
+            for (const id of value.disconnect) {
+                if (typeof id !== "string" || id.trim() === "") {
+                    this.message = `Attribute "${attributeKey}.disconnect" contains an invalid document ID.`;
+                    return false;
+                }
+            }
+        }
+
+        // Rule: cannot mix 'set' with 'connect'/'disconnect'
+        if (hasSet && (hasConnect || hasDisconnect)) {
+            this.message = `Attribute "${attributeKey}" cannot contain both "set" and "connect"/"disconnect" operations.`;
+            return false;
+        }
+
+        // On creation, require 'set'
+        if (this.onCreate && !hasSet) {
+            this.message = `Attribute "${attributeKey}" must contain a "set" operation when creating a document.`;
+            return false;
+        }
+
+        if (!(hasSet || hasConnect || hasDisconnect)) {
+            this.message = `Attribute "${attributeKey}" must contain at least one of: "set", "connect", or "disconnect" operations.`;
+            return false;
+        }
+
+        return true;
+    }
 }

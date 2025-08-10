@@ -6,7 +6,7 @@ import { Filter, Filters } from "./types.js";
 import { Meta } from "@adapters/base.js";
 import { filters } from "@utils/filters.js";
 import { Doc } from "./doc.js";
-import { DatabaseException, DuplicateException, LimitException, NotFoundException } from "@errors/index.js";
+import { DatabaseException, DuplicateException, LimitException, NotFoundException, RelationshipException } from "@errors/index.js";
 import { Structure } from "@validators/structure.js";
 import { Adapter } from "@adapters/adapter.js";
 import { PopulateQuery, ProcessedQuery } from "./database.js";
@@ -887,6 +887,78 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
         }
     }
 
+    protected formatRelationValue(value: any): { setIds: string[] | null | undefined, connectIds: string[], disconnectIds: string[] } {
+        let setIds: string[] | null | undefined = undefined;
+        const connectIdsSet = new Set<string>();
+        const disconnectIdsSet = new Set<string>();
+
+        if (typeof value !== 'object' && value !== null) {
+            throw new RelationshipException('Invalid value for relationship: must be an object or null');
+        }
+
+        if (value === null) {
+            // Null means "clear all relationships"
+            setIds = null;
+        } else {
+            if ('connect' in value) {
+                const connectValues = value.connect;
+                if (connectValues !== undefined) {
+                    if (!Array.isArray(connectValues)) {
+                        throw new RelationshipException('Connect must be an array of string IDs');
+                    }
+                    for (const id of connectValues) {
+                        if (typeof id !== 'string') {
+                            throw new RelationshipException('Ids in connect must be strings');
+                        }
+                        connectIdsSet.add(id);
+                    }
+                }
+            }
+
+            if ('disconnect' in value) {
+                const disconnectValues = value.disconnect;
+                if (disconnectValues !== undefined) {
+                    if (!Array.isArray(disconnectValues)) {
+                        throw new RelationshipException('Disconnect must be an array of string IDs');
+                    }
+                    for (const id of disconnectValues) {
+                        if (typeof id !== 'string') {
+                            throw new RelationshipException('Ids in disconnect must be strings');
+                        }
+                        disconnectIdsSet.add(id);
+                    }
+                }
+            }
+
+            if ('set' in value) {
+                const setValues = value.set;
+                if (setValues === null) {
+                    setIds = null; // Explicit null = clear all
+                } else if (setValues !== undefined) {
+                    if (!Array.isArray(setValues)) {
+                        throw new RelationshipException('Set must be an array of string IDs or null');
+                    }
+                    setIds = Array.from(new Set(
+                        setValues.map(id => {
+                            if (typeof id !== 'string') {
+                                throw new RelationshipException('Ids in set must be strings');
+                            }
+                            return id;
+                        })
+                    ));
+                }
+            }
+        }
+
+        const connectIds = Array.from(connectIdsSet);
+        const disconnectIds = Array.from(disconnectIdsSet);
+
+        if (setIds !== undefined && (connectIds.length > 0 || disconnectIds.length > 0)) {
+            throw new RelationshipException('Cannot use set with connect or disconnect at the same time.');
+        }
+
+        return { setIds, connectIds, disconnectIds }
+    }
 }
 
 type Options = {
