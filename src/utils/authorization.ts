@@ -1,6 +1,7 @@
 import { PermissionEnum } from "@core/enums.js";
 import { Validator } from "@validators/interface.js";
 import { AsyncLocalStorage } from "async_hooks";
+import { Role } from "./role.js";
 
 type AuthorizationStore = Map<string, Record<string, boolean> | boolean>;
 
@@ -95,7 +96,8 @@ export class Authorization implements Validator {
      * The role is set either in the current `AsyncLocalStorage` context or globally.
      * @param role - The role string to set (e.g., "admin", "guest").
      */
-    public static setRole(role: string): void {
+    public static setRole(role: string | Role): void {
+        role = typeof role === "string" ? role : role.toString();
         const store = this.getStore();
         if (store) {
             const roles = (store.get("roles") as Record<string, boolean>) || {};

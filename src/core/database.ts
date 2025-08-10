@@ -19,6 +19,7 @@ import { Structure } from "@validators/structure.js";
 import { Adapter } from "@adapters/adapter.js";
 import { IndexDependency } from "@validators/index-dependency.js";
 import { MethodType } from "@validators/query/base.js";
+import { string } from "zod";
 
 export class Database extends Cache {
     constructor(adapter: Adapter, cache: NuvixCache, options: DatabaseOptions = {}) {
@@ -1590,7 +1591,7 @@ export class Database extends Cache {
             const type = options.relationType;
             const side = options.side;
             const value = document.get(relationship.get('key'));
-            if (!value || (Array.isArray(value) && value.length === 0)) continue;
+            if (!value || (typeof value === 'object' && 'set' in value && !value.set?.length)) continue;
 
             // Prevent infinite recursion
             const loopKey = `${collection.getId()}::${document.getId()}::${relationship.getId()}`;
@@ -1629,7 +1630,7 @@ export class Database extends Cache {
                     || (type === RelationEnum.OneToMany && side === RelationSideEnum.Parent)
                     || (type === RelationEnum.ManyToOne && side === RelationSideEnum.Child)
                 ) {
-                    const values = Array.isArray(value) ? value : [value];
+                    const values = Array.isArray(value?.set) ? value?.set : [value.set];
                     if (values.length === 0) continue;
 
                     if (type === RelationEnum.ManyToMany) {
@@ -1642,6 +1643,7 @@ export class Database extends Cache {
                         );
                     } else {
                         for (const childId of values) {
+                            if (typeof childId !== 'string') throw new RelationshipException('Invalid relationship value. value must be document id or ids.')
                             const childDoc = await this.silent(() =>
                                 this.getDocument(options.relatedCollection, childId)
                             );
@@ -1891,7 +1893,7 @@ export class Database extends Cache {
                     || (type === RelationEnum.ManyToOne && side === RelationSideEnum.Child)
                 ) {
                     // handle object with set, connect , disconnect instead of array
-
+                    // TODO: I AM HERE
                     const values = Array.isArray(value) ? value : [value];
                     if (values.length === 0) continue;
 
@@ -1957,7 +1959,7 @@ export class Database extends Cache {
                 throw new ConflictException('Document was updated after the request timestamp');
             }
 
-            const result = await this.adapter.deleteDocument(collection.getId(), id);
+            const result = await this.adapter.deleteDocument(collection.getId(), document);
 
             await this.purgeCachedDocument(collection.getId(), id);
 

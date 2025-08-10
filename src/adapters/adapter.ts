@@ -1,7 +1,7 @@
 import { Client, PoolConfig } from "pg";
 import { BaseAdapter } from "./base.js";
 import { PostgresClient } from "./postgres.js";
-import { AttributeEnum, EventsEnum, IndexEnum, RelationEnum, RelationSideEnum } from "@core/enums.js";
+import { AttributeEnum, EventsEnum, IndexEnum, PermissionEnum, RelationEnum, RelationSideEnum } from "@core/enums.js";
 import { CreateCollectionOptions, IAdapter } from "./interface.js";
 import { DatabaseException } from "@errors/base.js";
 import { Database, ProcessedQuery } from "@core/database.js";
@@ -1021,6 +1021,71 @@ export class Adapter extends BaseAdapter implements IAdapter {
     }
 
     /**
+     * Deletes multiple documents from a collection.
+     * Returns the number of affected rows.
+     */
+    public async deleteDocuments(
+        collectionId: string,
+        query: ProcessedQuery,
+    ) {
+        const name = this.sanitize(collectionId);
+        const { populateQueries = [], filters, collection, ...options } = query;
+        const mainTableAlias = 'main';
+        const collectionName = this.sanitize(collection.getId());
+        const mainTable = this.getSQLTable(collectionName);
+
+        const conditions = this.handleConditions({
+            populateQueries,
+            tableAlias: mainTableAlias,
+            depth: 0,
+            collection,
+            filters,
+            ...options,
+            selections: [],
+            forPermission: PermissionEnum.Delete,
+        });
+
+        const finalWhereClause = conditions.conditions.length > 0
+            ? `WHERE ${conditions.conditions.join(' AND ')}`
+            : '';
+
+        const sql = `
+            DELETE FROM ${mainTable} AS ${this.quote(mainTableAlias)}
+            ${conditions.joins.join(' ')}
+            ${finalWhereClause}
+            RETURNING ${conditions.selectionsSql.join(', ')}
+        `.trim().replace(/\s+/g, ' ');
+
+        try {
+            const { rows } = await this.client.query(sql, conditions.params);
+
+            if (rows.length === 0) {
+                return 0;
+            }
+
+            const sequences = rows.map(row => row.$sequence);
+            const sequencePlaceholders = sequences.map(() => '?').join(', ');
+            let permsSql = `
+                DELETE FROM ${this.getSQLTable(name + '_perms')}
+                WHERE "_document" IN (${sequencePlaceholders})
+                ${this.getTenantQuery(collectionId)}
+            `;
+
+            const params = [...sequences];
+            if (this.$sharedTables) {
+                params.push(this.$tenantId);
+            }
+
+            permsSql = this.trigger(EventsEnum.PermissionsDelete, sql);
+            await this.client.query(permsSql, params);
+
+            return rows.map(r => r.$id);
+        } catch (e: any) {
+            throw this.processException(e, `Failed to delete documents from collection '${collection}'`);
+        }
+    }
+
+    /**
      * Generates an upsert (insert or update) SQL statement for batch operations.
      * If `attribute` is provided, it will increment that column on duplicate key.
      */
@@ -1070,10 +1135,10 @@ export class Adapter extends BaseAdapter implements IAdapter {
     /**
      * Finds documents in a collection based on a processed query.
      */
-    public async find(collection: string, query: ProcessedQuery, options: {
-        forUpdate?: boolean;
+    public async find(collection: string, query: ProcessedQuery, { forPermission = PermissionEnum.Read, ...options }: {
+        forPermission?: PermissionEnum;
     } = {}): Promise<Record<string, any>[]> {
-        const sqlResult = this.buildSql(query, options);
+        const sqlResult = this.buildSql(query, { ...options, forPermission });
         Logger.debug('Deep Find SQL:', sqlResult.sql, sqlResult.params);
 
         try {

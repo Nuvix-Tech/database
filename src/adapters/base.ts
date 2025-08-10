@@ -244,15 +244,15 @@ export abstract class BaseAdapter extends EventEmitter {
      */
     public async deleteDocument(
         collection: string,
-        id: string
+        document: Doc<any>,
     ): Promise<boolean> {
-        if (!collection || !id) {
+        if (!collection || document.empty()) {
             throw new DatabaseException("Failed to delete document: collection and id are required");
         }
 
         try {
             const table = this.getSQLTable(collection);
-            const params: any[] = [id];
+            const params: any[] = [document.getId()];
 
             let sql = `
                 DELETE FROM ${table}
@@ -269,7 +269,7 @@ export abstract class BaseAdapter extends EventEmitter {
             const { rows: result } = await this.client.query<any>(sql, params);
 
             // Delete permissions
-            const permParams: any[] = [id];
+            const permParams: any[] = [document.getSequence()];
             let permSql = `
                 DELETE FROM ${this.getSQLTable(collection + '_perms')}
                 WHERE ${this.$.quote('_document')} = ?
@@ -1108,9 +1108,9 @@ export abstract class BaseAdapter extends EventEmitter {
     /**
     * Builds a comprehensive SQL query with joins and filters for n-level relationships
     */
-    protected buildSql(query: ProcessedQuery, extra: {
-        forUpdate?: boolean;
-    } = {}): {
+    protected buildSql(query: ProcessedQuery, { forPermission }: {
+        forPermission: PermissionEnum;
+    }): {
         sql: string;
         params: any[];
         joins: string[];
@@ -1129,6 +1129,7 @@ export abstract class BaseAdapter extends EventEmitter {
             filters,
             selections,
             ...options,
+            forPermission,
         })
         let orderSql = '';
 
@@ -1176,8 +1177,9 @@ export abstract class BaseAdapter extends EventEmitter {
             populateQueries = [],
             tableAlias,
             depth = 0,
+            forPermission,
             ...rest
-        }: (ProcessedQuery | PopulateQuery) & { tableAlias?: string, depth: number }
+        }: (ProcessedQuery | PopulateQuery) & { tableAlias?: string, depth: number, forPermission: PermissionEnum }
     ) {
         const conditions: string[] = [];
         const selectionsSql: string[] = [];
@@ -1202,7 +1204,7 @@ export abstract class BaseAdapter extends EventEmitter {
         ) {
             const roles = Authorization.getRoles();
             conditions.push(this.getSQLPermissionsCondition({
-                collection: collection.getId(), roles, alias: tableAlias, type: PermissionEnum.Read
+                collection: collection.getId(), roles, alias: tableAlias, type: forPermission
             }));
             if (this.$sharedTables) params.push(this.$tenantId);
         }
@@ -1264,7 +1266,7 @@ export abstract class BaseAdapter extends EventEmitter {
                 if (Authorization.getStatus() && rest.collection.get('documentSecurity', false)) {
                     const roles = Authorization.getRoles();
                     joins.push(`AND ${this.getSQLPermissionsCondition({
-                        collection: relatedTableName, roles, alias: relationAlias, type: PermissionEnum.Read
+                        collection: relatedTableName, roles, alias: relationAlias, type: forPermission
                     })}`);
                     if (this.$sharedTables) params.push(this.$tenantId);
                 }
@@ -1279,7 +1281,8 @@ export abstract class BaseAdapter extends EventEmitter {
                 attribute,
                 ...rest,
                 depth: depth + 1,
-                tableAlias: relationAlias
+                tableAlias: relationAlias,
+                forPermission
             });
 
             // Prefix the selections to avoid conflicts
