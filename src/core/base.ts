@@ -645,14 +645,17 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
         // Decode filters for non-JSON and non-Relationship attributes
         for (const attribute of attributes) {
             const key = attribute.$id;
-            if (!key || [AttributeEnum.Relationship, AttributeEnum.Json].includes(attribute.type)) continue;
+            if (!key || [AttributeEnum.Relationship].includes(attribute.type)) continue;
             if (!document.has(key)) continue;
 
             const isArray = attribute.array ?? false;
             const filters = attribute.filters ?? [];
 
             let values = document.get(key);
-            const items = Array.isArray(values) ? values : values != null ? [values] : [];
+            const items = attribute.type === AttributeEnum.Json ?
+                values && typeof values === 'string' ?
+                    [JSON.parse(values)] : [values] // TODO: ------------
+                : Array.isArray(values) ? values : values != null ? [values] : [];
 
             const processed = await Promise.all(items.map(async (item) => {
                 for (const filter of [...filters].reverse()) {

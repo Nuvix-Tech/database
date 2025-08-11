@@ -698,9 +698,10 @@ export class Adapter extends BaseAdapter {
 
         let sql: string;
         if (newColumnName) {
-            sql = `ALTER TABLE ${tableName} CHANGE COLUMN ${this.quote(columnName)} ${this.quote(newColumnName)} ${sqlType};`;
+            sql = `ALTER TABLE ${tableName} RENAME COLUMN ${this.quote(columnName)} TO ${this.quote(newColumnName)};`;
+            sql += ` ALTER TABLE ${tableName} ALTER COLUMN ${this.quote(newColumnName)} TYPE ${sqlType};`;
         } else {
-            sql = `ALTER TABLE ${tableName} MODIFY ${this.quote(columnName)} ${sqlType};`;
+            sql = `ALTER TABLE ${tableName} ALTER COLUMN ${this.quote(columnName)} TYPE ${sqlType};`;
         }
 
         sql = this.trigger(EventsEnum.AttributeUpdate, sql);

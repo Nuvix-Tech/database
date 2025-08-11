@@ -51,7 +51,6 @@ describe('Database', () => {
                     ],
                     permissions: [Permission.create(Role.any())],
                 });
-                console.log( collection, '<==========================()')
                 expect(collection.getId()).toBe(collectionId);
                 expect(collection.get('attributes', [])).toHaveLength(4);
             });
