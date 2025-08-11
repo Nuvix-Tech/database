@@ -260,6 +260,7 @@ export abstract class BaseAdapter extends EventEmitter {
                 DELETE FROM ${table}
                 WHERE ${this.quote('_uid')} = ?
                 ${this.getTenantQuery(collection)}
+                RETURNING _id
             `;
 
             sql = this.trigger(EventsEnum.DocumentDelete, sql);

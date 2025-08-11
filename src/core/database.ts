@@ -297,37 +297,40 @@ export class Database extends Cache {
         const relationships = collection.get('attributes', []).filter(
             (attribute) => attribute.get('type') === AttributeEnum.Relationship
         );
-        for (const relationship of relationships) {
-            await this.deleteRelationship(collection.getId(), relationship.get('$id'));
-        }
 
-        try {
-            await this.adapter.deleteCollection(id);
-        } catch (error) {
-            if (error instanceof NotFoundException) {
-                // HACK: Metadata should still be updated, can be removed when null tenant collections are supported.
-                if (!this.adapter.$sharedTables || !this.migrating) {
+        return await this.withTransaction(async () => {
+            for (const relationship of relationships) {
+                await this.deleteRelationship(collection.getId(), relationship.get('$id'));
+            }
+
+            try {
+                await this.adapter.deleteCollection(id);
+            } catch (error) {
+                if (error instanceof NotFoundException) {
+                    // HACK: Metadata should still be updated, can be removed when null tenant collections are supported.
+                    if (!this.adapter.$sharedTables || !this.migrating) {
+                        throw error;
+                    }
+                } else {
                     throw error;
                 }
-            } else {
-                throw error;
             }
-        }
 
-        let deleted: boolean;
-        if (id === Database.METADATA) {
-            deleted = true;
-        } else {
-            deleted = await this.silent(() => this.deleteDocument(Database.METADATA, id));
-        }
+            let deleted: boolean;
+            if (id === Database.METADATA) {
+                deleted = true;
+            } else {
+                deleted = await this.silent(() => this.deleteDocument(Database.METADATA, id));
+            }
 
-        if (deleted) {
-            this.trigger(EventsEnum.CollectionDelete, collection);
-        }
+            if (deleted) {
+                this.trigger(EventsEnum.CollectionDelete, collection);
+            }
 
-        await this.purgeCachedCollection(id);
+            await this.purgeCachedCollection(id);
 
-        return deleted;
+            return deleted;
+        });
     }
 
     /**

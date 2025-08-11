@@ -181,7 +181,7 @@ describe('Database', () => {
                     attributes: [
                         new Doc({ $id: 'name', key: 'name', type: AttributeEnum.String, size: 100 }),
                     ],
-                    permissions: [Permission.create(Role.any())],
+                    permissions: [Permission.create(Role.any()), Permission.delete(Role.any())],
                 });
 
                 const deleted = await db.deleteCollection(collectionId);
