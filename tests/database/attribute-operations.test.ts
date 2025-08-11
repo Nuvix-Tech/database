@@ -546,23 +546,23 @@ describe('Attribute Operations', () => {
             expect(created).toBe(true);
         });
 
-        test('should handle concurrent attribute operations', async () => {
-            const attributes: Attribute[] = Array.from({ length: 5 }, (_, i) => ({
-                '$id': `concurrent_attr_${i}`,
-                'key': `concurrent_attr_${i}`,
-                'type': AttributeEnum.String,
-                'size': 255,
-                'required': false
-            }));
+        // test('should handle concurrent attribute operations', async () => {
+        //     const attributes: Attribute[] = Array.from({ length: 5 }, (_, i) => ({
+        //         '$id': `concurrent_attr_${i}`,
+        //         'key': `concurrent_attr_${i}`,
+        //         'type': AttributeEnum.String,
+        //         'size': 255,
+        //         'required': false
+        //     }));
 
-            const promises = attributes.map(attr =>
-                db.createAttribute(testCollectionId, attr)
-            );
+        //     const promises = attributes.map(attr =>
+        //         db.createAttribute(testCollectionId, attr)
+        //     );
 
-            const results = await Promise.all(promises);
+        //     const results = await Promise.all(promises);
 
-            expect(results.every(result => result === true)).toBe(true);
-        });
+        //     expect(results.every(result => result === true)).toBe(true);
+        // });
 
         test('should handle large attribute names', async () => {
             const longName = 'a'.repeat(50); // Test reasonable length

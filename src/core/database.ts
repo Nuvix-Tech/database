@@ -2401,7 +2401,7 @@ export class Database extends Cache {
 
             if (batch.length < currentBatchSize) {
                 break;
-            } else if (originalLimit && modified === originalLimit) {
+            } else if (originalLimit > 0 && modified >= originalLimit) {
                 break;
             }
 

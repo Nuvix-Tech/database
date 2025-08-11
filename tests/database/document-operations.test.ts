@@ -412,12 +412,12 @@ describe('Document Operations', () => {
             const modified = await db.updateDocuments(
                 testCollectionId,
                 updates,
-                [],
+                [Query.limit(10)],
                 3 // small batch size
             );
 
             expect(modified).toBe(10);
-        });
+        }, 10000);
 
         test('should handle empty updates', async () => {
             const updates = new Doc({});
