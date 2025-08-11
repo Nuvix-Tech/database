@@ -717,7 +717,7 @@ export class Adapter extends BaseAdapter {
         const currentPgIndexName = this.getSQLIndex(collectionId, oldName);
         const newPgIndexName = this.getSQLIndex(collectionId, newName);
 
-        let sql = `ALTER INDEX ${currentPgIndexName} RENAME TO ${newPgIndexName};`;
+        let sql = `ALTER INDEX ${this.quote(this.$schema)}.${currentPgIndexName} RENAME TO ${newPgIndexName};`;
         sql = this.trigger(EventsEnum.IndexRename, sql);
 
         try {
@@ -795,7 +795,7 @@ export class Adapter extends BaseAdapter {
     public async deleteIndex(collection: string, id: string): Promise<boolean> {
         const pgIndexName = this.getSQLIndex(collection, id);
 
-        let sql = `DROP INDEX IF EXISTS ${pgIndexName};`;
+        let sql = `DROP INDEX IF EXISTS ${this.quote(this.$schema)}.${pgIndexName};`;
         sql = this.trigger(EventsEnum.IndexDelete, sql);
 
         try {

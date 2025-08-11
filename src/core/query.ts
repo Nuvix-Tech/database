@@ -467,7 +467,7 @@ export class Query {
      * @param value - The cursor value (typically a document ID).
      * @returns {Query}
      */
-    public static cursorAfter(value: string | Doc): Query {
+    public static cursorAfter(value: string | Doc<any>): Query {
         return new Query(QueryType.CursorAfter, "", [value as any]);
     }
 
@@ -476,7 +476,7 @@ export class Query {
      * @param value - The cursor value (typically a document ID).
      * @returns {Query}
      */
-    public static cursorBefore(value: string | Doc): Query {
+    public static cursorBefore(value: string | Doc<any>): Query {
         return new Query(QueryType.CursorBefore, "", [value as any]);
     }
 

@@ -13,6 +13,7 @@ import { Authorization } from "@utils/authorization.js";
 import { Collection, RelationOptions } from "@validators/schema.js";
 import { DatabaseError } from "pg";
 import { DuplicateException, NotFoundException, TimeoutException, TruncateException } from "@errors/index.js";
+import { createHash } from 'node:crypto';
 
 export abstract class BaseAdapter extends EventEmitter {
     public readonly type: string = 'base';
@@ -791,7 +792,9 @@ export abstract class BaseAdapter extends EventEmitter {
     }
 
     protected getSQLIndex(table: string, name: string): string {
-        return this.quote(`${this._meta.namespace}_${table}_${name}`);
+        const base = `${this.$schema}_${this._meta.namespace}_${table}_${name}`;
+        const safeId = createHash('sha1').update(base).digest('hex').slice(0, 8);
+        return this.quote(`${safeId}_${name}`);
     }
 
     protected getSQLIndexType(type: IndexEnum): string {
@@ -994,7 +997,8 @@ export abstract class BaseAdapter extends EventEmitter {
         const wildcards = ['%', '_', '[', ']', '^', '-', '.', '*', '+', '?', '(', ')', '{', '}', '|'];
 
         for (const wildcard of wildcards) {
-            value = value.replace(new RegExp('\\' + wildcard.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), '\\' + wildcard);
+            const escapedWildcard = wildcard.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            value = value.replace(new RegExp(escapedWildcard, 'g'), '\\' + wildcard);
         }
 
         return value;

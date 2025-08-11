@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach } from 'vitest';
+import { describe, test, expect, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
 import { Database } from '@core/database.js';
 import { createTestDb } from '../helpers.js';
 import { Doc } from '@core/doc.js';
@@ -13,13 +13,13 @@ describe('Collection Operations', () => {
     let db: Database;
     const schema = new Date().getTime().toString()
 
-    beforeEach(async () => {
+    beforeAll(async () => {
         db = createTestDb({ namespace: `coll_op_${schema}` });
         db.setMeta({ schema })
         await db.create();
     });
 
-    afterEach(async () => {
+    afterAll(async () => {
         await db.delete();
     });
 
@@ -263,7 +263,7 @@ describe('Collection Operations', () => {
 
             // Create multiple collections
             for (const id of collectionIds) {
-                db.createCollection({ id, attributes: [] })
+                await db.createCollection({ id, attributes: [] })
             }
             const collections = await db.listCollections();
             expect(collections.length).toBeGreaterThanOrEqual(3);
@@ -273,7 +273,7 @@ describe('Collection Operations', () => {
             const collectionIds = Array.from({ length: 5 }, (_, i) => `limit_test_${i}_${Date.now()}`);
 
             for (const id of collectionIds) {
-                db.createCollection({ id, attributes: [] })
+                await db.createCollection({ id, attributes: [] })
             }
 
             const collections = await db.listCollections(2);
@@ -284,7 +284,7 @@ describe('Collection Operations', () => {
             const collectionIds = Array.from({ length: 5 }, (_, i) => `offset_test_${i}_${Date.now()}`);
 
             for (const id of collectionIds) {
-                db.createCollection({ id, attributes: [] })
+                await db.createCollection({ id, attributes: [] })
             }
 
             const allCollections = await db.listCollections(10, 0);
@@ -414,7 +414,7 @@ describe('Collection Operations', () => {
 
     describe('edge cases', () => {
         test('should handle collections with special characters in names', async () => {
-            const collectionId = `special_chars_${Date.now()}_test-collection.name`;
+            const collectionId = `special_test-collection.name`;
 
             const collection = await db.createCollection({
                 id: collectionId,
