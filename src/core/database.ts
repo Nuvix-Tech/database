@@ -294,13 +294,12 @@ export class Database extends Cache {
             throw new NotFoundException(`Collection '${id}' not found`);
         }
 
-        const relationships = (collection.get('attributes') ?? []).filter(
+        const relationships = collection.get('attributes', []).filter(
             (attribute) => attribute.get('type') === AttributeEnum.Relationship
         );
-        // TODO: --
-        // for (const relationship of relationships) {
-        //     await this.deleteRelationship(collection.getId(), relationship.get('$id'));
-        // }
+        for (const relationship of relationships) {
+            await this.deleteRelationship(collection.getId(), relationship.get('$id'));
+        }
 
         try {
             await this.adapter.deleteCollection(id);
@@ -1209,6 +1208,123 @@ export class Database extends Cache {
     }
 
     /**
+     * Deletes a relationship between two collections.
+     */
+    public async deleteRelationship(collectionId: string, id: string): Promise<boolean> {
+        const collection = await this.silent(() => this.getCollection(collectionId));
+        const attributes = collection.get('attributes', []);
+        let relationship: Doc<Attribute> | null = null;
+        let relationshipIndex = -1;
+
+        for (let i = 0; i < attributes.length; i++) {
+            if (attributes[i]!.get('$id') === id) {
+                relationship = attributes[i]!;
+                relationshipIndex = i;
+                break;
+            }
+        }
+
+        if (!relationship) {
+            throw new NotFoundException('Relationship not found');
+        }
+
+        // Remove relationship from collection attributes
+        attributes.splice(relationshipIndex, 1);
+        collection.set('attributes', attributes);
+
+        const options = relationship.get('options', {}) as RelationOptions;
+        const relatedCollectionId = options.relatedCollection;
+        const type = options.relationType;
+        const twoWay = Boolean(options.twoWay);
+        const twoWayKey = options.twoWayKey;
+        const side = options.side;
+
+        const relatedCollection = await this.silent(() => this.getCollection(relatedCollectionId));
+        const relatedAttributes = relatedCollection.get('attributes', []);
+
+        // Remove two-way relationship from related collection
+        const updatedRelatedAttributes = relatedAttributes.filter(attr => attr.get('$id') !== twoWayKey);
+        relatedCollection.set('attributes', updatedRelatedAttributes);
+
+        await this.silent(async () => {
+            try {
+                await this.withTransaction(async () => {
+                    await this.updateDocument(Database.METADATA, collection.getId(), collection);
+                    await this.updateDocument(Database.METADATA, relatedCollection.getId(), relatedCollection);
+                });
+            } catch (error: any) {
+                throw new DatabaseException(`Failed to delete relationship: ${error.message}`);
+            }
+
+            const indexKey = `_index_${id}`;
+            const twoWayIndexKey = `_index_${twoWayKey}`;
+
+            switch (type) {
+                case RelationEnum.OneToOne:
+                    if (side === RelationSideEnum.Parent) {
+                        await this.deleteIndex(collection.getId(), indexKey);
+                        if (twoWay) {
+                            await this.deleteIndex(relatedCollection.getId(), twoWayIndexKey);
+                        }
+                    }
+                    if (side === RelationSideEnum.Child) {
+                        await this.deleteIndex(relatedCollection.getId(), twoWayIndexKey);
+                        if (twoWay) {
+                            await this.deleteIndex(collection.getId(), indexKey);
+                        }
+                    }
+                    break;
+                case RelationEnum.OneToMany:
+                    if (side === RelationSideEnum.Parent) {
+                        await this.deleteIndex(relatedCollection.getId(), twoWayIndexKey);
+                    } else {
+                        await this.deleteIndex(collection.getId(), indexKey);
+                    }
+                    break;
+                case RelationEnum.ManyToOne:
+                    if (side === RelationSideEnum.Parent) {
+                        await this.deleteIndex(collection.getId(), indexKey);
+                    } else {
+                        await this.deleteIndex(relatedCollection.getId(), twoWayIndexKey);
+                    }
+                    break;
+                case RelationEnum.ManyToMany:
+                    const junctionCollectionName = this.getJunctionTable(
+                        collection.getSequence(),
+                        relatedCollection.getSequence(),
+                        id,
+                        twoWayKey!
+                    );
+                    await this.deleteCollection(junctionCollectionName);
+                    break;
+                default:
+                    throw new RelationshipException('Invalid relationship type.');
+            }
+        });
+
+        const deleted = await this.adapter.deleteRelationship(
+            collection.getId(),
+            relatedCollection.getId(),
+            type,
+            twoWay,
+            id,
+            twoWayKey!,
+            side
+        );
+
+        if (!deleted) {
+            throw new DatabaseException('Failed to delete relationship');
+        }
+
+        await this.purgeCachedCollection(collection.getId());
+        await this.purgeCachedCollection(relatedCollection.getId());
+
+        this.trigger(EventsEnum.AttributeDelete, collection, relationship);
+
+        return true;
+    }
+
+    /**
      * Renames an index in a collection.
      */
     public async renameIndex(
@@ -1957,7 +2073,9 @@ export class Database extends Cache {
         return decodedDocument;
     }
 
-
+    /**
+     * Update relationships of a document.
+     */
     private async updateDocumentRelationships(
         collection: Doc<Collection>,
         document: Doc<Record<string, any>>,
@@ -2364,6 +2482,9 @@ export class Database extends Cache {
         return deletedIds;
     }
 
+    /**
+     * Delete all relationships of a document.
+     */
     private async deleteDocumentRelationships(
         collection: Doc<Collection>,
         document: Doc<Record<string, any>>
@@ -2393,6 +2514,11 @@ export class Database extends Cache {
         }
     }
 
+    /**
+     * Handle deletion of related documents based on the relationship options.
+     * This method is called when a document is deleted and handles the cascading effects
+     * according to the `onDelete` option specified in the relationship.
+     */
     private async handleOnDelete(
         collection: Doc<Collection>,
         document: Doc<Record<string, any>>,
