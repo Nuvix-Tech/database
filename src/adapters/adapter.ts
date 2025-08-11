@@ -2,15 +2,14 @@ import { Client, PoolConfig } from "pg";
 import { BaseAdapter } from "./base.js";
 import { PostgresClient } from "./postgres.js";
 import { AttributeEnum, EventsEnum, IndexEnum, PermissionEnum, RelationEnum, RelationSideEnum } from "@core/enums.js";
-import { CreateCollectionOptions, IAdapter } from "./interface.js";
+import { CreateCollectionOptions } from "./interface.js";
 import { DatabaseException } from "@errors/base.js";
 import { Database, ProcessedQuery } from "@core/database.js";
 import { Doc } from "@core/doc.js";
 import { Attribute } from "@validators/schema.js";
 import { ColumnInfo, CreateAttribute, CreateIndex, UpdateAttribute } from "./types.js";
-import { Logger } from "@utils/logger.js";
 
-export class Adapter extends BaseAdapter implements IAdapter {
+export class Adapter extends BaseAdapter {
     protected client: PostgresClient;
 
     constructor(client: PoolConfig | Client) {
@@ -304,7 +303,7 @@ export class Adapter extends BaseAdapter implements IAdapter {
 
         let sql = `
                 ALTER TABLE ${table}
-                ADD COLUMN ${this.$.quote(name)} ${sqlType}
+                ADD COLUMN ${this.quote(name)} ${sqlType}
             `;
         sql = this.trigger(EventsEnum.AttributeCreate, sql);
 
@@ -824,7 +823,7 @@ export class Adapter extends BaseAdapter implements IAdapter {
             Object.entries(attributes).forEach(([attribute, value], idx) => {
                 if (this.$internalAttrs.includes(attribute)) return;
                 const column = this.sanitize(attribute);
-                columns.push(this.$.quote(column));
+                columns.push(this.quote(column));
                 placeholders.push('?');
                 values.push(value);
             });
@@ -1137,7 +1136,7 @@ export class Adapter extends BaseAdapter implements IAdapter {
         const collectionName = this.sanitize(collection.getId());
         const mainTable = this.getSQLTable(collectionName);
 
-        const { params, ...conditions} = this.handleConditions({
+        const { params, ...conditions } = this.handleConditions({
             populateQueries,
             tableAlias: mainTableAlias,
             depth: 0,

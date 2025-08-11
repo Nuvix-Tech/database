@@ -1,6 +1,6 @@
 import { DatabaseException } from "@errors/base.js";
 import { EventEmitter } from "stream";
-import { IAdapter, IClient } from "./interface.js";
+import {  IClient } from "./interface.js";
 import { AttributeEnum, EventsEnum, IndexEnum, PermissionEnum, RelationEnum, RelationSideEnum } from "@core/enums.js";
 import { IncreaseDocumentAttribute } from "./types.js";
 import { Doc } from "@core/doc.js";
@@ -160,10 +160,6 @@ export abstract class BaseAdapter extends EventEmitter {
         return await this.client.ping();
     }
 
-    protected get $(): IAdapter {
-        return this as unknown as IAdapter;
-    }
-
     async exists(name: string, collection?: string): Promise<boolean> {
         const values: string[] = [this.sanitize(name)];
         let sql: string;
@@ -256,7 +252,7 @@ export abstract class BaseAdapter extends EventEmitter {
 
             let sql = `
                 DELETE FROM ${table}
-                WHERE ${this.$.quote('_uid')} = ?
+                WHERE ${this.quote('_uid')} = ?
                 ${this.getTenantQuery(collection)}
             `;
 
@@ -272,7 +268,7 @@ export abstract class BaseAdapter extends EventEmitter {
             const permParams: any[] = [document.getSequence()];
             let permSql = `
                 DELETE FROM ${this.getSQLTable(collection + '_perms')}
-                WHERE ${this.$.quote('_document')} = ?
+                WHERE ${this.quote('_document')} = ?
                 ${this.getTenantQuery(collection)}
                 RETURNING _id
             `;
@@ -303,15 +299,15 @@ export abstract class BaseAdapter extends EventEmitter {
         min,
         max
     }: IncreaseDocumentAttribute): Promise<boolean> {
-        const name = this.$.quote(collection);
-        const attr = this.$.quote(attribute);
+        const name = this.quote(collection);
+        const attr = this.quote(attribute);
         const params: any[] = [value, updatedAt, id];
 
         let sql = `
             UPDATE ${this.getSQLTable(name)} 
             SET 
                 ${attr} = ${attr} + ?,
-                ${this.$.quote('_updatedAt')} = ?
+                ${this.quote('_updatedAt')} = ?
             WHERE _uid = ?
             ${this.getTenantQuery(collection)}
         `;
@@ -384,7 +380,7 @@ export abstract class BaseAdapter extends EventEmitter {
         let sql = `
             SELECT COUNT(1) as sum FROM (
                 SELECT 1
-                FROM ${this.getSQLTable(name)} AS ${this.$.quote(alias)}
+                FROM ${this.getSQLTable(name)} AS ${this.quote(alias)}
                 ${sqlWhere}
                 ${limit}
             ) table_count
@@ -446,9 +442,9 @@ export abstract class BaseAdapter extends EventEmitter {
             : '';
 
         let sql = `
-            SELECT SUM(${this.$.quote(attribute)}) as sum FROM (
-                SELECT ${this.$.quote(attribute)}
-                FROM ${this.getSQLTable(name)} AS ${this.$.quote(alias)}
+            SELECT SUM(${this.quote(attribute)}) as sum FROM (
+                SELECT ${this.quote(attribute)}
+                FROM ${this.getSQLTable(name)} AS ${this.quote(alias)}
                 ${sqlWhere}
                 ${limit}
             ) table_count

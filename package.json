@@ -23,9 +23,7 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "chalk": "^5.5.0",
-    "pino": "^9.7.0",
-    "zod": "^4.0.14"
+    "chalk": "^5.5.0"
   },
   "devDependencies": {
     "@nuvix/cache": "^1.0.3-alpha.1",
@@ -48,7 +46,6 @@
     "query-builder",
     "postgresql",
     "modular",
-    "zod",
     "validation",
     "pino"
   ]

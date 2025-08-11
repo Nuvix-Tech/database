@@ -1,51 +1,49 @@
-import { AttributeEnum, IndexEnum, OnDelete, RelationEnum, RelationSideEnum } from "@core/enums.js";
-import { z } from "zod";
+import {
+    AttributeEnum,
+    IndexEnum,
+    OnDelete,
+    RelationEnum,
+    RelationSideEnum
+} from "@core/enums.js";
 
-export const AttributeType = z.enum(AttributeEnum);
+export type AttributeOptions = {
+    relationType: RelationEnum;
+    side: RelationSideEnum;
+    relatedCollection: string;
+    twoWay?: boolean;       // default false, optional
+    twoWayKey?: string;
+    onDelete: OnDelete;
+};
 
-const AttributeOptions = z.object({
-    relationType: z.enum(RelationEnum),
-    side: z.enum(RelationSideEnum),
-    relatedCollection: z.string(),
-    twoWay: z.boolean().default(false).optional(),
-    twoWayKey: z.string().optional(),
-    onDelete: z.enum(OnDelete),
-});
+export type Attribute = {
+    $id: string;
+    key: string;
+    type: AttributeEnum;
+    size?: number;           // default 0, optional
+    required?: boolean;      // default false, optional
+    array?: boolean;         // default false, optional
+    filters?: string[];      // default [], optional
+    format?: string;
+    formatOptions?: Record<string, any>;
+    default?: any;
+    options?: AttributeOptions | Record<string, any>;
+};
 
-export const AttributeSchema = z.object({
-    $id: z.string(),
-    key: z.string(),
-    type: AttributeType,
-    size: z.number().default(0).optional(),
-    required: z.boolean().default(false).optional(),
-    array: z.boolean().default(false).optional(),
-    filters: z.array(z.string()).default([]).optional(),
-    format: z.string().optional(),
-    formatOptions: z.record(z.string(), z.any()).optional(),
-    default: z.any().optional(),
-    options: z.union([AttributeOptions, z.record(z.string(), z.any())]).optional(),
-});
+export type Index = {
+    $id: string;
+    key?: string;
+    type: IndexEnum;
+    attributes?: string[];
+    orders?: (string | null)[];
+};
 
-export const IndexType = z.enum(IndexEnum);
+export type Collection = {
+    $id: string;
+    $collection: string;
+    name: string;
+    attributes: Attribute[];
+    indexes?: Index[];
+    documentSecurity?: boolean;  // default false, optional
+};
 
-export const IndexSchema = z.object({
-    $id: z.string(),
-    key: z.string().optional(),
-    type: IndexType,
-    attributes: z.array(z.string()).optional(),
-    orders: z.array(z.union([z.string(), z.null()])).optional(),
-});
-
-export const CollectionSchema = z.object({
-    $id: z.string(),
-    $collection: z.string(),
-    name: z.string(),
-    attributes: z.array(AttributeSchema),
-    indexes: z.array(IndexSchema).optional(),
-    documentSecurity: z.boolean().default(false),
-});
-
-export type Collection = z.infer<typeof CollectionSchema>;
-export type Attribute = z.infer<typeof AttributeSchema>;
-export type Index = z.infer<typeof IndexSchema>;
-export type RelationOptions = z.infer<typeof AttributeOptions>;
+export type { AttributeOptions as RelationOptions };
