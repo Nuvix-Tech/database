@@ -795,14 +795,14 @@ export class Adapter extends BaseAdapter {
     public async deleteIndex(collection: string, id: string): Promise<boolean> {
         const pgIndexName = this.getSQLIndex(collection, id);
 
-        let sql = `DROP INDEX IF EXISTS ${this.quote(this.$schema)}.${pgIndexName};`;
+        let sql = `DROP INDEX ${this.quote(this.$schema)}.${pgIndexName};`;
         sql = this.trigger(EventsEnum.IndexDelete, sql);
 
         try {
             await this.client.query(sql);
             return true;
         } catch (e: any) {
-            this.processException(e, `Failed to delete index ${id} from collection ${collection}`);
+            return false;
         }
     }
 

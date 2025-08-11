@@ -285,7 +285,7 @@ describe('Document Operations', () => {
 
             expect(retrieved.get('name')).toBe('Select Test');
             expect(retrieved.get('age')).toBe(25);
-            expect(retrieved.get('email', undefined)).toBeUndefined();
+            expect(retrieved.has('email')).toBeFalsy();
         });
     });
 
@@ -315,7 +315,7 @@ describe('Document Operations', () => {
             const updates = new Doc({ name: 'Updated' });
             const updated = await db.updateDocument(testCollectionId, created.getId(), updates);
 
-            expect(updated.get('$createdAt')).toBe(created.get('$createdAt'));
+            expect(updated.createdAt()?.toString()).toBe(created.createdAt()?.toString());
         });
 
         test('should update only specified fields', async () => {

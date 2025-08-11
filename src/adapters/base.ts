@@ -793,8 +793,8 @@ export abstract class BaseAdapter extends EventEmitter {
 
     protected getSQLIndex(table: string, name: string): string {
         const base = `${this.$schema}_${this._meta.namespace}_${table}_${name}`;
-        const safeId = createHash('sha1').update(base).digest('hex').slice(0, 8);
-        return this.quote(`${safeId}_${name}`);
+        const safeId = createHash('sha1').update(base).digest('hex').slice(0, 40);
+        return this.quote(`${safeId}`);
     }
 
     protected getSQLIndexType(type: IndexEnum): string {

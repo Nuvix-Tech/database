@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach } from 'vitest';
+import { describe, test, expect, beforeEach, afterEach, beforeAll, afterAll } from 'vitest';
 import { Database } from '@core/database.js';
 import { createTestDb } from '../helpers.js';
 import { Doc } from '@core/doc.js';
@@ -15,11 +15,13 @@ describe('Query Operations', () => {
 
     const schema = new Date().getTime().toString()
 
-    beforeEach(async () => {
+    beforeAll(async () => {
         db = createTestDb({ namespace: `coll_op_${schema}` });
         db.setMeta({ schema })
         await db.create();
-
+    });
+    
+    beforeEach(async () => {
         testCollectionId = `query_test_${Date.now()}`;
 
         // Create test collection with various attribute types
@@ -105,7 +107,7 @@ describe('Query Operations', () => {
         );
     });
 
-    afterEach(async () => {
+    afterAll(async () => {
         await db.delete();
     });
 
