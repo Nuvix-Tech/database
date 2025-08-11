@@ -1,3 +1,3 @@
 import { DatabaseError } from "./base.js";
 
-export default class Structure extends DatabaseError { }
+export default class Structure extends DatabaseError {}

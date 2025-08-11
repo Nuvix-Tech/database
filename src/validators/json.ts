@@ -1,13 +1,11 @@
 import { Validator } from "./interface.js";
 
 export class Json implements Validator {
-    $description: string = 'invalid json';
+  $description: string = "invalid json";
 
-    constructor() {
+  constructor() {}
 
-    }
-
-    $valid(value: any): boolean {
-        return true;
-    };
+  $valid(value: any): boolean {
+    return true;
+  }
 }

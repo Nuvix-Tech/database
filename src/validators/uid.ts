@@ -1,3 +1,3 @@
 import { Key } from "./key.js";
 
-export class UID extends Key { }
+export class UID extends Key {}

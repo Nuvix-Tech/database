@@ -1,4 +1,1 @@
-
-export const filters = {
-
-}
+export const filters = {};

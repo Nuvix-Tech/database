@@ -1,49 +1,49 @@
 import {
-    AttributeEnum,
-    IndexEnum,
-    OnDelete,
-    RelationEnum,
-    RelationSideEnum
+  AttributeEnum,
+  IndexEnum,
+  OnDelete,
+  RelationEnum,
+  RelationSideEnum,
 } from "@core/enums.js";
 
 export type AttributeOptions = {
-    relationType: RelationEnum;
-    side: RelationSideEnum;
-    relatedCollection: string;
-    twoWay?: boolean;       // default false, optional
-    twoWayKey?: string;
-    onDelete: OnDelete;
+  relationType: RelationEnum;
+  side: RelationSideEnum;
+  relatedCollection: string;
+  twoWay?: boolean; // default false, optional
+  twoWayKey?: string;
+  onDelete: OnDelete;
 };
 
 export type Attribute = {
-    $id: string;
-    key: string;
-    type: AttributeEnum;
-    size?: number;           // default 0, optional
-    required?: boolean;      // default false, optional
-    array?: boolean;         // default false, optional
-    filters?: string[];      // default [], optional
-    format?: string;
-    formatOptions?: Record<string, any>;
-    default?: any;
-    options?: AttributeOptions | Record<string, any>;
+  $id: string;
+  key: string;
+  type: AttributeEnum;
+  size?: number; // default 0, optional
+  required?: boolean; // default false, optional
+  array?: boolean; // default false, optional
+  filters?: string[]; // default [], optional
+  format?: string;
+  formatOptions?: Record<string, any>;
+  default?: any;
+  options?: AttributeOptions | Record<string, any>;
 };
 
 export type Index = {
-    $id: string;
-    key?: string;
-    type: IndexEnum;
-    attributes?: string[];
-    orders?: (string | null)[];
+  $id: string;
+  key?: string;
+  type: IndexEnum;
+  attributes?: string[];
+  orders?: (string | null)[];
 };
 
 export type Collection = {
-    $id: string;
-    $collection: string;
-    name: string;
-    attributes: Attribute[];
-    indexes?: Index[];
-    documentSecurity?: boolean;  // default false, optional
+  $id: string;
+  $collection: string;
+  name: string;
+  attributes: Attribute[];
+  indexes?: Index[];
+  documentSecurity?: boolean; // default false, optional
 };
 
 export type { AttributeOptions as RelationOptions };

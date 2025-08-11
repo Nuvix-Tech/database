@@ -1,3 +1,3 @@
 import { DatabaseError } from "./base.js";
 
-export default class NotFound extends DatabaseError { }
+export default class NotFound extends DatabaseError {}

@@ -15,10 +15,10 @@ export { default as TruncateException } from "./truncate.js";
 import { DatabaseException } from "./base.js";
 
 export class IndexException extends DatabaseException {
-    constructor(message: string) {
-        super(message);
-        this.name = "IndexException";
-    }
+  constructor(message: string) {
+    super(message);
+    this.name = "IndexException";
+  }
 }
 
 export { DatabaseException };

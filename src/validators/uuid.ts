@@ -1,14 +1,11 @@
 import { Validator } from "./interface.js";
 
-
 export class UUID implements Validator {
-    $description: string = 'invalid uuid';
+  $description: string = "invalid uuid";
 
-    constructor() {
+  constructor() {}
 
-    }
-
-    $valid(value: any): boolean {
-        return true;
-    };
+  $valid(value: any): boolean {
+    return true;
+  }
 }
