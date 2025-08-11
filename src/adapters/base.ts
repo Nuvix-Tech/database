@@ -1,6 +1,6 @@
 import { DatabaseException } from "@errors/base.js";
 import { EventEmitter } from "stream";
-import {  IClient } from "./interface.js";
+import { IClient } from "./interface.js";
 import { AttributeEnum, EventsEnum, IndexEnum, PermissionEnum, RelationEnum, RelationSideEnum } from "@core/enums.js";
 import { IncreaseDocumentAttribute } from "./types.js";
 import { Doc } from "@core/doc.js";
@@ -11,6 +11,8 @@ import { Entities, IEntity } from "types.js";
 import { Logger } from "@utils/logger.js";
 import { Authorization } from "@utils/authorization.js";
 import { Collection, RelationOptions } from "@validators/schema.js";
+import { DatabaseError } from "pg";
+import { DuplicateException, NotFoundException, TimeoutException, TruncateException } from "@errors/index.js";
 
 export abstract class BaseAdapter extends EventEmitter {
     public readonly type: string = 'base';
@@ -228,11 +230,15 @@ export abstract class BaseAdapter extends EventEmitter {
             params.push(this.$tenantId);
         }
 
-        const { rows } = await this.client.query<any>(sql, params);
+        try {
+            const { rows } = await this.client.query<any>(sql, params);
 
-        let document = rows[0];
+            let document = rows[0];
 
-        return new Doc(document);
+            return new Doc(document);
+        } catch (e) {
+            this.processException(e)
+        }
     }
 
     /**
@@ -471,7 +477,7 @@ export abstract class BaseAdapter extends EventEmitter {
         const operations: { sql: string, params: any[] }[] = [];
 
         // Get current permissions grouped by type
-        const sqlParams: any[] = [document.getId()];
+        const sqlParams: any[] = [document.getSequence()];
         let sql = `
             SELECT _type, _permissions
             FROM ${this.getSQLTable(collection + '_perms')}
@@ -504,7 +510,7 @@ export abstract class BaseAdapter extends EventEmitter {
             if (newPermissions.length === 0) {
                 // Delete the row if no permissions
                 if (currentPermissions.length > 0) {
-                    const deleteParams: any[] = [document.getId(), type];
+                    const deleteParams: any[] = [document.getSequence(), type];
                     let deleteSql = `
                         DELETE FROM ${this.getSQLTable(collection + '_perms')}
                         WHERE _document = ? AND _type = ?
@@ -521,7 +527,7 @@ export abstract class BaseAdapter extends EventEmitter {
             } else {
                 if (currentPermissions.length > 0) {
                     // Update existing row
-                    const updateParams: any[] = [newPermissions, document.getId(), type];
+                    const updateParams: any[] = [newPermissions, document.getSequence(), type];
                     let updateSql = `
                         UPDATE ${this.getSQLTable(collection + '_perms')}
                         SET _permissions = ?
@@ -537,7 +543,7 @@ export abstract class BaseAdapter extends EventEmitter {
                     operations.push({ sql: updateSql, params: updateParams });
                 } else {
                     // Insert new row
-                    const insertParams: any[] = [document.getId(), type, newPermissions];
+                    const insertParams: any[] = [document.getSequence(), type, newPermissions];
                     let insertSql = `
                         INSERT INTO ${this.getSQLTable(collection + '_perms')} 
                         (_document, _type, _permissions
@@ -691,9 +697,39 @@ export abstract class BaseAdapter extends EventEmitter {
         }
     }
 
-    protected processException(error: any, message?: string): never {
-        console.log({ error, message })
-        throw new DatabaseException('Not implemented')
+    protected processException(error: DatabaseError | unknown, message?: string): never {
+        const e = error as DatabaseError;
+        if (!(e instanceof DatabaseError)) {
+            if ((e as any) instanceof DatabaseException) throw e;
+            throw new DatabaseException(e?.['message'] ?? message, e)
+        }
+
+        switch (e.code) {
+            // Timeout
+            case '57014':
+                throw new TimeoutException('Query timed out', e.code, e);
+            // Duplicate table
+            case '42P07':
+                throw new DuplicateException('Table already exists', e.code, e);
+            // Duplicate column
+            case '42701':
+                throw new DuplicateException('Column already exists', e.code, e);
+            // Duplicate row (unique constraint violation)
+            case '23505':
+                throw new DuplicateException('Unique constraint violation', e.code, e);
+            // String data right truncation
+            case '22001':
+                throw new TruncateException(
+                    'Value is too long and would be truncated',
+                    e.code,
+                    e
+                );
+            // Undefined column
+            case '42703':
+                throw new NotFoundException('Column not found', e.code, e);
+            default:
+                throw e;
+        }
     }
 
     readonly $supportForTimeouts = true;

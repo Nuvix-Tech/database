@@ -194,21 +194,26 @@ export class Adapter extends BaseAdapter {
         `;
 
         permissionsTable = this.trigger(EventsEnum.PermissionsCreate, permissionsTable);
-        await this.$client.transaction(async () => {
-            await this.client.query(tableSql);
-            for (const sql of postTableIndexes) {
-                await this.client.query(sql);
-            }
 
-            for (const sql of indexSql) {
-                await this.client.query(sql);
-            }
+        try {
+            await this.$client.transaction(async () => {
+                await this.client.query(tableSql);
+                for (const sql of postTableIndexes) {
+                    await this.client.query(sql);
+                }
 
-            await this.client.query(permissionsTable);
-            for (const sql of postPermissionsTableIndexes) {
-                await this.client.query(sql);
-            }
-        })
+                for (const sql of indexSql) {
+                    await this.client.query(sql);
+                }
+
+                await this.client.query(permissionsTable);
+                for (const sql of postPermissionsTableIndexes) {
+                    await this.client.query(sql);
+                }
+            })
+        } catch (error) {
+            this.processException(error)
+        }
     }
 
     public async getSizeOfCollectionOnDisk(collection: string): Promise<number> {
@@ -237,8 +242,8 @@ export class Adapter extends BaseAdapter {
 
     public async getSizeOfCollection(collection: string): Promise<number> {
         collection = this.sanitize(collection);
-        const collectionTableName = this.quote(`${this.$namespace}_${collection}`);
-        const permissionsTableName = this.quote(`${this.$namespace}_${collection}_perms`);
+        const collectionTableName = `'${this.$namespace}_${collection}'`;
+        const permissionsTableName = `'${this.$namespace}_${collection}_perms'`;
 
         const sql = `
             SELECT
@@ -247,7 +252,7 @@ export class Adapter extends BaseAdapter {
         `;
 
         try {
-            const [rows]: any = await this.client.query(sql);
+            const { rows } = await this.client.query(sql);
             const collectionSize = Number(rows[0]?.collection_size ?? 0);
             const permissionsSize = Number(rows[0]?.permissions_size ?? 0);
             return collectionSize + permissionsSize;
@@ -447,9 +452,9 @@ export class Adapter extends BaseAdapter {
         `;
 
         try {
-            const [rows]: any = await this.client.query(sql, [table, schema]);
+            const result: any = await this.client.query(sql, [table, schema]);
 
-            return rows.map((row: any) => {
+            return result.rows.map((row: any) => {
                 row.isNullable = row.isNullable === 'YES' ? 'YES' : 'NO';
                 if (row.udtName?.startsWith('_')) {
                     row.dataType = row.udtName.slice(1) + '[]';

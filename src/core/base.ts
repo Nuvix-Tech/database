@@ -618,7 +618,7 @@ export abstract class Base<T extends EmitterEventMap = EmitterEventMap> extends 
     }
 
     protected async decode<T extends Record<string, any>>(
-        { collection, populateQueries }: ProcessedQuery | PopulateQuery,
+        { collection, populateQueries }: Pick<ProcessedQuery | PopulateQuery, 'collection' | 'populateQueries'>,
         document: Doc<Record<string, any>>,
     ): Promise<Doc<T>> {
         const internalAttributes = this.getInternalAttributes();

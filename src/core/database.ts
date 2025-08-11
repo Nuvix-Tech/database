@@ -286,7 +286,7 @@ export class Database extends Cache {
     public async deleteCollection(id: string): Promise<boolean> {
         const collection = await this.silent(() => this.getDocument(Database.METADATA, id));
 
-        if (collection.empty()) {
+        if (collection.empty() || collection.getId() === Database.METADATA) {
             throw new NotFoundException(`Collection '${id}' not found`);
         }
 
@@ -1684,11 +1684,11 @@ export class Database extends Cache {
         });
 
         const castedResult = this.cast(collection, result);
-        const decodedResult = await this.decode(await this.processQueries([], collection), castedResult);
+        const decodedResult = await this.decode({ collection, populateQueries: [] }, castedResult);
 
         this.trigger(EventsEnum.DocumentCreate, decodedResult);
 
-        return decodedResult as any;
+        return decodedResult;
     }
 
     private async createRelationships(
@@ -1941,8 +1941,7 @@ export class Database extends Cache {
             return this.adapter.createDocuments(collection.getId(), resolvedDocuments);
         });
         // const castedDocuments = updatedDocuments.map(doc => this.cast(collection, doc));
-        const processedQueries = await this.processQueries([], collection)
-        const decodedDocuments = await Promise.all(updatedDocuments.map((doc) => this.decode(processedQueries, doc)));
+        const decodedDocuments = await Promise.all(updatedDocuments.map((doc) => this.decode({ collection, populateQueries: [] }, doc)));
 
         return decodedDocuments as any[];
     }
@@ -2066,7 +2065,7 @@ export class Database extends Cache {
             return encodedDocument;
         });
 
-        const decodedDocument = await this.decode(await this.processQueries([], collection), updatedDocument);
+        const decodedDocument = await this.decode({ collection, populateQueries: [] }, updatedDocument);
 
         this.trigger(EventsEnum.DocumentUpdate, decodedDocument);
 
@@ -2371,7 +2370,7 @@ export class Database extends Cache {
                 doc.delete('$skipPermissionsUpdate');
 
                 await this.purgeCachedDocument(collection.getId(), doc.getId());
-                const decodedDoc = await this.decode(await this.processQueries([], collection), doc);
+                const decodedDoc = await this.decode({ collection, populateQueries: [] }, doc);
 
                 try {
                     if (onNext) {
