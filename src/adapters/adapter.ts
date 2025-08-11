@@ -29,7 +29,7 @@ export class Adapter extends BaseAdapter {
 
     async delete(name: string): Promise<void> {
         name = this.quote(name);
-        await this.client.query(`DROP SCHEMA IF EXISTS ${name};`);
+        await this.client.query(`DROP SCHEMA IF EXISTS ${name} CASCADE;`);
     }
 
     async createCollection({ name, attributes, indexes }: CreateCollectionOptions): Promise<void> {
@@ -218,8 +218,8 @@ export class Adapter extends BaseAdapter {
 
     public async getSizeOfCollectionOnDisk(collection: string): Promise<number> {
         collection = this.sanitize(collection);
-        const collectionTableName = this.quote(`${this.$namespace}_${collection}`);
-        const permissionsTableName = this.quote(`${this.$namespace}_${collection}_perms`);
+        const collectionTableName = `'${this.$namespace}_${collection}'`;
+        const permissionsTableName = `'${this.$namespace}_${collection}_perms'`;
 
         const sql = `
             SELECT

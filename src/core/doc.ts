@@ -50,10 +50,10 @@ export class Doc<T extends Record<string, any> & Partial<IEntity> = IEntity> {
             for (const [key, value] of Object.entries(data)) {
                 if (Array.isArray(value)) {
                     this._data[key] = value.map((item) =>
-                        isEntityLike(item) ? new Doc(item as any) : item
+                        isEntityLike(item) ? item instanceof Doc ? item : new Doc(item as any) : item
                     );
                 } else if (isEntityLike(value)) {
-                    this._data[key] = new Doc(value as any);
+                    this._data[key] = value instanceof Doc ? value : new Doc(value as any);
                 } else {
                     this._data[key] = value ?? null;
                 }
@@ -81,10 +81,14 @@ export class Doc<T extends Record<string, any> & Partial<IEntity> = IEntity> {
     public set<K extends keyof T>(name: K, value: TransformField<T[K]>): this;
     public set<K extends string, V extends unknown>(name: K, value: V): Doc<Simplify<T & Record<K, TransformField<V>>>>;
     public set<K extends string, V extends unknown>(name: K, value: V): any {
-        if (isEntityLike(value)) {
+        if (Array.isArray(value)) {
+            this._data[name] = value.map((item) =>
+                isEntityLike(item) ? item instanceof Doc ? item : new Doc(item as any) : item
+            );
+        } else if (isEntityLike(value)) {
             this._data[name] = value instanceof Doc ? value : new Doc(value as any);
         } else {
-            this._data[name] = value;
+            this._data[name] = value ?? null;
         }
         return this;
     }

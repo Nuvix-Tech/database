@@ -2226,7 +2226,7 @@ export class Database extends Cache {
     public async updateDocuments(
         collectionId: string,
         updates: Doc<Partial<IEntity> & Record<string, any>>,
-        queries: Query[] = [],
+        query: Query[] | ((qb: QueryBuilder) => QueryBuilder) = [],
         batchSize: number = 1000,
         onNext?: (doc: Doc<any>) => void | Promise<void>,
         onError?: (error: Error) => void | Promise<void>,
@@ -2234,6 +2234,10 @@ export class Database extends Cache {
         if (updates.empty()) {
             return 0;
         }
+        let queries: Query[]
+        if (typeof query === 'function') {
+            queries = query(new QueryBuilder()).build()
+        } else queries = query;
 
         batchSize = Math.min(1000, Math.max(1, batchSize));
         const collection = await this.silent(() => this.getCollection(collectionId, true));
