@@ -3,7 +3,6 @@ import {
   test,
   expect,
   beforeEach,
-  afterEach,
   afterAll,
   beforeAll,
 } from "vitest";

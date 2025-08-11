@@ -2,14 +2,12 @@ import { describe, test, expect, beforeEach, afterEach } from "vitest";
 import { Database } from "@core/database.js";
 import { createTestDb } from "../helpers.js";
 import { Doc } from "@core/doc.js";
-import { Query } from "@core/query.js";
 import { AttributeEnum, IndexEnum } from "@core/enums.js";
 import { Attribute } from "@validators/schema.js";
 import {
   DatabaseException,
   NotFoundException,
   DuplicateException,
-  LimitException,
 } from "@errors/index.js";
 
 describe("Index Operations", () => {

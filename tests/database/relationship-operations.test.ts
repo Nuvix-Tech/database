@@ -11,7 +11,6 @@ import {
   DuplicateException,
   RelationshipException,
 } from "@errors/index.js";
-import { ID } from "@utils/id.js";
 
 describe("Relationship Operations", () => {
   let db: Database;

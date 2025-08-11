@@ -3,7 +3,6 @@ import {
   test,
   expect,
   beforeEach,
-  afterEach,
   beforeAll,
   afterAll,
 } from "vitest";
@@ -11,10 +10,8 @@ import { Database } from "@core/database.js";
 import { createTestDb } from "../helpers.js";
 import { Doc } from "@core/doc.js";
 import { Query } from "@core/query.js";
-import { QueryBuilder } from "@utils/query-builder.js";
 import { AttributeEnum, IndexEnum } from "@core/enums.js";
 import { Attribute, Index } from "@validators/schema.js";
-import { ID } from "@utils/id.js";
 
 describe("Query Operations", () => {
   let db: Database;

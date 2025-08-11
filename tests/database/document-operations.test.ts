@@ -5,10 +5,7 @@ import { Doc } from "@core/doc.js";
 import { Permission } from "@utils/permission.js";
 import { Role } from "@utils/role.js";
 import {
-  NotFoundException,
-  DatabaseException,
   StructureException,
-  AuthorizationException,
 } from "@errors/index.js";
 import { AttributeEnum } from "@core/enums.js";
 import { Attribute } from "@validators/schema.js";
