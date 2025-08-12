@@ -193,9 +193,9 @@ export class Structure implements Validator {
 
     const allAttributes: Attribute[] = [
       ...this.systemAttributes,
-      ...(this.collection.get("attributes", []) as unknown[]).map(
-        (v: unknown) =>
-          v instanceof Doc ? (v.toObject() as Attribute) : (v as Attribute),
+      ...(this.collection.get("attributes", [])).map(
+        (v) =>
+          v instanceof Doc ? v.toObject() : v,
       ),
     ];
 
@@ -232,7 +232,6 @@ export class Structure implements Validator {
       const required = attribute.required ?? false;
 
       this.keys[id] = attribute;
-
       if (required && !(id in documentStructure)) {
         this.message = `Missing required attribute "${id}".`;
         return false;

@@ -3203,7 +3203,7 @@ export class Database extends Cache {
       if (
         !attribute &&
         skipPermissionsUpdate &&
-        JSON.stringify(old.toObject()) === JSON.stringify(document.toObject())
+        JSON.stringify(old.toObject([], ['$permissions'])) === JSON.stringify(document.toObject([], ['$permissions']))
       ) {
         // If not updating a single attribute and the
         // document is the same as the old one, skip it
@@ -3276,9 +3276,8 @@ export class Database extends Cache {
       }
 
       const encodedDocument = await this.encode(collection, document);
-
       const structureValidator = new Structure(collection);
-      if (!structureValidator.$valid(encodedDocument)) {
+      if (!await structureValidator.$valid(encodedDocument)) {
         throw new StructureException(structureValidator.$description);
       }
 
