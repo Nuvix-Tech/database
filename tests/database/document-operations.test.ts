@@ -504,7 +504,7 @@ describe("Document Operations", () => {
       const modified = await db.updateDocuments(
         testCollectionId,
         updates,
-        [Query.limit(10)],
+        [],
         3, // small batch size
       );
 

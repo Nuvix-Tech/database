@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     // Base Options
-    "target": "ES2022", // For Node.js 18+ features
+    "target": "ES2022", 
     "module": "NodeNext", // Enable Node.js-style resolution
     "moduleResolution": "NodeNext", // Required for Node ESM
     "lib": ["ES2022"],

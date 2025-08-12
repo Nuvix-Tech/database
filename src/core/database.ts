@@ -3761,7 +3761,7 @@ export class Database extends Cache {
       }
     }
 
-    let { populateQueries, selections, ...rest } = Query.groupByType(queries);
+    let { populateQueries, selections, cursor, ...rest } = Query.groupByType(queries);
     const attributes = collection.get("attributes", []);
     const hasWildcardSelecton = selections.some((s) =>
       (s.getValues() as string[]).includes("*"),
@@ -3806,9 +3806,28 @@ export class Database extends Cache {
       ];
     }
 
+    if (cursor) {
+      if (typeof cursor === 'string') {
+        cursor = await this.silent(() =>
+          this.getDocument(collection.getId(), cursor as unknown as string),
+        ) as Doc<IEntity>;
+      }
+      if (cursor.empty()) {
+        throw new NotFoundException(
+          `Cursor document not found in collection '${collection.getId()}'.`,
+        );
+      }
+      if (cursor.getCollection() !== collection.getId()) {
+        throw new QueryException(
+          `Cursor document must be in the same collection '${collection.getId()}'.`,
+        );
+      }
+    }
+
     if (!populateQueries.size) {
       return {
         collection,
+        cursor,
         selections: selections
           .map((q) => q.getValues() as unknown as string[])
           .flat(),
@@ -3910,6 +3929,7 @@ export class Database extends Cache {
       attribute: metadata.attribute,
       authorized,
       skipAuth,
+      cursor,
       ...rest,
     };
   }

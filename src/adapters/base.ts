@@ -1354,6 +1354,14 @@ export abstract class BaseAdapter extends EventEmitter {
     const collectionName = this.sanitize(collection.getId());
     const mainTable = this.getSQLTable(collectionName);
 
+    // TODO: recheck
+    const cursorConditions = this.buildCursorConditions(
+      options.cursor,
+      options.cursorDirection,
+      options.orderAttributes || [],
+      mainTableAlias,
+    );
+
     const result = this.handleConditions({
       populateQueries,
       tableAlias: mainTableAlias,
@@ -1370,23 +1378,16 @@ export abstract class BaseAdapter extends EventEmitter {
       orderSql = `ORDER BY ${result.orders.join(", ")}`;
     }
 
+    if (cursorConditions.condition) {
+      result.conditions.push(cursorConditions.condition);
+      result.params.push(...cursorConditions.params);
+    }
+
     const limitClause = options.limit ? `LIMIT ?` : "";
     if (options.limit) result.params.push(options.limit);
 
     const offsetClause = options.offset ? `OFFSET ?` : "";
     if (options.offset) result.params.push(options.offset);
-
-    // TODO: recheck
-    const cursorConditions = this.buildCursorConditions(
-      options.cursor as any,
-      options.cursorDirection,
-      options.orderAttributes || [],
-      mainTableAlias,
-    );
-    if (cursorConditions.condition) {
-      result.conditions.push(cursorConditions.condition);
-      result.params.push(...cursorConditions.params);
-    }
 
     const finalWhereClause =
       result.conditions.length > 0
@@ -1897,14 +1898,13 @@ export abstract class BaseAdapter extends EventEmitter {
    * Builds cursor conditions for pagination
    */
   protected buildCursorConditions(
-    cursor: Record<string, any> = {},
+    cursor: Doc<any> | null = null,
     cursorDirection: string | null,
     orderAttributes: string[],
     tableAlias: string,
   ): { condition: string; params: any[] } {
     if (
       !cursor ||
-      Object.keys(cursor).length === 0 ||
       orderAttributes.length === 0
     ) {
       return { condition: "", params: [] };
@@ -1922,7 +1922,7 @@ export abstract class BaseAdapter extends EventEmitter {
       conditions.push(
         `${this.quote(tableAlias)}.${this.quote(sanitizedKey)} ${operator} ?`,
       );
-      params.push(cursor[attr]);
+      params.push(cursor.get(attr));
     } else {
       // multiple attributes
       for (let i = 0; i < orderAttributes.length; i++) {
@@ -1937,14 +1937,14 @@ export abstract class BaseAdapter extends EventEmitter {
           .map((prevAttr) => {
             const prevDbKey = this.getInternalKeyForAttribute(prevAttr);
             const prevSanitizedKey = this.sanitize(prevDbKey);
-            params.push(cursor[prevAttr]);
+            params.push(cursor.get(prevAttr));
             return `${this.quote(tableAlias)}.${this.quote(prevSanitizedKey)} = ?`;
           });
 
         equalityConditions.push(
           `${this.quote(tableAlias)}.${this.quote(sanitizedKey)} ${operator} ?`,
         );
-        params.push(cursor[attr]);
+        params.push(cursor.get(attr));
 
         conditions.push(`(${equalityConditions.join(" AND ")})`);
       }

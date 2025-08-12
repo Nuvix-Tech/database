@@ -15,7 +15,6 @@ import { Doc } from "./doc.js";
 import {
   DatabaseException,
   DuplicateException,
-  LimitException,
   NotFoundException,
   RelationshipException,
 } from "@errors/index.js";
@@ -153,6 +152,7 @@ export abstract class Base<
   protected globalCollections: Record<string, boolean> = {};
   protected resolveRelationships: boolean = true;
   protected checkRelationshipsExist: boolean = true;
+  protected isMigrating: boolean = false;
   protected readonly _relationStack: string[] = [];
   protected readonly _relationDeleteStack: string[] = [];
 
@@ -219,12 +219,16 @@ export abstract class Base<
     return this.adapter.$database;
   }
 
+  public get schema() {
+    return this.adapter.$schema;
+  }
+
   public get sharedTables(): boolean {
     return this.adapter.$sharedTables;
   }
 
   public get migrating(): boolean {
-    return false; // TODO: ----
+    return this.isMigrating;
   }
 
   public get tenantId(): number | undefined {
@@ -241,6 +245,15 @@ export abstract class Base<
 
   public get metadata() {
     return this.adapter.$metadata;
+  }
+
+  public get preserveDatesEnabled(): boolean {
+    return this.preserveDates;
+  }
+
+  public setPreserveDates(preserve: boolean): this {
+    this.preserveDates = preserve;
+    return this;
   }
 
   public before(

@@ -74,7 +74,7 @@ export class Filter extends Base {
           this._message = `${method} queries require at least one value.`;
           return false;
         }
-        return this.validateAttributeAndValues(attribute, values, method);
+        return this.validateAttributeAndValues(attribute, values, method, value);
       }
 
       case QueryType.NotEqual:
@@ -90,7 +90,7 @@ export class Filter extends Base {
           this._message = `${method} queries require exactly one value.`;
           return false;
         }
-        return this.validateAttributeAndValues(attribute, values, method);
+        return this.validateAttributeAndValues(attribute, values, method, value);
       }
 
       case QueryType.Between: {
@@ -99,13 +99,13 @@ export class Filter extends Base {
           this._message = `${method} queries require exactly two values.`;
           return false;
         }
-        return this.validateAttributeAndValues(attribute, values, method);
+        return this.validateAttributeAndValues(attribute, values, method, value);
       }
 
       case QueryType.IsNull:
       case QueryType.IsNotNull:
         // These queries don't have values to validate, just the attribute.
-        return this.validateAttributeAndValues(attribute, [], method);
+        return this.validateAttributeAndValues(attribute, [], method, value);
 
       case QueryType.Or:
       case QueryType.And: {
@@ -199,6 +199,7 @@ export class Filter extends Base {
     attribute: string,
     values: ScalarValue[],
     method: QueryType,
+    query: Query,
   ): boolean {
     if (!this.validateAttributeSchema(attribute)) {
       return false;
@@ -214,7 +215,7 @@ export class Filter extends Base {
       return false;
     }
 
-    if (!this.validateMethodVsAttributeType(attributeSchema, method)) {
+    if (!this.validateMethodVsAttributeType(attributeSchema, method, query)) {
       return false;
     }
 
@@ -230,8 +231,13 @@ export class Filter extends Base {
   protected validateMethodVsAttributeType(
     attributeSchema: any,
     method: QueryType,
+    query: Query,
   ): boolean {
     const isArray = attributeSchema.array ?? false;
+
+    if (isArray) {
+      query.setOnArray(true); // I Know this is not the best place, but it is a temporary solution. we will refactor this later.
+    }
 
     if (
       !isArray &&

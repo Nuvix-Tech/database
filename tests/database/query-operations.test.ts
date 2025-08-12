@@ -441,7 +441,6 @@ describe("Query Operations", () => {
         Query.cursorAfter(firstBatch[4]!),
         Query.limit(5),
       ]);
-
       expect(secondBatch).toHaveLength(5);
 
       // Ensure no overlap

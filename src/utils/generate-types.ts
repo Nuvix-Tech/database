@@ -15,15 +15,15 @@ const typeMap: Record<AttributeEnum, string> = {
 
 export function generateTypes(collections: Collection[]): string {
   const IEntityBase = `
-        export interface IEntity {
-            $id: string;
-            $createdAt: Date | string | null;
-            $updatedAt: Date | string | null;
-            $permissions: string[];
-            $sequence: number;
-            $collection: string;
-            $tenant?: number | null;
-        }
+export interface IEntity {
+  $id: string;
+  $createdAt: Date | string | null;
+  $updatedAt: Date | string | null;
+  $permissions: string[];
+  $sequence: number;
+  $collection: string;
+  $tenant?: number | null;
+}
     `;
 
   const entityInterfaces = collections.map((col) => {
@@ -65,21 +65,23 @@ export function generateTypes(collections: Collection[]): string {
   });
 
   const entityMap = `
-        export interface Entities {
-        ${collections
-          .map((col) => {
-            const interfaceName = pascalCase(col.name);
-            return `    "${col.$id}": ${interfaceName};`;
-          })
-          .join("\n")}
-        }
-    `;
-
-  return [IEntityBase, ...entityInterfaces, entityMap].join("\n\n");
+export interface Entities {
+${collections
+      .map((col) => {
+        const interfaceName = pascalCase(col.name);
+        return ` "${col.$id}": ${interfaceName};`;
+      })
+      .join("\n")}
+}`;
+  const result = [IEntityBase, ...entityInterfaces, entityMap].join("\n\n");
+  console.log(result)
+  return result;
 }
 
 function pascalCase(str: string) {
   return str
-    .replace(/(^|_|-)(\w)/g, (_, __, c) => c.toUpperCase())
-    .replace(/[^a-zA-Z0-9]/g, "");
+    .split(/[^a-zA-Z0-9]/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join("");
 }
