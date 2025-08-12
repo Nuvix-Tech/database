@@ -36,58 +36,58 @@ describe("generateTypes", () => {
           key: "str_field",
           type: AttributeEnum.String,
           required: true,
-          array: false
+          array: false,
         },
         {
           $id: "int_field",
           key: "int_field",
           type: AttributeEnum.Integer,
           required: true,
-          array: false
+          array: false,
         },
         {
           $id: "float_field",
           key: "float_field",
           type: AttributeEnum.Float,
           required: true,
-          array: false
+          array: false,
         },
         {
           $id: "bool_field",
           key: "bool_field",
           type: AttributeEnum.Boolean,
           required: true,
-          array: false
+          array: false,
         },
         {
           $id: "timestamp_field",
           key: "timestamp_field",
           type: AttributeEnum.Timestamptz,
           required: true,
-          array: false
+          array: false,
         },
         {
           $id: "json_field",
           key: "json_field",
           type: AttributeEnum.Json,
           required: true,
-          array: false
+          array: false,
         },
         {
           $id: "uuid_field",
           key: "uuid_field",
           type: AttributeEnum.Uuid,
           required: true,
-          array: false
+          array: false,
         },
         {
           $id: "virtual_field",
           key: "virtual_field",
           type: AttributeEnum.Virtual,
           required: true,
-          array: false
-        }
-      ]
+          array: false,
+        },
+      ],
     };
 
     const result = generateTypes([collection]);
@@ -113,16 +113,16 @@ describe("generateTypes", () => {
           key: "string_array",
           type: AttributeEnum.String,
           required: true,
-          array: true
+          array: true,
         },
         {
           $id: "number_array",
           key: "number_array",
           type: AttributeEnum.Integer,
           required: true,
-          array: true
-        }
-      ]
+          array: true,
+        },
+      ],
     };
 
     const result = generateTypes([collection]);
@@ -142,16 +142,16 @@ describe("generateTypes", () => {
           key: "required_field",
           type: AttributeEnum.String,
           required: true,
-          array: false
+          array: false,
         },
         {
           $id: "optional_field",
           key: "optional_field",
           type: AttributeEnum.String,
           required: false,
-          array: false
-        }
-      ]
+          array: false,
+        },
+      ],
     };
 
     const result = generateTypes([collection]);
@@ -173,12 +173,12 @@ describe("generateTypes", () => {
           type: AttributeEnum.String,
           format: "enum",
           formatOptions: {
-            values: ["active", "inactive", "pending"]
+            values: ["active", "inactive", "pending"],
           },
           required: true,
-          array: false
-        }
-      ]
+          array: false,
+        },
+      ],
     };
 
     const result = generateTypes([collection]);
@@ -197,9 +197,9 @@ describe("generateTypes", () => {
           key: "name",
           type: AttributeEnum.String,
           required: true,
-          array: false
-        }
-      ]
+          array: false,
+        },
+      ],
     };
 
     const postCollection = {
@@ -212,12 +212,12 @@ describe("generateTypes", () => {
           key: "author_id",
           type: AttributeEnum.Relationship,
           options: {
-            relatedCollection: "users"
+            relatedCollection: "users",
           },
           required: true,
-          array: false
-        }
-      ]
+          array: false,
+        },
+      ],
     };
 
     const result = generateTypes([userCollection, postCollection]);
@@ -236,12 +236,12 @@ describe("generateTypes", () => {
           key: "author_id",
           type: AttributeEnum.Relationship,
           options: {
-            relatedCollection: "nonexistent"
+            relatedCollection: "nonexistent",
           },
           required: true,
-          array: false
-        }
-      ]
+          array: false,
+        },
+      ],
     };
 
     const result = generateTypes([collection]);
@@ -260,9 +260,9 @@ describe("generateTypes", () => {
           key: "unknown_field",
           type: "unknown_type" as AttributeEnum,
           required: true,
-          array: false
-        }
-      ]
+          array: false,
+        },
+      ],
     };
 
     const result = generateTypes([collection]);
@@ -276,26 +276,26 @@ describe("generateTypes", () => {
         $id: "users",
         name: "users",
         $collection: "users",
-        attributes: []
+        attributes: [],
       },
       {
         $id: "user_posts",
         name: "user_posts",
         $collection: "user_posts",
-        attributes: []
+        attributes: [],
       },
       {
         $id: "api-keys",
         name: "api-keys",
         $collection: "api-keys",
-        attributes: []
+        attributes: [],
       },
       {
         $id: "special$chars",
         name: "special$chars",
         $collection: "special$chars",
-        attributes: []
-      }
+        attributes: [],
+      },
     ];
 
     const result = generateTypes(collections);
@@ -312,19 +312,19 @@ describe("generateTypes", () => {
         $id: "users",
         name: "users",
         $collection: "users",
-        attributes: []
+        attributes: [],
       },
       {
         $id: "posts",
         name: "posts",
         $collection: "posts",
-        attributes: []
-      }
+        attributes: [],
+      },
     ];
 
     const result = generateTypes(collections);
 
-    expect(result).toContain('export interface Entities {');
+    expect(result).toContain("export interface Entities {");
     expect(result).toContain('"users": Users;');
     expect(result).toContain('"posts": Posts;');
   });
@@ -334,12 +334,14 @@ describe("generateTypes", () => {
       $id: "empty",
       name: "empty_collection",
       $collection: "empty_collection",
-      attributes: []
+      attributes: [],
     };
 
     const result = generateTypes([collection]);
 
-    expect(result).toContain("export interface EmptyCollection extends IEntity {");
+    expect(result).toContain(
+      "export interface EmptyCollection extends IEntity {",
+    );
     expect(result).toContain('"empty": EmptyCollection;');
   });
 
@@ -354,9 +356,9 @@ describe("generateTypes", () => {
           key: "name",
           type: AttributeEnum.String,
           required: true,
-          array: false
-        }
-      ]
+          array: false,
+        },
+      ],
     };
 
     const postCollection = {
@@ -369,14 +371,14 @@ describe("generateTypes", () => {
           key: "title",
           type: AttributeEnum.String,
           required: true,
-          array: false
+          array: false,
         },
         {
           $id: "tags",
           key: "tags",
           type: AttributeEnum.String,
           required: false,
-          array: true
+          array: true,
         },
         {
           $id: "status",
@@ -384,29 +386,29 @@ describe("generateTypes", () => {
           type: AttributeEnum.String,
           format: "enum",
           formatOptions: {
-            values: ["draft", "published"]
+            values: ["draft", "published"],
           },
           required: true,
-          array: false
+          array: false,
         },
         {
           $id: "author_id",
           key: "author_id",
           type: AttributeEnum.Relationship,
           options: {
-            relatedCollection: "users"
+            relatedCollection: "users",
           },
           required: true,
-          array: false
+          array: false,
         },
         {
           $id: "metadata",
           key: "metadata",
           type: AttributeEnum.Json,
           required: false,
-          array: false
-        }
-      ]
+          array: false,
+        },
+      ],
     };
 
     const result = generateTypes([userCollection, postCollection]);
@@ -424,26 +426,26 @@ describe("generateTypes", () => {
         $id: "test1",
         name: "",
         $collection: "",
-        attributes: []
+        attributes: [],
       },
       {
         $id: "test2",
         name: "___",
         $collection: "___",
-        attributes: []
+        attributes: [],
       },
       {
         $id: "test3",
         name: "123numbers",
         $collection: "123numbers",
-        attributes: []
+        attributes: [],
       },
       {
         $id: "test4",
         name: "multiple---dashes",
         $collection: "multiple---dashes",
-        attributes: []
-      }
+        attributes: [],
+      },
     ];
 
     const result = generateTypes(collections);
@@ -452,5 +454,5 @@ describe("generateTypes", () => {
     expect(result).toContain("export interface  extends IEntity"); // underscores only
     expect(result).toContain("export interface 123numbers extends IEntity");
     expect(result).toContain("export interface MultipleDashes extends IEntity");
-  })
+  });
 });

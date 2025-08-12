@@ -2,15 +2,10 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import { createTestDb } from "./helpers.js";
 import { Database } from "../src/core/database.js";
 import { Doc } from "../src/core/doc.js";
-import {
-  AttributeEnum,
-} from "../src/core/enums.js";
+import { AttributeEnum } from "../src/core/enums.js";
 import { Permission } from "@utils/permission.js";
 import { Role } from "@utils/role.js";
-import {
-  DuplicateException,
-  StructureException,
-} from "@errors/index.js";
+import { DuplicateException, StructureException } from "@errors/index.js";
 
 const ns = `db_upsert_test_${Date.now()}`;
 
@@ -246,12 +241,14 @@ describe("Database Upsert Operations", () => {
 
     describe("batch processing", () => {
       it("processes documents in custom batch sizes", async () => {
-        const documents = Array.from({ length: 25 }, (_, i) => 
-          new Doc({
-            $id: `batch_user_${i}`,
-            name: `Batch User ${i}`,
-            score: i * 10,
-          })
+        const documents = Array.from(
+          { length: 25 },
+          (_, i) =>
+            new Doc({
+              $id: `batch_user_${i}`,
+              name: `Batch User ${i}`,
+              score: i * 10,
+            }),
         );
 
         const result = await db.createOrUpdateDocuments(
@@ -271,12 +268,14 @@ describe("Database Upsert Operations", () => {
       });
 
       it("handles large batch operations efficiently", async () => {
-        const documents = Array.from({ length: 100 }, (_, i) => 
-          new Doc({
-            $id: `large_batch_${i}`,
-            name: `User ${i}`,
-            score: Math.floor(Math.random() * 1000),
-          })
+        const documents = Array.from(
+          { length: 100 },
+          (_, i) =>
+            new Doc({
+              $id: `large_batch_${i}`,
+              name: `User ${i}`,
+              score: Math.floor(Math.random() * 1000),
+            }),
         );
 
         const startTime = Date.now();
@@ -291,7 +290,10 @@ describe("Database Upsert Operations", () => {
         expect(endTime - startTime).toBeLessThan(10000); // Should complete in under 10 seconds
 
         // Sample verify some documents
-        const sampleDoc = await db.getDocument(testCollectionId, "large_batch_50");
+        const sampleDoc = await db.getDocument(
+          testCollectionId,
+          "large_batch_50",
+        );
         expect(sampleDoc.get("name")).toBe("User 50");
       });
     });
@@ -299,7 +301,7 @@ describe("Database Upsert Operations", () => {
     describe("onNext callback functionality", () => {
       it("calls onNext callback for each processed document", async () => {
         const processedDocs: Doc<any>[] = [];
-        
+
         const documents = [
           new Doc({
             $id: "callback1",
@@ -319,18 +321,22 @@ describe("Database Upsert Operations", () => {
           Database.DEFAULT_BATCH_SIZE,
           (doc) => {
             processedDocs.push(doc);
-          }
+          },
         );
 
         expect(result).toBe(2);
         expect(processedDocs).toHaveLength(2);
-        expect(processedDocs.some(doc => doc.getId() === "callback1")).toBe(true);
-        expect(processedDocs.some(doc => doc.getId() === "callback2")).toBe(true);
+        expect(processedDocs.some((doc) => doc.getId() === "callback1")).toBe(
+          true,
+        );
+        expect(processedDocs.some((doc) => doc.getId() === "callback2")).toBe(
+          true,
+        );
       });
 
       it("handles async onNext callback", async () => {
         const processedIds: string[] = [];
-        
+
         const documents = [
           new Doc({
             $id: "async1",
@@ -348,9 +354,9 @@ describe("Database Upsert Operations", () => {
           Database.DEFAULT_BATCH_SIZE,
           async (doc) => {
             // Simulate async processing
-            await new Promise(resolve => setTimeout(resolve, 10));
+            await new Promise((resolve) => setTimeout(resolve, 10));
             processedIds.push(doc.getId());
-          }
+          },
         );
 
         expect(result).toBe(2);
@@ -374,7 +380,7 @@ describe("Database Upsert Operations", () => {
         ];
 
         await expect(
-          db.createOrUpdateDocuments(testCollectionId, documents)
+          db.createOrUpdateDocuments(testCollectionId, documents),
         ).rejects.toThrow(DuplicateException);
       });
 
@@ -388,7 +394,7 @@ describe("Database Upsert Operations", () => {
         ];
 
         await expect(
-          db.createOrUpdateDocuments(testCollectionId, documents)
+          db.createOrUpdateDocuments(testCollectionId, documents),
         ).rejects.toThrow(StructureException);
       });
 
@@ -401,7 +407,7 @@ describe("Database Upsert Operations", () => {
         ];
 
         await expect(
-          db.createOrUpdateDocuments("non_existent_collection", documents)
+          db.createOrUpdateDocuments("non_existent_collection", documents),
         ).rejects.toThrow();
       });
 
@@ -417,8 +423,10 @@ describe("Database Upsert Operations", () => {
 
         // Try to update with same data
         const sameDoc = await db.getDocument(testCollectionId, "unchanged");
-        const result = await db.createOrUpdateDocuments(testCollectionId, [sameDoc]);
-        
+        const result = await db.createOrUpdateDocuments(testCollectionId, [
+          sameDoc,
+        ]);
+
         // Should return 0 since no actual changes occurred
         expect(result).toBe(0);
       });
@@ -487,7 +495,7 @@ describe("Database Upsert Operations", () => {
         await db.createOrUpdateDocuments(testCollectionId, documents);
 
         const doc = await db.getDocument(testCollectionId, "timestamp_test");
-        
+
         expect(doc.get("$createdAt")).toBeTruthy();
         expect(doc.get("$updatedAt")).toBeTruthy();
         expect(new Date(doc.get("$createdAt") as Date)).toBeInstanceOf(Date);
@@ -503,11 +511,14 @@ describe("Database Upsert Operations", () => {
           }),
         ]);
 
-        const originalDoc = await db.getDocument(testCollectionId, "created_preserve");
+        const originalDoc = await db.getDocument(
+          testCollectionId,
+          "created_preserve",
+        );
         const originalCreatedAt = originalDoc.get("$createdAt");
 
         // Small delay to ensure different timestamp
-        await new Promise(resolve => setTimeout(resolve, 100));
+        await new Promise((resolve) => setTimeout(resolve, 100));
 
         // Update document
         await db.createOrUpdateDocuments(testCollectionId, [
@@ -517,8 +528,11 @@ describe("Database Upsert Operations", () => {
           }),
         ]);
 
-        const updatedDoc = await db.getDocument(testCollectionId, "created_preserve");
-        
+        const updatedDoc = await db.getDocument(
+          testCollectionId,
+          "created_preserve",
+        );
+
         expect(updatedDoc.get("$createdAt")).toBe(originalCreatedAt);
         expect(updatedDoc.get("$updatedAt")).not.toBe(originalCreatedAt);
       });
@@ -775,23 +789,27 @@ describe("Database Upsert Operations", () => {
     describe("batch processing with increase", () => {
       it("processes multiple documents with increases in batches", async () => {
         // Create initial documents
-        const initialDocs = Array.from({ length: 10 }, (_, i) => 
-          new Doc({
-            $id: `batch_increase_${i}`,
-            name: `User ${i}`,
-            score: i * 10,
-          })
+        const initialDocs = Array.from(
+          { length: 10 },
+          (_, i) =>
+            new Doc({
+              $id: `batch_increase_${i}`,
+              name: `User ${i}`,
+              score: i * 10,
+            }),
         );
 
         await db.createOrUpdateDocuments(testCollectionId, initialDocs);
 
         // Increase scores for all documents
-        const increaseDocs = Array.from({ length: 10 }, (_, i) => 
-          new Doc({
-            $id: `batch_increase_${i}`,
-            name: `User ${i}`,
-            score: 5, // Add 5 to each score
-          })
+        const increaseDocs = Array.from(
+          { length: 10 },
+          (_, i) =>
+            new Doc({
+              $id: `batch_increase_${i}`,
+              name: `User ${i}`,
+              score: 5, // Add 5 to each score
+            }),
         );
 
         const result = await db.createOrUpdateDocumentsWithIncrease(
@@ -806,7 +824,7 @@ describe("Database Upsert Operations", () => {
         // Verify increases were applied
         const doc0 = await db.getDocument(testCollectionId, "batch_increase_0");
         const doc5 = await db.getDocument(testCollectionId, "batch_increase_5");
-        
+
         expect(doc0.get("score")).toBe(5); // 0 + 5
         expect(doc5.get("score")).toBe(55); // 50 + 5
       });
@@ -845,8 +863,14 @@ describe("Database Upsert Operations", () => {
 
         expect(result).toBe(2);
 
-        const existingDoc = await db.getDocument(testCollectionId, "existing_for_increase");
-        const newDoc = await db.getDocument(testCollectionId, "new_for_increase");
+        const existingDoc = await db.getDocument(
+          testCollectionId,
+          "existing_for_increase",
+        );
+        const newDoc = await db.getDocument(
+          testCollectionId,
+          "new_for_increase",
+        );
 
         expect(existingDoc.get("score")).toBe(125); // 100 + 25
         expect(newDoc.get("score")).toBe(50); // New document
@@ -876,12 +900,14 @@ describe("Database Upsert Operations", () => {
       });
 
       it("maintains batch size limits", async () => {
-        const documents = Array.from({ length: 2000 }, (_, i) => 
-          new Doc({
-            $id: `limit_test_${i}`,
-            name: `User ${i}`,
-            score: 1,
-          })
+        const documents = Array.from(
+          { length: 2000 },
+          (_, i) =>
+            new Doc({
+              $id: `limit_test_${i}`,
+              name: `User ${i}`,
+              score: 1,
+            }),
         );
 
         // Should cap batch size at 1000

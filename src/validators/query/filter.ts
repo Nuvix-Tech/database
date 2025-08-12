@@ -74,7 +74,12 @@ export class Filter extends Base {
           this._message = `${method} queries require at least one value.`;
           return false;
         }
-        return this.validateAttributeAndValues(attribute, values, method, value);
+        return this.validateAttributeAndValues(
+          attribute,
+          values,
+          method,
+          value,
+        );
       }
 
       case QueryType.NotEqual:
@@ -90,7 +95,12 @@ export class Filter extends Base {
           this._message = `${method} queries require exactly one value.`;
           return false;
         }
-        return this.validateAttributeAndValues(attribute, values, method, value);
+        return this.validateAttributeAndValues(
+          attribute,
+          values,
+          method,
+          value,
+        );
       }
 
       case QueryType.Between: {
@@ -99,7 +109,12 @@ export class Filter extends Base {
           this._message = `${method} queries require exactly two values.`;
           return false;
         }
-        return this.validateAttributeAndValues(attribute, values, method, value);
+        return this.validateAttributeAndValues(
+          attribute,
+          values,
+          method,
+          value,
+        );
       }
 
       case QueryType.IsNull:

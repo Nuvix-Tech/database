@@ -1360,15 +1360,17 @@ export class Adapter extends BaseAdapter {
   public async createOrUpdateDocuments(
     collection: string,
     attribute: string,
-    changes: Array<{ old: Doc; new: Doc }>
+    changes: Array<{ old: Doc; new: Doc }>,
   ): Promise<Doc[]> {
     if (changes.length === 0) {
-      return changes.map(change => change.new);
+      return changes.map((change) => change.new);
     }
 
     try {
       const name = this.sanitize(collection);
-      const sanitizedAttribute = attribute ? this.sanitize(attribute) : attribute;
+      const sanitizedAttribute = attribute
+        ? this.sanitize(attribute)
+        : attribute;
 
       let attributes: Record<string, any> = {};
       const batchKeys: string[] = [];
@@ -1377,36 +1379,46 @@ export class Adapter extends BaseAdapter {
       for (const change of changes) {
         const document = change.new;
         attributes = { ...document.getAll() };
-        attributes['_uid'] = document.getId();
-        attributes['_createdAt'] = document.createdAt();
-        attributes['_updatedAt'] = document.updatedAt();
-        attributes['_permissions'] = document.getPermissions();
-        
+        attributes["_uid"] = document.getId();
+        attributes["_createdAt"] = document.createdAt();
+        attributes["_updatedAt"] = document.updatedAt();
+        attributes["_permissions"] = document.getPermissions();
+
         if (document.getSequence()) {
-          attributes['_id'] = document.getSequence();
+          attributes["_id"] = document.getSequence();
         }
-        
+
         if (this.$sharedTables) {
-          attributes['_tenant'] = document.getTenant();
+          attributes["_tenant"] = document.getTenant();
         }
-        
-        const sortedKeys = Object.keys(attributes).filter(a => !this.$internalAttrs.includes(a)).sort();
-        console.log("Sorted keys:", sortedKeys); 
+
+        const sortedKeys = Object.keys(attributes)
+          .filter((a) => !this.$internalAttrs.includes(a))
+          .sort();
+        console.log("Sorted keys:", sortedKeys);
         const bindKeys: string[] = [];
         for (const key of sortedKeys) {
           let value = attributes[key];
-          bindKeys.push('?');
+          bindKeys.push("?");
           allValues.push(value);
         }
 
-        batchKeys.push(`(${bindKeys.join(', ')})`);
+        batchKeys.push(`(${bindKeys.join(", ")})`);
       }
 
-      const sortedKeys = Object.keys(attributes).filter(a => !this.$internalAttrs.includes(a)).sort();
-      console.log("Sorted keys3:", sortedKeys); 
-      const columns = `(${sortedKeys.map(key => this.quote(this.sanitize(key))).join(', ')})`;
+      const sortedKeys = Object.keys(attributes)
+        .filter((a) => !this.$internalAttrs.includes(a))
+        .sort();
+      console.log("Sorted keys3:", sortedKeys);
+      const columns = `(${sortedKeys.map((key) => this.quote(this.sanitize(key))).join(", ")})`;
 
-      const sql = this.getUpsertStatement(name, columns, batchKeys, attributes, sanitizedAttribute);
+      const sql = this.getUpsertStatement(
+        name,
+        columns,
+        batchKeys,
+        attributes,
+        sanitizedAttribute,
+      );
       await this.client.query(sql, allValues);
 
       // Handle permission changes
@@ -1513,9 +1525,12 @@ export class Adapter extends BaseAdapter {
         await this.client.query(operation.sql, operation.params);
       }
 
-      return changes.map(change => change.new);
+      return changes.map((change) => change.new);
     } catch (e: any) {
-      throw this.processException(e, `Failed to create or update documents in collection '${collection}'`);
+      throw this.processException(
+        e,
+        `Failed to create or update documents in collection '${collection}'`,
+      );
     }
   }
 

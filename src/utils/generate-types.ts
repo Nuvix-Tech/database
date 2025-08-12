@@ -67,14 +67,14 @@ export interface IEntity {
   const entityMap = `
 export interface Entities {
 ${collections
-      .map((col) => {
-        const interfaceName = pascalCase(col.name);
-        return ` "${col.$id}": ${interfaceName};`;
-      })
-      .join("\n")}
+  .map((col) => {
+    const interfaceName = pascalCase(col.name);
+    return ` "${col.$id}": ${interfaceName};`;
+  })
+  .join("\n")}
 }`;
   const result = [IEntityBase, ...entityInterfaces, entityMap].join("\n\n");
-  console.log(result)
+  console.log(result);
   return result;
 }
 

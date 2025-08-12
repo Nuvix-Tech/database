@@ -199,7 +199,7 @@ export class Database extends Cache {
       if (
         this.adapter.$documentSizeLimit &&
         this.adapter.getAttributeWidth(collection) >
-        this.adapter.$documentSizeLimit
+          this.adapter.$documentSizeLimit
       ) {
         throw new LimitException(
           `Document size limit of ${this.adapter.$documentSizeLimit} exceeded. Cannot create collection.`,
@@ -793,7 +793,7 @@ export class Database extends Cache {
         if (
           this.adapter.$documentSizeLimit > 0 &&
           this.adapter.getAttributeWidth(collection) >=
-          this.adapter.$documentSizeLimit
+            this.adapter.$documentSizeLimit
         ) {
           throw new LimitException(
             "Row width limit reached. Cannot update attribute.",
@@ -1173,7 +1173,7 @@ export class Database extends Cache {
                 RelationSideEnum.Parent,
               );
           });
-        } catch { }
+        } catch {}
         throw new DatabaseException(
           `Failed to create relationship: ${error.message}`,
         );
@@ -3129,7 +3129,7 @@ export class Database extends Cache {
   ): Promise<number> {
     return this.createOrUpdateDocumentsWithIncrease(
       collectionId,
-      '',
+      "",
       documents,
       batchSize,
       onNext,
@@ -3203,7 +3203,8 @@ export class Database extends Cache {
       if (
         !attribute &&
         skipPermissionsUpdate &&
-        JSON.stringify(old.toObject([], ['$permissions'])) === JSON.stringify(document.toObject([], ['$permissions']))
+        JSON.stringify(old.toObject([], ["$permissions"])) ===
+          JSON.stringify(document.toObject([], ["$permissions"]))
       ) {
         // If not updating a single attribute and the
         // document is the same as the old one, skip it
@@ -3277,7 +3278,7 @@ export class Database extends Cache {
 
       const encodedDocument = await this.encode(collection, document);
       const structureValidator = new Structure(collection);
-      if (!await structureValidator.$valid(encodedDocument)) {
+      if (!(await structureValidator.$valid(encodedDocument))) {
         throw new StructureException(structureValidator.$description);
       }
 
@@ -3376,8 +3377,6 @@ export class Database extends Cache {
     return created + updated;
   }
 
-
-
   /**
    * Increase a numeric attribute value in a document.
    */
@@ -3389,54 +3388,66 @@ export class Database extends Cache {
     max?: number,
   ): Promise<Doc<any>> {
     if (value <= 0) {
-      throw new DatabaseException('Value must be numeric and greater than 0');
+      throw new DatabaseException("Value must be numeric and greater than 0");
     }
 
-    const collection = await this.silent(() => this.getCollection(collectionId, true));
-
-    const attr = collection.get('attributes', []).find(
-      (a: Doc<Attribute>) => a.get('$id') === attribute || a.get('key') === attribute
+    const collection = await this.silent(() =>
+      this.getCollection(collectionId, true),
     );
 
+    const attr = collection
+      .get("attributes", [])
+      .find(
+        (a: Doc<Attribute>) =>
+          a.get("$id") === attribute || a.get("key") === attribute,
+      );
+
     if (!attr) {
-      throw new NotFoundException('Attribute not found');
+      throw new NotFoundException("Attribute not found");
     }
 
     const whiteList = [AttributeEnum.Integer, AttributeEnum.Float];
 
-    if (!whiteList.includes(attr.get('type')) || attr.get('array')) {
-      throw new DatabaseException('Attribute must be an integer or float and can not be an array.');
+    if (!whiteList.includes(attr.get("type")) || attr.get("array")) {
+      throw new DatabaseException(
+        "Attribute must be an integer or float and can not be an array.",
+      );
     }
 
     const document = await this.withTransaction(async () => {
       const doc = await Authorization.skip(() =>
-        this.silent(() => this.getDocument(collection.getId(), id, [], true))
+        this.silent(() => this.getDocument(collection.getId(), id, [], true)),
       );
 
       if (doc.empty()) {
-        throw new NotFoundException('Document not found');
+        throw new NotFoundException("Document not found");
       }
 
       const validator = new Authorization(PermissionEnum.Update);
 
       if (collection.getId() !== Database.METADATA) {
-        const documentSecurity = collection.get('documentSecurity', false);
-        if (!validator.$valid([
-          ...collection.getUpdate(),
-          ...(documentSecurity ? doc.getUpdate() : [])
-        ])) {
+        const documentSecurity = collection.get("documentSecurity", false);
+        if (
+          !validator.$valid([
+            ...collection.getUpdate(),
+            ...(documentSecurity ? doc.getUpdate() : []),
+          ])
+        ) {
           throw new AuthorizationException(validator.$description);
         }
       }
 
       const currentValue = doc.get(attribute);
-      if (max !== undefined && (currentValue + value > max)) {
-        throw new LimitException(`Attribute value exceeds maximum limit: ${max}`);
+      if (max !== undefined && currentValue + value > max) {
+        throw new LimitException(
+          `Attribute value exceeds maximum limit: ${max}`,
+        );
       }
 
       const time = new Date().toISOString();
-      const updatedAt = doc.get('$updatedAt');
-      const finalUpdatedAt = (!updatedAt || !this.preserveDates) ? time : updatedAt;
+      const updatedAt = doc.get("$updatedAt");
+      const finalUpdatedAt =
+        !updatedAt || !this.preserveDates ? time : updatedAt;
       const maxValue = max !== undefined ? max - value : undefined;
 
       await this.adapter.increaseDocumentAttribute({
@@ -3445,7 +3456,7 @@ export class Database extends Cache {
         attribute,
         value,
         updatedAt: finalUpdatedAt as Date,
-        max: maxValue
+        max: maxValue,
       });
 
       return doc.set(attribute, currentValue + value);
@@ -3469,63 +3480,75 @@ export class Database extends Cache {
     min?: number,
   ): Promise<Doc<any>> {
     if (value <= 0) {
-      throw new DatabaseException('Value must be numeric and greater than 0');
+      throw new DatabaseException("Value must be numeric and greater than 0");
     }
 
-    const collection = await this.silent(() => this.getCollection(collectionId, true));
-
-    const attr = collection.get('attributes', []).find(
-      (a: Doc<Attribute>) => a.get('$id') === attribute || a.get('key') === attribute
+    const collection = await this.silent(() =>
+      this.getCollection(collectionId, true),
     );
 
+    const attr = collection
+      .get("attributes", [])
+      .find(
+        (a: Doc<Attribute>) =>
+          a.get("$id") === attribute || a.get("key") === attribute,
+      );
+
     if (!attr) {
-      throw new NotFoundException('Attribute not found');
+      throw new NotFoundException("Attribute not found");
     }
 
     const whiteList = [AttributeEnum.Integer, AttributeEnum.Float];
 
-    if (!whiteList.includes(attr.get('type')) || attr.get('array')) {
-      throw new DatabaseException('Attribute must be an integer or float and can not be an array.');
+    if (!whiteList.includes(attr.get("type")) || attr.get("array")) {
+      throw new DatabaseException(
+        "Attribute must be an integer or float and can not be an array.",
+      );
     }
 
     const document = await this.withTransaction(async () => {
       const doc = await Authorization.skip(() =>
-        this.silent(() => this.getDocument(collection.getId(), id, [], true))
+        this.silent(() => this.getDocument(collection.getId(), id, [], true)),
       );
 
       if (doc.empty()) {
-        throw new NotFoundException('Document not found');
+        throw new NotFoundException("Document not found");
       }
 
       const validator = new Authorization(PermissionEnum.Update);
 
       if (collection.getId() !== Database.METADATA) {
-        const documentSecurity = collection.get('documentSecurity', false);
-        if (!validator.$valid([
-          ...collection.getUpdate(),
-          ...(documentSecurity ? doc.getUpdate() : [])
-        ])) {
+        const documentSecurity = collection.get("documentSecurity", false);
+        if (
+          !validator.$valid([
+            ...collection.getUpdate(),
+            ...(documentSecurity ? doc.getUpdate() : []),
+          ])
+        ) {
           throw new AuthorizationException(validator.$description);
         }
       }
 
       const currentValue = doc.get(attribute);
-      if (min !== undefined && (currentValue - value < min)) {
-        throw new LimitException(`Attribute value exceeds minimum limit: ${min}`);
+      if (min !== undefined && currentValue - value < min) {
+        throw new LimitException(
+          `Attribute value exceeds minimum limit: ${min}`,
+        );
       }
 
       const time = new Date().toISOString();
-      const updatedAt = doc.get('$updatedAt');
-      const finalUpdatedAt = (!updatedAt || !this.preserveDates) ? time : updatedAt;
+      const updatedAt = doc.get("$updatedAt");
+      const finalUpdatedAt =
+        !updatedAt || !this.preserveDates ? time : updatedAt;
       const minValue = min !== undefined ? min + value : undefined;
 
       await this.adapter.increaseDocumentAttribute({
         collection: collection.getId(),
         id,
         attribute,
-        value: value * - 1,
+        value: value * -1,
         updatedAt: finalUpdatedAt as Date,
-        min: minValue
+        min: minValue,
       });
 
       return doc.set(attribute, currentValue - value);
@@ -3761,7 +3784,8 @@ export class Database extends Cache {
       }
     }
 
-    let { populateQueries, selections, cursor, ...rest } = Query.groupByType(queries);
+    let { populateQueries, selections, cursor, ...rest } =
+      Query.groupByType(queries);
     const attributes = collection.get("attributes", []);
     const hasWildcardSelecton = selections.some((s) =>
       (s.getValues() as string[]).includes("*"),
@@ -3807,10 +3831,10 @@ export class Database extends Cache {
     }
 
     if (cursor) {
-      if (typeof cursor === 'string') {
-        cursor = await this.silent(() =>
+      if (typeof cursor === "string") {
+        cursor = (await this.silent(() =>
           this.getDocument(collection.getId(), cursor as unknown as string),
-        ) as Doc<IEntity>;
+        )) as Doc<IEntity>;
       }
       if (cursor.empty()) {
         throw new NotFoundException(

@@ -66,8 +66,8 @@ export abstract class BaseAdapter extends EventEmitter {
   protected transformations: Partial<
     Record<EventsEnum, Array<[string, (query: string) => string]>>
   > = {
-      [EventsEnum.All]: [],
-    };
+    [EventsEnum.All]: [],
+  };
 
   constructor(options: { type?: string } = {}) {
     super();
@@ -665,15 +665,15 @@ export abstract class BaseAdapter extends EventEmitter {
       ];
     } else {
       // Update all columns
-      updateColumns = Object.keys(attributes).filter(a => !this.$internalAttrs.includes(a)).map((attr) =>
-        getUpdateClause(attr),
-      );
+      updateColumns = Object.keys(attributes)
+        .filter((a) => !this.$internalAttrs.includes(a))
+        .map((attr) => getUpdateClause(attr));
     }
 
     const sql = `
       INSERT INTO ${this.getSQLTable(tableName)} ${columns}
       VALUES ${batchKeys.join(", ")}
-      ON CONFLICT (_uid${this.$sharedTables ? ', _tenant' : ''}) DO UPDATE SET
+      ON CONFLICT (_uid${this.$sharedTables ? ", _tenant" : ""}) DO UPDATE SET
           ${updateColumns.join(", ")}
     `;
 
@@ -1903,10 +1903,7 @@ export abstract class BaseAdapter extends EventEmitter {
     orderAttributes: string[],
     tableAlias: string,
   ): { condition: string; params: any[] } {
-    if (
-      !cursor ||
-      orderAttributes.length === 0
-    ) {
+    if (!cursor || orderAttributes.length === 0) {
       return { condition: "", params: [] };
     }
     cursorDirection ??= "AFTER";

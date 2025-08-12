@@ -193,10 +193,9 @@ export class Structure implements Validator {
 
     const allAttributes: Attribute[] = [
       ...this.systemAttributes,
-      ...(this.collection.get("attributes", [])).map(
-        (v) =>
-          v instanceof Doc ? v.toObject() : v,
-      ),
+      ...this.collection
+        .get("attributes", [])
+        .map((v) => (v instanceof Doc ? v.toObject() : v)),
     ];
 
     if (!this.checkForAllRequiredValues(documentStructure, allAttributes)) {

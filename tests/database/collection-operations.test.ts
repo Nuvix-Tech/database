@@ -1,10 +1,4 @@
-import {
-  describe,
-  test,
-  expect,
-  beforeAll,
-  afterAll,
-} from "vitest";
+import { describe, test, expect, beforeAll, afterAll } from "vitest";
 import { Database } from "@core/database.js";
 import { createTestDb } from "../helpers.js";
 import { Doc } from "@core/doc.js";

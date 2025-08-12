@@ -35,7 +35,9 @@ function isEntityLike(value: unknown): value is Record<string, unknown> {
 export class Doc<T extends Record<string, any> & Partial<IEntity> = IEntity> {
   private _data: Record<string, any> = {};
 
-  constructor(data?: (T | TransformEntity<T>) | IEntityInput & Record<string, any>) {
+  constructor(
+    data?: (T | TransformEntity<T>) | (IEntityInput & Record<string, any>),
+  ) {
     this._data = {};
     if (data) {
       if (data.$id && typeof data.$id !== "string") {
