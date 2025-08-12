@@ -199,7 +199,7 @@ export class Database extends Cache {
       if (
         this.adapter.$documentSizeLimit &&
         this.adapter.getAttributeWidth(collection) >
-          this.adapter.$documentSizeLimit
+        this.adapter.$documentSizeLimit
       ) {
         throw new LimitException(
           `Document size limit of ${this.adapter.$documentSizeLimit} exceeded. Cannot create collection.`,
@@ -793,7 +793,7 @@ export class Database extends Cache {
         if (
           this.adapter.$documentSizeLimit > 0 &&
           this.adapter.getAttributeWidth(collection) >=
-            this.adapter.$documentSizeLimit
+          this.adapter.$documentSizeLimit
         ) {
           throw new LimitException(
             "Row width limit reached. Cannot update attribute.",
@@ -1173,7 +1173,7 @@ export class Database extends Cache {
                 RelationSideEnum.Parent,
               );
           });
-        } catch {}
+        } catch { }
         throw new DatabaseException(
           `Failed to create relationship: ${error.message}`,
         );
@@ -2626,7 +2626,7 @@ export class Database extends Cache {
     collectionId: string,
     updates: Doc<Partial<IEntity> & Record<string, any>>,
     query: Query[] | ((qb: QueryBuilder) => QueryBuilder) = [],
-    batchSize: number = 1000,
+    batchSize: number = Database.DEFAULT_BATCH_SIZE,
     onNext?: (doc: Doc<any>) => void | Promise<void>,
     onError?: (error: Error) => void | Promise<void>,
   ): Promise<number> {
@@ -3107,6 +3107,439 @@ export class Database extends Cache {
   }
 
   /**
+   * Create or update documents in a collection.
+   */
+  public async createOrUpdateDocuments<C extends string & keyof Entities>(
+    collectionId: C,
+    documents: Doc<Entities[C]>[],
+    batchSize?: number,
+    onNext?: (doc: Doc<Entities[C]>) => void | Promise<void>,
+  ): Promise<number>;
+  public async createOrUpdateDocuments<D extends Doc<Record<string, any>>>(
+    collectionId: string,
+    documents: D[],
+    batchSize?: number,
+    onNext?: (doc: D) => void | Promise<void>,
+  ): Promise<number>;
+  public async createOrUpdateDocuments(
+    collectionId: string,
+    documents: Doc<Record<string, any>>[],
+    batchSize: number = Database.DEFAULT_BATCH_SIZE,
+    onNext?: (doc: Doc<any>) => void | Promise<void>,
+  ): Promise<number> {
+    return this.createOrUpdateDocumentsWithIncrease(
+      collectionId,
+      '',
+      documents,
+      batchSize,
+      onNext,
+    );
+  }
+
+  /**
+   * Create or update documents, increasing the value of the given attribute by the value in each document.
+   */
+  public async createOrUpdateDocumentsWithIncrease(
+    collectionId: string,
+    attribute: string,
+    documents: Doc<Record<string, any>>[],
+    batchSize: number = 1000,
+    onNext?: (doc: Doc<any>) => void | Promise<void>,
+  ): Promise<number> {
+    if (!documents || documents.length === 0) {
+      return 0;
+    }
+
+    batchSize = Math.min(1000, Math.max(1, batchSize));
+    const collection = await this.silent(() =>
+      this.getCollection(collectionId, true),
+    );
+    const documentSecurity = collection.get("documentSecurity", false);
+    const collectionAttributes = collection.get("attributes", []);
+    const time = new Date().toISOString();
+    let created = 0;
+    let updated = 0;
+    const seenIds: string[] = [];
+
+    const processedDocuments: Array<{
+      old: Doc<any>;
+      new: Doc<any>;
+    }> = [];
+
+    for (let i = 0; i < documents.length; i++) {
+      const document = documents[i]!;
+
+      let old: Doc<any>;
+      if (this.adapter.$sharedTables && this.adapter.$tenantPerDocument) {
+        old = await Authorization.skip(() =>
+          this.withTenant(document.getTenant(), () =>
+            this.silent(() =>
+              this.getDocument(collection.getId(), document.getId()),
+            ),
+          ),
+        );
+      } else {
+        old = await Authorization.skip(() =>
+          this.silent(() =>
+            this.getDocument(collection.getId(), document.getId()),
+          ),
+        );
+      }
+
+      let skipPermissionsUpdate = true;
+
+      if (document.has("$permissions")) {
+        const originalPermissions = old.getPermissions();
+        const currentPermissions = document.getPermissions();
+
+        originalPermissions.sort();
+        currentPermissions.sort();
+
+        skipPermissionsUpdate =
+          JSON.stringify(originalPermissions) ===
+          JSON.stringify(currentPermissions);
+      }
+
+      if (
+        !attribute &&
+        skipPermissionsUpdate &&
+        JSON.stringify(old.toObject()) === JSON.stringify(document.toObject())
+      ) {
+        // If not updating a single attribute and the
+        // document is the same as the old one, skip it
+        continue;
+      }
+
+      // Check permissions
+      const validator = new Authorization(
+        old.empty() ? PermissionEnum.Create : PermissionEnum.Update,
+      );
+
+      if (old.empty()) {
+        if (!validator.$valid(collection.getCreate())) {
+          throw new AuthorizationException(validator.$description);
+        }
+      } else if (
+        !validator.$valid([
+          ...collection.getUpdate(),
+          ...(documentSecurity ? old.getUpdate() : []),
+        ])
+      ) {
+        throw new AuthorizationException(validator.$description);
+      }
+
+      const updatedAt = document.updatedAt();
+      const createdAt = document.createdAt();
+
+      document
+        .set("$id", document.getId() || ID.unique())
+        .set("$collection", collection.getId())
+        .set(
+          "$updatedAt",
+          updatedAt === null || !this.preserveDates ? time : updatedAt,
+        )
+        .delete("$sequence");
+
+      if (createdAt === null || !this.preserveDates) {
+        document.set("$createdAt", old.empty() ? time : old.createdAt());
+      } else {
+        document.set("$createdAt", createdAt);
+      }
+
+      // Force matching optional parameter sets
+      for (const attr of collectionAttributes) {
+        if (!attr.get("required") && !document.has(attr.get("$id"))) {
+          document.set(
+            attr.get("$id"),
+            old.get(attr.get("$id"), attr.get("default", null)),
+          );
+        }
+      }
+
+      if (skipPermissionsUpdate) {
+        document.set("$permissions", old.getPermissions());
+      }
+
+      if (this.adapter.$sharedTables) {
+        if (this.adapter.$tenantPerDocument) {
+          if (document.getTenant() === null) {
+            throw new DatabaseException(
+              "Missing tenant. Tenant must be set when tenant per document is enabled.",
+            );
+          }
+          if (!old.empty() && old.getTenant() !== document.getTenant()) {
+            throw new DatabaseException("Tenant cannot be changed.");
+          }
+        } else {
+          document.set("$tenant", this.adapter.$tenantId);
+        }
+      }
+
+      const encodedDocument = await this.encode(collection, document);
+
+      const structureValidator = new Structure(collection);
+      if (!structureValidator.$valid(encodedDocument)) {
+        throw new StructureException(structureValidator.$description);
+      }
+
+      if (!old.empty()) {
+        // Check if document was updated after the request timestamp
+        const oldUpdatedAt = new Date(old.updatedAt()!);
+        if (this.timestamp && oldUpdatedAt > this.timestamp) {
+          throw new ConflictException(
+            "Document was updated after the request timestamp",
+          );
+        }
+      }
+
+      if (this.resolveRelationships) {
+        await this.silent(() =>
+          this.createRelationships(collection, encodedDocument),
+        );
+      }
+
+      seenIds.push(encodedDocument.getId());
+      processedDocuments.push({
+        old,
+        new: encodedDocument,
+      });
+    }
+
+    // Required because *some* DBs will allow duplicate IDs for upsert
+    if (seenIds.length !== new Set(seenIds).size) {
+      throw new DuplicateException(
+        "Duplicate document IDs found in the input array.",
+      );
+    }
+
+    // Process in batches
+    const chunks = [];
+    for (let i = 0; i < processedDocuments.length; i += batchSize) {
+      chunks.push(processedDocuments.slice(i, i + batchSize));
+    }
+
+    for (const chunk of chunks) {
+      const batch = await this.withTransaction(() =>
+        Authorization.skip(() =>
+          this.adapter.createOrUpdateDocuments(
+            collection.getId(),
+            attribute,
+            chunk,
+          ),
+        ),
+      );
+
+      for (const change of chunk) {
+        if (change.old.empty()) {
+          created++;
+        } else {
+          updated++;
+        }
+      }
+
+      for (const doc of batch) {
+        let processedDoc = doc;
+
+        processedDoc = await this.decode(
+          { collection, populateQueries: [] },
+          processedDoc,
+        );
+
+        if (this.adapter.$sharedTables && this.adapter.$tenantPerDocument) {
+          await this.withTenant(processedDoc.getTenant(), () =>
+            this.purgeCachedDocument(collection.getId(), processedDoc.getId()),
+          );
+        } else {
+          await this.purgeCachedDocument(
+            collection.getId(),
+            processedDoc.getId(),
+          );
+        }
+
+        if (onNext) {
+          const result = onNext(processedDoc);
+          if (result instanceof Promise) {
+            await result;
+          }
+        }
+      }
+    }
+
+    this.trigger(
+      EventsEnum.DocumentsUpsert,
+      new Doc({
+        $collection: collection.getId(),
+        created: created,
+        updated: updated,
+      }),
+    );
+
+    return created + updated;
+  }
+
+
+
+  /**
+   * Increase a numeric attribute value in a document.
+   */
+  public async increaseDocumentAttribute(
+    collectionId: string,
+    id: string,
+    attribute: string,
+    value: number = 1,
+    max?: number,
+  ): Promise<Doc<any>> {
+    if (value <= 0) {
+      throw new DatabaseException('Value must be numeric and greater than 0');
+    }
+
+    const collection = await this.silent(() => this.getCollection(collectionId, true));
+
+    const attr = collection.get('attributes', []).find(
+      (a: Doc<Attribute>) => a.get('$id') === attribute || a.get('key') === attribute
+    );
+
+    if (!attr) {
+      throw new NotFoundException('Attribute not found');
+    }
+
+    const whiteList = [AttributeEnum.Integer, AttributeEnum.Float];
+
+    if (!whiteList.includes(attr.get('type')) || attr.get('array')) {
+      throw new DatabaseException('Attribute must be an integer or float and can not be an array.');
+    }
+
+    const document = await this.withTransaction(async () => {
+      const doc = await Authorization.skip(() =>
+        this.silent(() => this.getDocument(collection.getId(), id, [], true))
+      );
+
+      if (doc.empty()) {
+        throw new NotFoundException('Document not found');
+      }
+
+      const validator = new Authorization(PermissionEnum.Update);
+
+      if (collection.getId() !== Database.METADATA) {
+        const documentSecurity = collection.get('documentSecurity', false);
+        if (!validator.$valid([
+          ...collection.getUpdate(),
+          ...(documentSecurity ? doc.getUpdate() : [])
+        ])) {
+          throw new AuthorizationException(validator.$description);
+        }
+      }
+
+      const currentValue = doc.get(attribute);
+      if (max !== undefined && (currentValue + value > max)) {
+        throw new LimitException(`Attribute value exceeds maximum limit: ${max}`);
+      }
+
+      const time = new Date().toISOString();
+      const updatedAt = doc.get('$updatedAt');
+      const finalUpdatedAt = (!updatedAt || !this.preserveDates) ? time : updatedAt;
+      const maxValue = max !== undefined ? max - value : undefined;
+
+      await this.adapter.increaseDocumentAttribute({
+        collection: collection.getId(),
+        id,
+        attribute,
+        value,
+        updatedAt: finalUpdatedAt as Date,
+        max: maxValue
+      });
+
+      return doc.set(attribute, currentValue + value);
+    });
+
+    await this.purgeCachedDocument(collection.getId(), id);
+
+    this.trigger(EventsEnum.DocumentIncrease, document);
+
+    return document;
+  }
+
+  /**
+   * Decrease a numeric attribute value in a document.
+   */
+  public async decreaseDocumentAttribute(
+    collectionId: string,
+    id: string,
+    attribute: string,
+    value: number = 1,
+    min?: number,
+  ): Promise<Doc<any>> {
+    if (value <= 0) {
+      throw new DatabaseException('Value must be numeric and greater than 0');
+    }
+
+    const collection = await this.silent(() => this.getCollection(collectionId, true));
+
+    const attr = collection.get('attributes', []).find(
+      (a: Doc<Attribute>) => a.get('$id') === attribute || a.get('key') === attribute
+    );
+
+    if (!attr) {
+      throw new NotFoundException('Attribute not found');
+    }
+
+    const whiteList = [AttributeEnum.Integer, AttributeEnum.Float];
+
+    if (!whiteList.includes(attr.get('type')) || attr.get('array')) {
+      throw new DatabaseException('Attribute must be an integer or float and can not be an array.');
+    }
+
+    const document = await this.withTransaction(async () => {
+      const doc = await Authorization.skip(() =>
+        this.silent(() => this.getDocument(collection.getId(), id, [], true))
+      );
+
+      if (doc.empty()) {
+        throw new NotFoundException('Document not found');
+      }
+
+      const validator = new Authorization(PermissionEnum.Update);
+
+      if (collection.getId() !== Database.METADATA) {
+        const documentSecurity = collection.get('documentSecurity', false);
+        if (!validator.$valid([
+          ...collection.getUpdate(),
+          ...(documentSecurity ? doc.getUpdate() : [])
+        ])) {
+          throw new AuthorizationException(validator.$description);
+        }
+      }
+
+      const currentValue = doc.get(attribute);
+      if (min !== undefined && (currentValue - value < min)) {
+        throw new LimitException(`Attribute value exceeds minimum limit: ${min}`);
+      }
+
+      const time = new Date().toISOString();
+      const updatedAt = doc.get('$updatedAt');
+      const finalUpdatedAt = (!updatedAt || !this.preserveDates) ? time : updatedAt;
+      const minValue = min !== undefined ? min + value : undefined;
+
+      await this.adapter.increaseDocumentAttribute({
+        collection: collection.getId(),
+        id,
+        attribute,
+        value: value * - 1,
+        updatedAt: finalUpdatedAt as Date,
+        min: minValue
+      });
+
+      return doc.set(attribute, currentValue - value);
+    });
+
+    await this.purgeCachedDocument(collection.getId(), id);
+
+    this.trigger(EventsEnum.DocumentDecrease, document);
+
+    return document;
+  }
+
+  /**
    * find documents.
    */
   public find<C extends string & keyof Entities>(
@@ -3389,6 +3822,7 @@ export class Database extends Cache {
     }
 
     if (populateQueries.has("*")) {
+      // TODO: Handle case where '*' is used with other populate queries like ?populate=*,author={populate: *}
       if (populateQueries.size > 1) {
         throw new QueryException(
           `Cannot use '*' with other populate queries. Use '*' alone to populate all relationships.`,

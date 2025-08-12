@@ -37,6 +37,7 @@ export abstract class Base<
   public static readonly TTL = 60 * 60 * 24; // 24 hours
   public static readonly INSERT_BATCH_SIZE = 1000;
   public static readonly DELETE_BATCH_SIZE = 1000;
+  public static readonly DEFAULT_BATCH_SIZE = 1000;
   public static readonly FULLTEXT_LANGUAGE = "english";
 
   public static readonly INTERNAL_ATTRIBUTES: Attribute[] = [

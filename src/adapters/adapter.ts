@@ -1354,52 +1354,169 @@ export class Adapter extends BaseAdapter {
   }
 
   /**
-   * Generates an upsert (insert or update) SQL statement for batch operations.
-   * If `attribute` is provided, it will increment that column on duplicate key.
+   * Creates or updates multiple documents in a collection with batch processing.
+   * Handles incremental updates for a specific attribute and manages permissions.
    */
-  public getUpsertStatement(
-    tableName: string,
-    columns: string,
-    batchKeys: string[],
-    attributes: Record<string, any>,
-    attribute: string = "",
-  ): string {
-    const getUpdateClause = (attribute: string, increment = false): string => {
-      const quotedAttr = this.quote(this.sanitize(attribute));
-      let newValue: string;
-      if (increment) {
-        newValue = `${quotedAttr} + VALUES(${quotedAttr})`;
-      } else {
-        newValue = `VALUES(${quotedAttr})`;
-      }
-      if (this.$sharedTables) {
-        return `${quotedAttr} = IF(_tenant = VALUES(_tenant), ${newValue}, ${quotedAttr})`;
-      }
-      return `${quotedAttr} = ${newValue}`;
-    };
-
-    let updateColumns: string[];
-    if (attribute) {
-      // Increment specific column by its new value in place
-      updateColumns = [
-        getUpdateClause(attribute, true),
-        getUpdateClause("_updatedAt"),
-      ];
-    } else {
-      // Update all columns
-      updateColumns = Object.keys(attributes).map((attr) =>
-        getUpdateClause(this.sanitize(attr)),
-      );
+  public async createOrUpdateDocuments(
+    collection: string,
+    attribute: string,
+    changes: Array<{ old: Doc; new: Doc }>
+  ): Promise<Doc[]> {
+    if (changes.length === 0) {
+      return changes.map(change => change.new);
     }
 
-    const sql = `
-                INSERT INTO ${this.getSQLTable(tableName)} ${columns}
-                VALUES ${batchKeys.join(", ")}
-                ON DUPLICATE KEY UPDATE
-                    ${updateColumns.join(", ")}
+    try {
+      const name = this.sanitize(collection);
+      const sanitizedAttribute = attribute ? this.sanitize(attribute) : attribute;
+
+      let attributes: Record<string, any> = {};
+      const batchKeys: string[] = [];
+      const allValues: any[] = [];
+
+      for (const change of changes) {
+        const document = change.new;
+        attributes = { ...document.getAll() };
+        attributes['_uid'] = document.getId();
+        attributes['_createdAt'] = document.createdAt();
+        attributes['_updatedAt'] = document.updatedAt();
+        attributes['_permissions'] = document.getPermissions();
+        
+        if (document.getSequence()) {
+          attributes['_id'] = document.getSequence();
+        }
+        
+        if (this.$sharedTables) {
+          attributes['_tenant'] = document.getTenant();
+        }
+        
+        const sortedKeys = Object.keys(attributes).filter(a => !this.$internalAttrs.includes(a)).sort();
+        console.log("Sorted keys:", sortedKeys); 
+        const bindKeys: string[] = [];
+        for (const key of sortedKeys) {
+          let value = attributes[key];
+          bindKeys.push('?');
+          allValues.push(value);
+        }
+
+        batchKeys.push(`(${bindKeys.join(', ')})`);
+      }
+
+      const sortedKeys = Object.keys(attributes).filter(a => !this.$internalAttrs.includes(a)).sort();
+      console.log("Sorted keys3:", sortedKeys); 
+      const columns = `(${sortedKeys.map(key => this.quote(this.sanitize(key))).join(', ')})`;
+
+      const sql = this.getUpsertStatement(name, columns, batchKeys, attributes, sanitizedAttribute);
+      await this.client.query(sql, allValues);
+
+      // Handle permission changes
+      const operations: { sql: string; params: any[] }[] = [];
+
+      for (let index = 0; index < changes.length; index++) {
+        const change = changes[index]!;
+        const oldDoc = change.old;
+        const newDoc = change.new;
+
+        // Get current permissions from old document
+        const existingPermissions: Record<string, string[]> = {};
+        for (const type of Database.PERMISSIONS || []) {
+          existingPermissions[type] = oldDoc.getPermissionsByType(type);
+        }
+
+        // Process each permission type
+        for (const type of Database.PERMISSIONS || []) {
+          const newPermissions = newDoc.getPermissionsByType(type);
+          const currentPermissions = existingPermissions[type] || [];
+          const hasChanged =
+            JSON.stringify(newPermissions.sort()) !==
+            JSON.stringify(currentPermissions.sort());
+
+          if (!hasChanged) {
+            continue;
+          }
+
+          if (newPermissions.length === 0) {
+            // Delete the row if no permissions
+            if (currentPermissions.length > 0) {
+              const deleteParams: any[] = [newDoc.getSequence(), type];
+              let deleteSql = `
+                DELETE FROM ${this.getSQLTable(name + "_perms")}
+                WHERE _document = ? AND _type = ?
+                ${this.getTenantQuery(collection)}
             `;
 
-    return sql;
+              if (this.$sharedTables) {
+                deleteParams.push(this.$tenantId);
+              }
+
+              deleteSql = this.trigger(EventsEnum.PermissionsDelete, deleteSql);
+              operations.push({ sql: deleteSql, params: deleteParams });
+            }
+          } else {
+            if (currentPermissions.length > 0) {
+              // Update existing row
+              const updateParams: any[] = [
+                newPermissions,
+                newDoc.getSequence(),
+                type,
+              ];
+              let updateSql = `
+                UPDATE ${this.getSQLTable(name + "_perms")}
+                SET _permissions = ?
+                WHERE _document = ? AND _type = ?
+                ${this.getTenantQuery(collection)}
+            `;
+
+              if (this.$sharedTables) {
+                updateParams.push(this.$tenantId);
+              }
+
+              updateSql = this.trigger(EventsEnum.PermissionsUpdate, updateSql);
+              operations.push({ sql: updateSql, params: updateParams });
+            } else {
+              // Insert new row
+              const insertParams: any[] = [
+                newDoc.getSequence(),
+                type,
+                newPermissions,
+              ];
+              let insertSql = `
+                INSERT INTO ${this.getSQLTable(name + "_perms")} 
+                (_document, _type, _permissions
+            `;
+
+              if (this.$sharedTables) {
+                insertSql += ", _tenant)";
+                insertParams.push(this.$tenantId);
+              } else {
+                insertSql += ")";
+              }
+
+              insertSql += " VALUES (?, ?, ?)";
+
+              if (this.$sharedTables) {
+                insertSql = insertSql.replace(
+                  "VALUES (?, ?, ?)",
+                  "VALUES (?, ?, ?, ?)",
+                );
+              }
+
+              insertSql = this.trigger(EventsEnum.PermissionsCreate, insertSql);
+              operations.push({ sql: insertSql, params: insertParams });
+            }
+          }
+        }
+      }
+
+      // Execute all permission operations
+      for (const operation of operations) {
+        await this.client.query(operation.sql, operation.params);
+      }
+
+      return changes.map(change => change.new);
+    } catch (e: any) {
+      throw this.processException(e, `Failed to create or update documents in collection '${collection}'`);
+    }
   }
 
   /**

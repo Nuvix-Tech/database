@@ -66,8 +66,8 @@ export abstract class BaseAdapter extends EventEmitter {
   protected transformations: Partial<
     Record<EventsEnum, Array<[string, (query: string) => string]>>
   > = {
-    [EventsEnum.All]: [],
-  };
+      [EventsEnum.All]: [],
+    };
 
   constructor(options: { type?: string } = {}) {
     super();
@@ -631,6 +631,55 @@ export abstract class BaseAdapter extends EventEmitter {
     return operations;
   }
 
+  /**
+   * Generates an upsert (insert or update) SQL statement for batch operations.
+   * If `attribute` is provided, it will increment that column on duplicate key.
+   */
+  public getUpsertStatement(
+    tableName: string,
+    columns: string,
+    batchKeys: string[],
+    attributes: Record<string, any>,
+    attribute: string = "",
+  ): string {
+    const getUpdateClause = (attribute: string, increment = false): string => {
+      const quotedAttr = this.quote(this.sanitize(attribute));
+      let newValue: string;
+      if (increment) {
+        newValue = `${this.getSQLTable(tableName)}.${quotedAttr} + EXCLUDED.${quotedAttr}`;
+      } else {
+        newValue = `EXCLUDED.${quotedAttr}`;
+      }
+      if (this.$sharedTables) {
+        return `${quotedAttr} = CASE WHEN ${this.getSQLTable(tableName)}._tenant = EXCLUDED._tenant THEN ${newValue} ELSE ${quotedAttr} END`;
+      }
+      return `${quotedAttr} = ${newValue}`;
+    };
+
+    let updateColumns: string[];
+    if (attribute) {
+      // Increment specific column by its new value in place
+      updateColumns = [
+        getUpdateClause(attribute, true),
+        getUpdateClause("_updatedAt"),
+      ];
+    } else {
+      // Update all columns
+      updateColumns = Object.keys(attributes).filter(a => !this.$internalAttrs.includes(a)).map((attr) =>
+        getUpdateClause(attr),
+      );
+    }
+
+    const sql = `
+      INSERT INTO ${this.getSQLTable(tableName)} ${columns}
+      VALUES ${batchKeys.join(", ")}
+      ON CONFLICT (_uid${this.$sharedTables ? ', _tenant' : ''}) DO UPDATE SET
+          ${updateColumns.join(", ")}
+    `;
+
+    return sql;
+  }
+
   protected getSQLType(
     type: AttributeEnum,
     size?: number,
@@ -674,9 +723,9 @@ export abstract class BaseAdapter extends EventEmitter {
       case AttributeEnum.Json:
         pgType = "JSONB";
         break;
-      case AttributeEnum.Virtual:
-        pgType = "";
-        break;
+      // case AttributeEnum.Virtual:
+      //   pgType = "";
+      //   break;
       case AttributeEnum.Uuid:
         pgType = "UUID";
         break;
