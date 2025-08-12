@@ -27,6 +27,12 @@
   "dependencies": {
     "chalk": "^5.5.0"
   },
+  "files": [
+    "dist",
+    "LICENSE",
+    "README.md",
+    "package.json"
+  ],
   "devDependencies": {
     "@nuvix/cache": "^1.0.3-alpha.1",
     "@rollup/plugin-commonjs": "^28.0.6",
