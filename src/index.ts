@@ -2,6 +2,7 @@ export * from "./adapters/adapter.js";
 export * from "./core/database.js";
 export * from "./core/doc.js";
 export * from "./core/query.js";
+export type { Filter, RelationshipUpdates } from "./core/types.js";
 
 export {
   AttributeEnum as AttributeType,
@@ -13,6 +14,7 @@ export {
   PermissionEnum as Permission,
   OrderEnum as Order,
   OnDelete,
+  IndexEnum as IndexType,
 } from "./core/enums.js";
 
 export * from "./errors/index.js";
