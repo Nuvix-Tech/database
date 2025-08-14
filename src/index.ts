@@ -22,3 +22,6 @@ export * from "./types.js";
 export * from "./utils/index.js";
 export * from "./validators/index.js";
 export * from "./types.js";
+
+// Export config types for external use
+export type { NuvixDBConfig, CLIOptions } from "./config/types.js";

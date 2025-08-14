@@ -5,23 +5,33 @@
   "license": "Proprietary",
   "main": "./dist/index.cjs.js",
   "module": "./dist/index.esm.js",
-  "types": "./dist/src/index.d.ts",
+  "types": "./dist/index.d.ts",
   "type": "module",
   "exports": {
     ".": {
-      "types": "./dist/src/index.d.ts",
+      "types": "./dist/index.d.ts",
       "import": "./dist/index.esm.js",
       "require": "./dist/index.cjs.js"
+    },
+    "./config": {
+      "types": "./dist/config/types.d.ts",
+      "import": "./dist/config/types.js",
+      "require": "./dist/config/types.cjs"
     }
   },
+  "bin": {
+    "nuvix-types": "./dist/cli/generate-types.js"
+  },
   "scripts": {
-    "dev": "rollup -c -w",
-    "build": "rollup -c && tsc --emitDeclarationOnly",
+    "build": "tsup",
     "lint": "eslint . --ext .ts",
     "typecheck": "tsc --noEmit",
     "prepublishOnly": "rm -rf dist && npm run build && npm run typecheck",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "generate-types": "node dist/cli/generate-types.js",
+    "types:init": "node dist/cli/generate-types.js --init",
+    "types:watch": "node dist/cli/generate-types.js --watch"
   },
   "dependencies": {
     "chalk": "^5.5.0"

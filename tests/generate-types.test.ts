@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { generateTypes } from "../src/utils/generate-types.js";
+import {
+  generateTypes,
+  generateDocType,
+  generateEntityType
+} from "../src/utils/generate-types.js";
 import { AttributeEnum } from "@core/enums.js";
 import { Database } from "index.js";
 import { writeFile } from "fs/promises";
@@ -454,5 +458,174 @@ describe("generateTypes", () => {
     expect(result).toContain("export interface  extends IEntity"); // underscores only
     expect(result).toContain("export interface 123numbers extends IEntity");
     expect(result).toContain("export interface MultipleDashes extends IEntity");
+  });
+
+  describe("Enhanced Features", () => {
+    it("generates Doc types for collections", () => {
+      const collections = [
+        {
+          $id: "users",
+          name: "users",
+          $collection: "users",
+          attributes: [
+            {
+              $id: "name",
+              key: "name",
+              type: AttributeEnum.String,
+              required: true,
+              array: false,
+            },
+          ],
+        },
+        {
+          $id: "posts",
+          name: "posts",
+          $collection: "posts",
+          attributes: [
+            {
+              $id: "title",
+              key: "title",
+              type: AttributeEnum.String,
+              required: true,
+              array: false,
+            },
+          ],
+        },
+      ];
+
+      const result = generateTypes(collections);
+
+      expect(result).toContain('import { Doc } from "@nuvix-tech/db";');
+      expect(result).toContain("export type UsersDoc = Doc<Users>;");
+      expect(result).toContain("export type PostsDoc = Doc<Posts>;");
+    });
+
+    it("generates individual Doc type", () => {
+      const collection = {
+        $id: "users",
+        name: "users",
+        $collection: "users",
+        attributes: [],
+      };
+
+      const result = generateDocType(collection);
+      expect(result).toBe("export type UsersDoc = Doc<Users>;");
+    });
+
+    it("generates individual entity type", () => {
+      const collection = {
+        $id: "users",
+        name: "users",
+        $collection: "users",
+        attributes: [
+          {
+            $id: "name",
+            key: "name",
+            type: AttributeEnum.String,
+            required: true,
+            array: false,
+          },
+        ],
+      };
+
+      const result = generateEntityType(collection, [collection]);
+      expect(result).toContain("export interface Users extends IEntity");
+      expect(result).toContain("name: string");
+    });
+
+    it("supports custom package name", () => {
+      const collections = [
+        {
+          $id: "users",
+          name: "users",
+          $collection: "users",
+          attributes: [],
+        },
+      ];
+
+      const result = generateTypes(collections, {
+        packageName: "@custom/db-package",
+      });
+
+      expect(result).toContain('import { Doc } from "@custom/db-package";');
+    });
+
+    it("supports selective generation options", () => {
+      const collections = [
+        {
+          $id: "users",
+          name: "users",
+          $collection: "users",
+          attributes: [],
+        },
+      ];
+
+      const result = generateTypes(collections, {
+        includeImports: false,
+        includeEntityBase: false,
+        includeDocTypes: false,
+        includeEntityMap: false,
+      });
+
+      expect(result).not.toContain("import { Doc }");
+      expect(result).not.toContain("export interface IEntity");
+      expect(result).not.toContain("export type UsersDoc");
+      expect(result).not.toContain("export interface Entities");
+      expect(result).toContain("export interface Users extends IEntity");
+    });
+
+    it("generates enhanced attribute comments", () => {
+      const collection = {
+        $id: "test",
+        name: "test_collection",
+        $collection: "test_collection",
+        attributes: [
+          {
+            $id: "email",
+            key: "email",
+            type: AttributeEnum.String,
+            format: "email",
+            formatOptions: {
+              pattern: "^[^@]+@[^@]+\\.[^@]+$",
+              minLength: 5,
+              maxLength: 100,
+            },
+            required: true,
+            array: false,
+            default: "user@example.com",
+          },
+          {
+            $id: "age",
+            key: "age",
+            type: AttributeEnum.Integer,
+            formatOptions: {
+              min: 0,
+              max: 120,
+            },
+            required: false,
+            array: false,
+          },
+          {
+            $id: "tags",
+            key: "tags",
+            type: AttributeEnum.String,
+            required: false,
+            array: true,
+          },
+        ],
+      };
+
+      const result = generateTypes([collection]);
+
+      expect(result).toContain("@format email");
+      expect(result).toContain("@pattern ^[^@]+@[^@]+\\.[^@]+$");
+      expect(result).toContain("@minLength 5");
+      expect(result).toContain("@maxLength 100");
+      expect(result).toContain('@default "user@example.com"');
+      expect(result).toContain("@min 0");
+      expect(result).toContain("@max 120");
+      expect(result).toContain("@optional");
+      expect(result).toContain("@array");
+    });
   });
 });
