@@ -3,7 +3,7 @@ import type { Database } from "./database.js";
 import type { Doc } from "./doc.js";
 import { Permission } from "@utils/permission.js";
 import { Query } from "./query.js";
-import { OnDelete, RelationEnum, RelationSideEnum } from "./enums.js";
+import { OnDelete, RelationEnum } from "./enums.js";
 import { IEntity } from "types.js";
 
 export type FilterValue =

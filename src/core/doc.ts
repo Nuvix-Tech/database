@@ -6,17 +6,17 @@ import chalk from "chalk";
 type IsReferenceObject<T> = T extends { $id: string }
   ? true
   : T extends { $collection: string }
-    ? true
-    : false;
+  ? true
+  : false;
 
 type TransformField<T> =
   IsReferenceObject<T> extends true
-    ? Doc<T extends Partial<IEntity> ? T : Partial<IEntity>>
-    : T extends Array<infer U>
-      ? Array<TransformField<U>>
-      : T extends object
-        ? TransformEntity<T>
-        : T;
+  ? Doc<T extends Partial<IEntity> ? T : Partial<IEntity>>
+  : T extends Array<infer U>
+  ? Array<TransformField<U>>
+  : T extends object
+  ? TransformEntity<T>
+  : T;
 
 type TransformEntity<T> = {
   [K in keyof T]: TransformField<T[K]>;
@@ -32,7 +32,7 @@ function isEntityLike(value: unknown): value is Record<string, unknown> {
   );
 }
 
-export class Doc<T extends Record<string, any> & Partial<IEntity> = IEntity> {
+export class Doc<T extends Record<string, any> & Partial<IEntity> = Partial<IEntity>> {
   private _data: Record<string, any> = {};
 
   constructor(
@@ -262,7 +262,9 @@ export class Doc<T extends Record<string, any> & Partial<IEntity> = IEntity> {
       );
   }
 
-  public has<K extends string & keyof T>(name: K): boolean {
+  public has(name: keyof T): boolean;
+  public has(name: string): boolean;
+  public has(name: string): boolean {
     return Object.hasOwn(this._data, name);
   }
 
@@ -271,7 +273,15 @@ export class Doc<T extends Record<string, any> & Partial<IEntity> = IEntity> {
   }
 
   public findWhere<V = unknown>(
-    key: keyof T,
+    key: string & keyof T,
+    predicate: (item: V) => boolean,
+  ): V | null;
+  public findWhere<V = unknown>(
+    key: string,
+    predicate: (item: V) => boolean,
+  ): V | null;
+  public findWhere<V = unknown>(
+    key: string & keyof T,
     predicate: (item: V) => boolean,
   ): V | null {
     // Recursively search for a value matching the predicate at the given key in this entity and all nested entities/arrays
@@ -323,6 +333,16 @@ export class Doc<T extends Record<string, any> & Partial<IEntity> = IEntity> {
     key: string & keyof T,
     predicate: (item: V) => boolean,
     replacement: V,
+  ): void;
+  public replaceWhere<V = unknown>(
+    key: string,
+    predicate: (item: V) => boolean,
+    replacement: V,
+  ): void;
+  public replaceWhere<V = unknown>(
+    key: string & keyof T,
+    predicate: (item: V) => boolean,
+    replacement: V,
   ): void {
     // Recursively replace values matching the predicate at the given key in this entity and all nested entities/arrays
     const value = this.get(key);
@@ -356,6 +376,14 @@ export class Doc<T extends Record<string, any> & Partial<IEntity> = IEntity> {
     }
   }
 
+  public deleteWhere<V = unknown>(
+    key: string & keyof T,
+    predicate: (item: V) => boolean,
+  ): void
+  public deleteWhere<V = unknown>(
+    key: string,
+    predicate: (item: V) => boolean,
+  ): void
   public deleteWhere<V = unknown>(
     key: string & keyof T,
     predicate: (item: V) => boolean,

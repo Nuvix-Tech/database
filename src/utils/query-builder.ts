@@ -1,4 +1,5 @@
 import { Doc } from "@core/doc.js";
+import { CursorEnum } from "@core/enums.js";
 import { Query, ScalarValue } from "@core/query.js";
 
 /**
@@ -8,7 +9,7 @@ import { Query, ScalarValue } from "@core/query.js";
 export class QueryBuilder {
   private queries: Query[] = [];
 
-  constructor() {}
+  constructor() { }
 
   /**
    * Creates a new QueryBuilder instance from an existing array of Query objects.
@@ -178,9 +179,8 @@ export class QueryBuilder {
    * @param value - The cursor document or ID.
    * @returns {this} The current QueryBuilder instance for chaining.
    */
-  cursorAfter(value: Doc | string): this {
-    const cursorValue = value instanceof Doc ? value.getId() : value;
-    this.queries.push(Query.cursorAfter(cursorValue));
+  cursorAfter(value: Doc<any> | string): this {
+    this.queries.push(Query.cursorAfter(value));
     return this;
   }
 
@@ -189,9 +189,8 @@ export class QueryBuilder {
    * @param value - The cursor document or ID.
    * @returns {this} The current QueryBuilder instance for chaining.
    */
-  cursorBefore(value: Doc | string): this {
-    const cursorValue = value instanceof Doc ? value.getId() : value;
-    this.queries.push(Query.cursorBefore(cursorValue));
+  cursorBefore(value: Doc<any> | string): this {
+    this.queries.push(Query.cursorBefore(value));
     return this;
   }
 
@@ -278,19 +277,6 @@ export class QueryBuilder {
   }
 
   /**
-   * Marks the last added query to operate on an array attribute.
-   *
-   * @param enable - Whether to enable array mode. Defaults to `true`.
-   * @returns {this} The current QueryBuilder instance for chaining.
-   */
-  onArray(enable: boolean = true): this {
-    if (this.queries.length > 0) {
-      this.queries[this.queries.length - 1]?.setOnArray(enable);
-    }
-    return this;
-  }
-
-  /**
    * Finalizes the build process and returns the constructed array of queries.
    *
    * @returns {Query[]} A new array containing the built Query objects.
@@ -326,10 +312,10 @@ export class QueryBuilder {
    * @returns {this} The current QueryBuilder instance for chaining.
    */
   cursorPaginate(
-    cursorId: string,
-    direction: "after" | "before" = "after",
+    cursorId: Doc<any> | string,
+    direction: CursorEnum = CursorEnum.After,
   ): this {
-    return direction === "after"
+    return direction === CursorEnum.After
       ? this.cursorAfter(cursorId)
       : this.cursorBefore(cursorId);
   }

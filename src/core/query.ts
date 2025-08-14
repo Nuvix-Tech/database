@@ -635,7 +635,7 @@ export class Query {
     let offset: number | null = null;
     const orderAttributes: string[] = [];
     const orderTypes: ("ASC" | "DESC")[] = [];
-    let cursor: Doc | null = null;
+    let cursor: Doc<any> | null = null;
     let cursorDirection: "AFTER" | "BEFORE" | null = null;
 
     for (const query of queries) {
