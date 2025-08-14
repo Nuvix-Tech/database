@@ -1,6 +1,6 @@
 {
   "name": "@nuvix-tech/db",
-  "version": "0.1.022",
+  "version": "0.1.023",
   "description": "Modular and performant database library for Nuvix, with internal complexity abstracted from developers.",
   "license": "Proprietary",
   "main": "./dist/index.cjs.js",
@@ -20,7 +20,7 @@
     }
   },
   "bin": {
-    "nuvix-types": "./dist/cli/generate-types.js"
+    "nuvix-db": "./dist/cli/generate-types.js"
   },
   "scripts": {
     "build": "tsup",

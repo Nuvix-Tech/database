@@ -143,9 +143,6 @@ CONFIGURATION:
   - nuvix-db.config.ts
   - nuvix-db.config.js
   - nuvix-db.config.mjs
-  - nuvix.config.ts
-  - nuvix.config.js
-  - nuvix.config.mjs
 `);
     }
 

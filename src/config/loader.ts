@@ -1,5 +1,5 @@
 import { existsSync } from 'fs';
-import { resolve, dirname } from 'path';
+import { resolve } from 'path';
 import { NuvixDBConfig, DEFAULT_CONFIG, CLIOptions } from './types.js';
 
 export class ConfigLoader {
