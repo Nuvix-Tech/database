@@ -1,6 +1,6 @@
 {
   "name": "@nuvix-tech/db",
-  "version": "0.1.023",
+  "version": "0.1.024",
   "description": "Modular and performant database library for Nuvix, with internal complexity abstracted from developers.",
   "license": "Proprietary",
   "main": "./dist/index.cjs.js",

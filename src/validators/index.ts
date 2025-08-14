@@ -29,4 +29,4 @@ export { Order as OrderValidator } from "./query/order.js";
 export { Offset as OffsetValidator } from "./query/offset.js";
 export { Populate as PopulateValidator } from "./query/populate.js";
 export { Select as SelectValidator } from "./query/select.js";
-export { Datetime as DatetimeValidator } from "./datetime.js"
+export { Datetime as DatetimeValidator } from "./datetime.js";

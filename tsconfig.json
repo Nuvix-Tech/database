@@ -17,7 +17,7 @@
     "noUncheckedIndexedAccess": true, // Strict array/object indexing
     "noPropertyAccessFromIndexSignature": true,
     // Project Layout
-    // "rootDir": "./src",
+    "rootDir": "./src",
     "outDir": "./dist",
     "baseUrl": "./src",
     "paths": {
@@ -42,6 +42,6 @@
     "noEmitOnError": true,
     "skipLibCheck": true // Speed up compile (safe for internal libs)
   },
-  "include": ["src", "tests"],
-  "exclude": ["node_modules", "dist", "test"]
+  "include": ["src"],
+  "exclude": ["node_modules", "dist"]
 }

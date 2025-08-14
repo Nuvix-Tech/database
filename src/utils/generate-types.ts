@@ -27,7 +27,7 @@ interface TypeGenerationOptions {
 
 export function generateTypes(
   collections: Collection[],
-  options: TypeGenerationOptions = {}
+  options: TypeGenerationOptions = {},
 ): string {
   const {
     includeImports = true,
@@ -38,7 +38,7 @@ export function generateTypes(
     generateQueryTypes = true,
     generateInputTypes = true,
     generateValidationTypes = false,
-    packageName = "@nuvix-tech/db"
+    packageName = "@nuvix-tech/db",
   } = options;
 
   const parts: string[] = [];
@@ -79,7 +79,7 @@ export interface IEntity {
     });
 
     if (docTypes.length > 0) {
-      parts.push(`// Document Types\n${docTypes.join('\n')}`);
+      parts.push(`// Document Types\n${docTypes.join("\n")}`);
     }
   }
 
@@ -132,7 +132,10 @@ export interface IEntity {
   return result;
 }
 
-function generateEntityInterface(collection: Collection, allCollections: Collection[]): string {
+function generateEntityInterface(
+  collection: Collection,
+  allCollections: Collection[],
+): string {
   const interfaceName = pascalCase(collection.name);
 
   const attributes = collection.attributes
@@ -142,7 +145,10 @@ function generateEntityInterface(collection: Collection, allCollections: Collect
   return `export interface ${interfaceName} extends IEntity {\n${attributes}\n}`;
 }
 
-function generateAttributeType(attr: Attribute, allCollections: Collection[]): string {
+function generateAttributeType(
+  attr: Attribute,
+  allCollections: Collection[],
+): string {
   let tsType: string;
 
   // Handle relationship types
@@ -172,9 +178,14 @@ function generateAttributeType(attr: Attribute, allCollections: Collection[]): s
   return `${comment}    ${attr.key}${optional}: ${tsType};`;
 }
 
-function generateRelationshipType(attr: Attribute, allCollections: Collection[]): string {
+function generateRelationshipType(
+  attr: Attribute,
+  allCollections: Collection[],
+): string {
   const opts = attr.options as RelationOptions;
-  const relatedCollection = allCollections.find(c => c.$id === opts?.relatedCollection);
+  const relatedCollection = allCollections.find(
+    (c) => c.$id === opts?.relatedCollection,
+  );
 
   if (relatedCollection) {
     const relatedInterfaceName = pascalCase(relatedCollection.name);
@@ -194,8 +205,8 @@ function generateRelationshipType(attr: Attribute, allCollections: Collection[])
 }
 
 function generateEnumType(attr: Attribute): string {
-  const values = attr.formatOptions?.["values"] as string[] || [];
-  return values.map(v => JSON.stringify(v)).join(" | ");
+  const values = (attr.formatOptions?.["values"] as string[]) || [];
+  return values.map((v) => JSON.stringify(v)).join(" | ");
 }
 
 function generateBasicType(attr: Attribute): string {
@@ -213,8 +224,15 @@ function generateBasicType(attr: Attribute): string {
     }
   }
 
-  if ((attr.type === AttributeEnum.Integer || attr.type === AttributeEnum.Float) && attr.formatOptions) {
-    if (attr.formatOptions["min"] !== undefined || attr.formatOptions["max"] !== undefined) {
+  if (
+    (attr.type === AttributeEnum.Integer ||
+      attr.type === AttributeEnum.Float) &&
+    attr.formatOptions
+  ) {
+    if (
+      attr.formatOptions["min"] !== undefined ||
+      attr.formatOptions["max"] !== undefined
+    ) {
       // Could add branded types for range validation in the future
       baseType = "number";
     }
@@ -276,7 +294,7 @@ function generateAttributeComment(attr: Attribute): string {
     return `    /** ${comments[0]} */\n`;
   }
 
-  return `    /**\n${comments.map(c => `     * ${c}`).join('\n')}\n     */\n`;
+  return `    /**\n${comments.map((c) => `     * ${c}`).join("\n")}\n     */\n`;
 }
 
 function generateEntityMap(collections: Collection[]): string {
@@ -299,21 +317,28 @@ function pascalCase(str: string): string {
 }
 
 // Utility function to generate individual entity type (for selective generation)
-export function generateEntityType(collection: Collection, allCollections: Collection[]): string {
+export function generateEntityType(
+  collection: Collection,
+  allCollections: Collection[],
+): string {
   return generateEntityInterface(collection, allCollections);
 }
 
 // Utility function to generate Doc type for a specific collection
-export function generateDocType(collection: Collection, packageName: string = "@nuvix-tech/db"): string {
+export function generateDocType(
+  collection: Collection,
+  packageName: string = "@nuvix-tech/db",
+): string {
   const interfaceName = pascalCase(collection.name);
   const docTypeName = `${interfaceName}Doc`;
   return `export type ${docTypeName} = Doc<${interfaceName}>;`;
 }
 
 function generateUtilityTypesInternal(collections: Collection[]): string {
-  const utilityTypes = collections.map(col => {
-    const interfaceName = pascalCase(col.name);
-    return `
+  const utilityTypes = collections
+    .map((col) => {
+      const interfaceName = pascalCase(col.name);
+      return `
 // Utility types for ${interfaceName}
 export type ${interfaceName}Create = Omit<${interfaceName}, '$id' | '$createdAt' | '$updatedAt' | '$sequence'>;
 export type ${interfaceName}Update = Partial<${interfaceName}Create>;
@@ -321,15 +346,17 @@ export type ${interfaceName}Keys = keyof ${interfaceName};
 export type ${interfaceName}Values = ${interfaceName}[${interfaceName}Keys];
 export type ${interfaceName}Pick<K extends keyof ${interfaceName}> = Pick<${interfaceName}, K>;
 export type ${interfaceName}Omit<K extends keyof ${interfaceName}> = Omit<${interfaceName}, K>;`;
-  }).join("\n");
+    })
+    .join("\n");
 
   return `// Utility Types\n${utilityTypes}`;
 }
 
 function generateQueryTypesInternal(collections: Collection[]): string {
-  const queryTypes = collections.map(col => {
-    const interfaceName = pascalCase(col.name);
-    return `
+  const queryTypes = collections
+    .map((col) => {
+      const interfaceName = pascalCase(col.name);
+      return `
 // Query types for ${interfaceName}
 export type ${interfaceName}Query = {
   [K in keyof ${interfaceName}]?: ${interfaceName}[K] | { $in?: ${interfaceName}[K][] } | { $ne?: ${interfaceName}[K] } | { $exists?: boolean } | { $gt?: ${interfaceName}[K] } | { $gte?: ${interfaceName}[K] } | { $lt?: ${interfaceName}[K] } | { $lte?: ${interfaceName}[K] } | { $regex?: string } | { $contains?: string };
@@ -340,62 +367,68 @@ export type ${interfaceName}Query = {
   $offset?: number;
   $orderBy?: { [K in keyof ${interfaceName}]?: 'asc' | 'desc' };
 };`;
-  }).join("\n");
+    })
+    .join("\n");
 
   return `// Query Types\n${queryTypes}`;
 }
 
 function generateInputTypesInternal(collections: Collection[]): string {
-  const inputTypes = collections.map(col => {
-    const interfaceName = pascalCase(col.name);
-    return `
+  const inputTypes = collections
+    .map((col) => {
+      const interfaceName = pascalCase(col.name);
+      return `
 // Input types for ${interfaceName}
 export type ${interfaceName}Input = Omit<${interfaceName}, '$id' | '$createdAt' | '$updatedAt' | '$permissions' | '$sequence' | '$collection' | '$tenant'>;
 export type ${interfaceName}CreateInput = ${interfaceName}Input;
 export type ${interfaceName}UpdateInput = Partial<${interfaceName}Input>;`;
-  }).join("\n");
+    })
+    .join("\n");
 
   return `// Input Types\n${inputTypes}`;
 }
 
 function generateValidationTypesInternal(collections: Collection[]): string {
-  const validationTypes = collections.map(col => {
-    const interfaceName = pascalCase(col.name);
-    const requiredFields = col.attributes
-      .filter(attr => attr.required)
-      .map(attr => `'${attr.key}'`)
-      .join(' | ');
+  const validationTypes = collections
+    .map((col) => {
+      const interfaceName = pascalCase(col.name);
+      const requiredFields = col.attributes
+        .filter((attr) => attr.required)
+        .map((attr) => `'${attr.key}'`)
+        .join(" | ");
 
-    const optionalFields = col.attributes
-      .filter(attr => !attr.required)
-      .map(attr => `'${attr.key}'`)
-      .join(' | ');
+      const optionalFields = col.attributes
+        .filter((attr) => !attr.required)
+        .map((attr) => `'${attr.key}'`)
+        .join(" | ");
 
-    return `
+      return `
 // Validation types for ${interfaceName}
-export type ${interfaceName}RequiredFields = ${requiredFields || 'never'};
-export type ${interfaceName}OptionalFields = ${optionalFields || 'never'};
+export type ${interfaceName}RequiredFields = ${requiredFields || "never"};
+export type ${interfaceName}OptionalFields = ${optionalFields || "never"};
 export type ${interfaceName}ValidationResult = {
   isValid: boolean;
   errors: { field: string; message: string }[];
 };`;
-  }).join("\n");
+    })
+    .join("\n");
 
   return `// Validation Types\n${validationTypes}`;
 }
 
 function generateCollectionMetadata(collections: Collection[]): string {
-  const metadata = collections.map(col => {
-    const interfaceName = pascalCase(col.name);
-    const attributes = col.attributes.map(attr => ({
-      key: attr.key,
-      type: attr.type,
-      required: attr.required || false,
-      array: attr.array || false,
-      format: attr.format || null
-    }));
+  const metadata = collections
+    .map((col) => {
+      const interfaceName = pascalCase(col.name);
+      const attributes = col.attributes.map((attr) => ({
+        key: attr.key,
+        type: attr.type,
+        required: attr.required || false,
+        array: attr.array || false,
+        format: attr.format || null,
+      }));
 
-    return `
+      return `
 // Metadata for ${interfaceName}
 export const ${interfaceName}Metadata = {
   $id: "${col.$id}",
@@ -405,12 +438,13 @@ export const ${interfaceName}Metadata = {
   indexes: ${JSON.stringify(col.indexes || [], null, 2)},
   documentSecurity: ${col.documentSecurity || false}
 } as const;`;
-  }).join("\n");
+    })
+    .join("\n");
 
   const allCollectionsMetadata = `
 // All Collections Metadata
 export const AllCollectionsMetadata = {
-${collections.map(col => `  "${col.$id}": ${pascalCase(col.name)}Metadata`).join(',\n')}
+${collections.map((col) => `  "${col.$id}": ${pascalCase(col.name)}Metadata`).join(",\n")}
 } as const;
 
 export type CollectionId = keyof typeof AllCollectionsMetadata;`;

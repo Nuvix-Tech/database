@@ -1,125 +1,156 @@
-import { existsSync } from 'fs';
-import { resolve } from 'path';
-import { NuvixDBConfig, DEFAULT_CONFIG, CLIOptions } from './types.js';
+import { existsSync } from "fs";
+import { resolve } from "path";
+import { NuvixDBConfig, DEFAULT_CONFIG, CLIOptions } from "./types.js";
 
 export class ConfigLoader {
-    private static readonly CONFIG_NAMES = [
-        'nuvix-db.config.ts',
-        'nuvix-db.config.js',
-        'nuvix-db.config.mjs',
-    ];
+  private static readonly CONFIG_NAMES = [
+    "nuvix-db.config.ts",
+    "nuvix-db.config.js",
+    "nuvix-db.config.mjs",
+  ];
 
-    static async loadConfig(options: CLIOptions = {}): Promise<NuvixDBConfig> {
-        const configPath = options.config || this.findConfigFile();
+  static async loadConfig(options: CLIOptions = {}): Promise<NuvixDBConfig> {
+    const configPath = options.config || this.findConfigFile();
 
-        if (!configPath) {
-            console.warn('No configuration file found. Using default configuration.');
-            return this.mergeWithDefaults({});
-        }
+    if (!configPath) {
+      console.warn("No configuration file found. Using default configuration.");
+      return this.mergeWithDefaults({});
+    }
 
-        if (!existsSync(configPath)) {
-            throw new Error(`Configuration file not found: ${configPath}`);
-        }
+    if (!existsSync(configPath)) {
+      throw new Error(`Configuration file not found: ${configPath}`);
+    }
 
+    try {
+      const config = await this.importConfig(configPath);
+      return this.mergeWithDefaults(config, options);
+    } catch (error) {
+      throw new Error(
+        `Failed to load configuration from ${configPath}: ${error}`,
+      );
+    }
+  }
+
+  private static findConfigFile(): string | null {
+    const cwd = process.cwd();
+
+    for (const configName of this.CONFIG_NAMES) {
+      const configPath = resolve(cwd, configName);
+      if (existsSync(configPath)) {
+        return configPath;
+      }
+    }
+
+    return null;
+  }
+
+  private static async importConfig(
+    configPath: string,
+  ): Promise<Partial<NuvixDBConfig>> {
+    const absolutePath = resolve(configPath);
+    const { pathToFileURL } = await import("url");
+    const { createRequire } = await import("module");
+
+    // Detect Bun
+    const isBun = typeof (globalThis as any).Bun !== "undefined";
+
+    // Always resolve relative to the project root, not the CLI package
+    const projectRoot = process.cwd();
+    const projectRequire = createRequire(resolve(projectRoot, "package.json"));
+
+    try {
+      if (isBun) {
+        // Bun automatically compiles TS/ESM and uses project root resolution
+        return (await import(pathToFileURL(absolutePath).href)).default;
+      }
+
+      // --- Node fallback ---
+      if (absolutePath.endsWith(".ts")) {
         try {
-            const config = await this.importConfig(configPath);
-            return this.mergeWithDefaults(config, options);
-        } catch (error) {
-            throw new Error(`Failed to load configuration from ${configPath}: ${error}`);
+          projectRequire("tsx/register"); // allow Node to load TS
+        } catch {
+          throw new Error(
+            "Cannot load TypeScript config in Node. Please install `tsx` in your project.",
+          );
         }
+      }
+
+      // Import using the project’s resolver context
+      return (await import(pathToFileURL(absolutePath).href)).default;
+    } catch (error) {
+      throw new Error(`Failed to import config: ${error}`);
+    }
+  }
+
+  private static mergeWithDefaults(
+    userConfig: Partial<NuvixDBConfig>,
+    cliOptions: CLIOptions = {},
+  ): NuvixDBConfig {
+    const config: NuvixDBConfig = {
+      collections: userConfig.collections || [],
+      typeGeneration: {
+        ...DEFAULT_CONFIG.typeGeneration,
+        ...userConfig.typeGeneration,
+      },
+      database: {
+        ...userConfig.database,
+      },
+      options: {
+        ...DEFAULT_CONFIG.options,
+        ...userConfig.options,
+      },
+    };
+
+    // Apply CLI overrides
+    if (cliOptions.output) {
+      config.typeGeneration!.outputPath = cliOptions.output;
     }
 
-    private static findConfigFile(): string | null {
-        const cwd = process.cwd();
-
-        for (const configName of this.CONFIG_NAMES) {
-            const configPath = resolve(cwd, configName);
-            if (existsSync(configPath)) {
-                return configPath;
-            }
-        }
-
-        return null;
+    if (cliOptions.verbose) {
+      config.options!.debug = true;
     }
 
-    private static async importConfig(configPath: string): Promise<Partial<NuvixDBConfig>> {
-        const absolutePath = resolve(configPath);
+    return config;
+  }
 
-        try {
-            // For ES modules
-            const module = await import(`file://${absolutePath}`);
-            return module.default || module;
-        } catch (error) {
-            // Fallback for CommonJS
-            try {
-                const module = require(absolutePath);
-                return module.default || module;
-            } catch (requireError) {
-                throw new Error(`Failed to import config: ${error}`);
-            }
-        }
+  static validateConfig(config: NuvixDBConfig): void {
+    if (!config.collections || config.collections.length === 0) {
+      throw new Error("Configuration must include at least one collection");
     }
 
-    private static mergeWithDefaults(
-        userConfig: Partial<NuvixDBConfig>,
-        cliOptions: CLIOptions = {}
-    ): NuvixDBConfig {
-        const config: NuvixDBConfig = {
-            collections: userConfig.collections || [],
-            typeGeneration: {
-                ...DEFAULT_CONFIG.typeGeneration,
-                ...userConfig.typeGeneration,
-            },
-            database: {
-                ...userConfig.database,
-            },
-            options: {
-                ...DEFAULT_CONFIG.options,
-                ...userConfig.options,
-            },
-        };
+    for (const collection of config.collections) {
+      if (!collection.$id || !collection.name || !collection.$collection) {
+        throw new Error(
+          `Invalid collection configuration: ${JSON.stringify(collection)}`,
+        );
+      }
 
-        // Apply CLI overrides
-        if (cliOptions.output) {
-            config.typeGeneration!.outputPath = cliOptions.output;
+      if (!collection.attributes || collection.attributes.length === 0) {
+        throw new Error(
+          `Collection '${collection.name}' must have at least one attribute`,
+        );
+      }
+
+      for (const attribute of collection.attributes) {
+        if (!attribute.$id || !attribute.key || !attribute.type) {
+          throw new Error(
+            `Invalid attribute in collection '${collection.name}': ${JSON.stringify(attribute)}`,
+          );
         }
-
-        if (cliOptions.verbose) {
-            config.options!.debug = true;
-        }
-
-        return config;
+      }
     }
 
-    static validateConfig(config: NuvixDBConfig): void {
-        if (!config.collections || config.collections.length === 0) {
-            throw new Error('Configuration must include at least one collection');
-        }
-
-        for (const collection of config.collections) {
-            if (!collection.$id || !collection.name || !collection.$collection) {
-                throw new Error(`Invalid collection configuration: ${JSON.stringify(collection)}`);
-            }
-
-            if (!collection.attributes || collection.attributes.length === 0) {
-                throw new Error(`Collection '${collection.name}' must have at least one attribute`);
-            }
-
-            for (const attribute of collection.attributes) {
-                if (!attribute.$id || !attribute.key || !attribute.type) {
-                    throw new Error(`Invalid attribute in collection '${collection.name}': ${JSON.stringify(attribute)}`);
-                }
-            }
-        }
-
-        if (config.typeGeneration?.outputPath && !config.typeGeneration.outputPath.endsWith('.ts')) {
-            throw new Error('Output path must be a TypeScript file (.ts extension)');
-        }
+    if (
+      config.typeGeneration?.outputPath &&
+      !config.typeGeneration.outputPath.endsWith(".ts")
+    ) {
+      throw new Error("Output path must be a TypeScript file (.ts extension)");
     }
+  }
 
-    static createExampleConfig(): string {
-        return `import { NuvixDBConfig } from '@nuvix-tech/db/config';
-import { AttributeEnum } from '@nuvix-tech/db';
+  static createExampleConfig(): string {
+    return `import { NuvixDBConfig } from '@nuvix-tech/db/config';
+import { AttributeType } from '@nuvix-tech/db';
 
 const config: NuvixDBConfig = {
   collections: [
@@ -131,14 +162,14 @@ const config: NuvixDBConfig = {
         {
           $id: 'name',
           key: 'name',
-          type: AttributeEnum.String,
+          type: AttributeType.String,
           required: true,
           array: false,
         },
         {
           $id: 'email',
           key: 'email',
-          type: AttributeEnum.String,
+          type: AttributeType.String,
           required: true,
           array: false,
           format: 'email',
@@ -146,7 +177,7 @@ const config: NuvixDBConfig = {
         {
           $id: 'age',
           key: 'age',
-          type: AttributeEnum.Integer,
+          type: AttributeType.Integer,
           required: false,
           array: false,
         },
@@ -160,21 +191,21 @@ const config: NuvixDBConfig = {
         {
           $id: 'title',
           key: 'title',
-          type: AttributeEnum.String,
+          type: AttributeType.String,
           required: true,
           array: false,
         },
         {
           $id: 'content',
           key: 'content',
-          type: AttributeEnum.String,
+          type: AttributeType.String,
           required: true,
           array: false,
         },
         {
           $id: 'author',
           key: 'author',
-          type: AttributeEnum.Relationship,
+          type: AttributeType.Relationship,
           required: true,
           array: false,
           options: {
@@ -205,5 +236,5 @@ const config: NuvixDBConfig = {
 
 export default config;
 `;
-    }
+  }
 }

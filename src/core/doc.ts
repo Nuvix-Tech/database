@@ -6,17 +6,17 @@ import chalk from "chalk";
 type IsReferenceObject<T> = T extends { $id: string }
   ? true
   : T extends { $collection: string }
-  ? true
-  : false;
+    ? true
+    : false;
 
 type TransformField<T> =
   IsReferenceObject<T> extends true
-  ? Doc<T extends Partial<IEntity> ? T : Partial<IEntity>>
-  : T extends Array<infer U>
-  ? Array<TransformField<U>>
-  : T extends object
-  ? TransformEntity<T>
-  : T;
+    ? Doc<T extends Partial<IEntity> ? T : Partial<IEntity>>
+    : T extends Array<infer U>
+      ? Array<TransformField<U>>
+      : T extends object
+        ? TransformEntity<T>
+        : T;
 
 type TransformEntity<T> = {
   [K in keyof T]: TransformField<T[K]>;
@@ -32,7 +32,9 @@ function isEntityLike(value: unknown): value is Record<string, unknown> {
   );
 }
 
-export class Doc<T extends Record<string, any> & Partial<IEntity> = Partial<IEntity>> {
+export class Doc<
+  T extends Record<string, any> & Partial<IEntity> = Partial<IEntity>,
+> {
   private _data: Record<string, any> = {};
 
   constructor(
@@ -379,11 +381,11 @@ export class Doc<T extends Record<string, any> & Partial<IEntity> = Partial<IEnt
   public deleteWhere<V = unknown>(
     key: string & keyof T,
     predicate: (item: V) => boolean,
-  ): void
+  ): void;
   public deleteWhere<V = unknown>(
     key: string,
     predicate: (item: V) => boolean,
-  ): void
+  ): void;
   public deleteWhere<V = unknown>(
     key: string & keyof T,
     predicate: (item: V) => boolean,

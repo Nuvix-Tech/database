@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   generateTypes,
   generateDocType,
-  generateEntityType
+  generateEntityType,
 } from "../src/utils/generate-types.js";
 import { AttributeEnum } from "@core/enums.js";
 import { Database } from "index.js";

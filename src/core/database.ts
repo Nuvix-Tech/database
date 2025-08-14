@@ -3635,7 +3635,7 @@ export class Database extends Cache {
   public async findOne<C>(
     collectionId: string,
     query?: ((builder: QueryBuilder) => QueryBuilder) | Query[],
-  ): Promise<Doc<IEntity>> {
+  ): Promise<Doc> {
     const queries: Query[] = [Query.limit(1)];
     if (query && typeof query === "function") {
       queries.push(...query(new QueryBuilder()).build());
@@ -3650,7 +3650,7 @@ export class Database extends Cache {
       return new Doc();
     }
 
-    return result[0] as Doc;
+    return result[0];
   }
 
   /**

@@ -1,120 +1,125 @@
 #!/usr/bin/env node
 
-import { writeFileSync, mkdirSync, existsSync } from 'fs';
-import { dirname, resolve } from 'path';
-import { parseArgs } from 'util';
-import { ConfigLoader } from '../config/loader.js';
-import { generateTypes } from '../utils/generate-types.js';
-import { NuvixDBConfig, CLIOptions } from '../config/types.js';
+import { writeFileSync, mkdirSync, existsSync } from "fs";
+import { dirname, resolve } from "path";
+import { parseArgs } from "util";
+import { ConfigLoader } from "../config/loader.js";
+import { generateTypes } from "../utils/generate-types.js";
+import { NuvixDBConfig, CLIOptions } from "../config/types.js";
 
 class TypeGeneratorCLI {
-    private async run(): Promise<void> {
-        try {
-            const cliOptions = this.parseArguments();
+  private async run(): Promise<void> {
+    try {
+      const cliOptions = this.parseArguments();
 
-            if (cliOptions.help) {
-                this.showHelp();
-                return;
-            }
+      if (cliOptions.help) {
+        this.showHelp();
+        return;
+      }
 
-            if (cliOptions.init) {
-                this.initConfig();
-                return;
-            }
+      if (cliOptions.init) {
+        this.initConfig();
+        return;
+      }
 
-            const config = await ConfigLoader.loadConfig(cliOptions);
-            ConfigLoader.validateConfig(config);
+      const config = await ConfigLoader.loadConfig(cliOptions);
+      ConfigLoader.validateConfig(config);
 
-            if (cliOptions.verbose) {
-                console.log('📋 Configuration loaded:', JSON.stringify(config, null, 2));
-            }
+      if (cliOptions.verbose) {
+        console.log(
+          "📋 Configuration loaded:",
+          JSON.stringify(config, null, 2),
+        );
+      }
 
-            const generatedTypes = this.generateTypesFromConfig(config);
+      const generatedTypes = this.generateTypesFromConfig(config);
 
-            if (cliOptions.dryRun) {
-                console.log('🔍 Dry run - Generated types:');
-                console.log('='.repeat(80));
-                console.log(generatedTypes);
-                console.log('='.repeat(80));
-                return;
-            }
+      if (cliOptions.dryRun) {
+        console.log("🔍 Dry run - Generated types:");
+        console.log("=".repeat(80));
+        console.log(generatedTypes);
+        console.log("=".repeat(80));
+        return;
+      }
 
-            this.writeTypesToFile(generatedTypes, config, cliOptions);
+      this.writeTypesToFile(generatedTypes, config, cliOptions);
 
-            console.log('✅ Types generated successfully!');
-            console.log(`📁 Output: ${config.typeGeneration?.outputPath}`);
+      console.log("✅ Types generated successfully!");
+      console.log(`📁 Output: ${config.typeGeneration?.outputPath}`);
 
-            if (cliOptions.watch) {
-                this.watchForChanges(config, cliOptions);
-            }
-
-        } catch (error) {
-            console.error('❌ Error:', error instanceof Error ? error.message : error);
-            process.exit(1);
-        }
+      if (cliOptions.watch) {
+        this.watchForChanges(config, cliOptions);
+      }
+    } catch (error) {
+      console.error(
+        "❌ Error:",
+        error instanceof Error ? error.message : error,
+      );
+      process.exit(1);
     }
+  }
 
-    private parseArguments(): CLIOptions & { help?: boolean; init?: boolean } {
-        const { values } = parseArgs({
-            args: process.argv.slice(2),
-            options: {
-                config: {
-                    type: 'string',
-                    short: 'c',
-                    description: 'Path to configuration file',
-                },
-                output: {
-                    type: 'string',
-                    short: 'o',
-                    description: 'Output path for generated types',
-                },
-                watch: {
-                    type: 'boolean',
-                    short: 'w',
-                    description: 'Watch for changes and regenerate',
-                },
-                verbose: {
-                    type: 'boolean',
-                    short: 'v',
-                    description: 'Verbose output',
-                },
-                'dry-run': {
-                    type: 'boolean',
-                    short: 'd',
-                    description: 'Show output without writing files',
-                },
-                force: {
-                    type: 'boolean',
-                    short: 'f',
-                    description: 'Force overwrite existing files',
-                },
-                help: {
-                    type: 'boolean',
-                    short: 'h',
-                    description: 'Show help',
-                },
-                init: {
-                    type: 'boolean',
-                    description: 'Initialize a new configuration file',
-                },
-            },
-            allowPositionals: false,
-        });
+  private parseArguments(): CLIOptions & { help?: boolean; init?: boolean } {
+    const { values } = parseArgs({
+      args: process.argv.slice(2),
+      options: {
+        config: {
+          type: "string",
+          short: "c",
+          description: "Path to configuration file",
+        },
+        output: {
+          type: "string",
+          short: "o",
+          description: "Output path for generated types",
+        },
+        watch: {
+          type: "boolean",
+          short: "w",
+          description: "Watch for changes and regenerate",
+        },
+        verbose: {
+          type: "boolean",
+          short: "v",
+          description: "Verbose output",
+        },
+        "dry-run": {
+          type: "boolean",
+          short: "d",
+          description: "Show output without writing files",
+        },
+        force: {
+          type: "boolean",
+          short: "f",
+          description: "Force overwrite existing files",
+        },
+        help: {
+          type: "boolean",
+          short: "h",
+          description: "Show help",
+        },
+        init: {
+          type: "boolean",
+          description: "Initialize a new configuration file",
+        },
+      },
+      allowPositionals: false,
+    });
 
-        return {
-            config: values.config,
-            output: values.output,
-            watch: values.watch,
-            verbose: values.verbose,
-            dryRun: values['dry-run'],
-            force: values.force,
-            help: values.help,
-            init: values.init,
-        };
-    }
+    return {
+      config: values.config,
+      output: values.output,
+      watch: values.watch,
+      verbose: values.verbose,
+      dryRun: values["dry-run"],
+      force: values.force,
+      help: values.help,
+      init: values.init,
+    };
+  }
 
-    private showHelp(): void {
-        console.log(`
+  private showHelp(): void {
+    console.log(`
 🚀 Nuvix DB Type Generator
 
 USAGE:
@@ -144,87 +149,93 @@ CONFIGURATION:
   - nuvix-db.config.js
   - nuvix-db.config.mjs
 `);
+  }
+
+  private initConfig(): void {
+    const configPath = resolve(process.cwd(), "nuvix-db.config.ts");
+
+    if (existsSync(configPath)) {
+      console.log("❌ Configuration file already exists:", configPath);
+      console.log("💡 Use --force to overwrite or choose a different name");
+      return;
     }
 
-    private initConfig(): void {
-        const configPath = resolve(process.cwd(), 'nuvix-db.config.ts');
+    const exampleConfig = ConfigLoader.createExampleConfig();
+    writeFileSync(configPath, exampleConfig, "utf8");
 
-        if (existsSync(configPath)) {
-            console.log('❌ Configuration file already exists:', configPath);
-            console.log('💡 Use --force to overwrite or choose a different name');
-            return;
-        }
+    console.log("✅ Configuration file created:", configPath);
+    console.log(
+      "📝 Edit the file to define your collections and run the generator again",
+    );
+  }
 
-        const exampleConfig = ConfigLoader.createExampleConfig();
-        writeFileSync(configPath, exampleConfig, 'utf8');
+  private generateTypesFromConfig(config: NuvixDBConfig): string {
+    const { collections, typeGeneration } = config;
 
-        console.log('✅ Configuration file created:', configPath);
-        console.log('📝 Edit the file to define your collections and run the generator again');
+    let generatedTypes = generateTypes(collections, {
+      includeImports: typeGeneration?.includeImports,
+      includeEntityBase: typeGeneration?.includeEntityBase,
+      includeDocTypes: typeGeneration?.includeDocTypes,
+      includeEntityMap: typeGeneration?.includeEntityMap,
+      generateUtilityTypes: typeGeneration?.generateUtilityTypes,
+      generateQueryTypes: typeGeneration?.generateQueryTypes,
+      generateInputTypes: typeGeneration?.generateInputTypes,
+      generateValidationTypes: typeGeneration?.generateValidationTypes,
+      packageName: typeGeneration?.packageName,
+    });
+
+    // Add file header
+    if (typeGeneration?.fileHeader) {
+      generatedTypes = `${typeGeneration.fileHeader}\n${generatedTypes}`;
     }
 
-    private generateTypesFromConfig(config: NuvixDBConfig): string {
-        const { collections, typeGeneration } = config;
-
-        let generatedTypes = generateTypes(collections, {
-            includeImports: typeGeneration?.includeImports,
-            includeEntityBase: typeGeneration?.includeEntityBase,
-            includeDocTypes: typeGeneration?.includeDocTypes,
-            includeEntityMap: typeGeneration?.includeEntityMap,
-            generateUtilityTypes: typeGeneration?.generateUtilityTypes,
-            generateQueryTypes: typeGeneration?.generateQueryTypes,
-            generateInputTypes: typeGeneration?.generateInputTypes,
-            generateValidationTypes: typeGeneration?.generateValidationTypes,
-            packageName: typeGeneration?.packageName,
-        });
-
-        // Add file header
-        if (typeGeneration?.fileHeader) {
-            generatedTypes = `${typeGeneration.fileHeader}\n${generatedTypes}`;
-        }
-
-        // Add custom types
-        if (typeGeneration?.customTypes) {
-            generatedTypes = `${generatedTypes}\n\n${typeGeneration.customTypes}`;
-        }
-
-        return generatedTypes;
+    // Add custom types
+    if (typeGeneration?.customTypes) {
+      generatedTypes = `${generatedTypes}\n\n${typeGeneration.customTypes}`;
     }
 
-    private writeTypesToFile(
-        generatedTypes: string,
-        config: NuvixDBConfig,
-        cliOptions: CLIOptions
-    ): void {
-        const outputPath = resolve(config.typeGeneration?.outputPath || './generated-types.ts');
+    return generatedTypes;
+  }
 
-        // Check if file exists and force flag is not set
-        if (existsSync(outputPath) && !cliOptions.force) {
-            console.log('⚠️  Output file already exists:', outputPath);
-            console.log('💡 Use --force to overwrite or choose a different output path');
-            return;
-        }
+  private writeTypesToFile(
+    generatedTypes: string,
+    config: NuvixDBConfig,
+    cliOptions: CLIOptions,
+  ): void {
+    const outputPath = resolve(
+      config.typeGeneration?.outputPath || "./generated-types.ts",
+    );
 
-        // Create directory if it doesn't exist
-        const dir = dirname(outputPath);
-        if (!existsSync(dir)) {
-            mkdirSync(dir, { recursive: true });
-            console.log('📁 Created directory:', dir);
-        }
-
-        // Write the file
-        writeFileSync(outputPath, generatedTypes, 'utf8');
+    // Check if file exists and force flag is not set
+    if (existsSync(outputPath) && !cliOptions.force) {
+      console.log("⚠️  Output file already exists:", outputPath);
+      console.log(
+        "💡 Use --force to overwrite or choose a different output path",
+      );
+      return;
     }
 
-    private watchForChanges(config: NuvixDBConfig, cliOptions: CLIOptions): void {
-        console.log('👀 Watching for changes... (Press Ctrl+C to stop)');
-
-        // Simple implementation - in a real scenario you'd want to use a proper file watcher
-        // like chokidar to watch the config file and any referenced files
-        console.log('📝 Note: Watch mode is a basic implementation');
-        console.log('🔄 Manually run the command again after making changes');
+    // Create directory if it doesn't exist
+    const dir = dirname(outputPath);
+    if (!existsSync(dir)) {
+      mkdirSync(dir, { recursive: true });
+      console.log("📁 Created directory:", dir);
     }
+
+    // Write the file
+    writeFileSync(outputPath, generatedTypes, "utf8");
+  }
+
+  private watchForChanges(config: NuvixDBConfig, cliOptions: CLIOptions): void {
+    console.log("👀 Watching for changes... (Press Ctrl+C to stop)");
+
+    // Simple implementation - in a real scenario you'd want to use a proper file watcher
+    // like chokidar to watch the config file and any referenced files
+    console.log("📝 Note: Watch mode is a basic implementation");
+    console.log("🔄 Manually run the command again after making changes");
+  }
 }
 
 // Run the CLI
 const cli = new TypeGeneratorCLI();
-cli['run']().catch(console.error);
+cli["run"]().catch(console.error);
