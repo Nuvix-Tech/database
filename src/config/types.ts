@@ -36,6 +36,8 @@ export interface NuvixDBConfig {
     /** Generate validation types */
     generateValidationTypes?: boolean;
 
+    includeMetaDataTypes?: boolean;
+
     /** Custom file header */
     fileHeader?: string;
 

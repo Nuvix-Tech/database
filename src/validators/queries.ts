@@ -117,7 +117,7 @@ export class Queries implements Validator {
 
         if (!validator.$valid(parsedQuery)) {
           const attribute = parsedQuery.getAttribute();
-          this.message = `Invalid query for "${method}"${attribute && `and attribute "${attribute}"`}: ${validator.$description}`;
+          this.message = `Invalid query for "${method}"${attribute && ` and attribute "${attribute}"`}: ${validator.$description}`;
           return false;
         }
 

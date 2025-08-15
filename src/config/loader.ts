@@ -48,37 +48,19 @@ export class ConfigLoader {
     configPath: string,
   ): Promise<Partial<NuvixDBConfig>> {
     const absolutePath = resolve(configPath);
-    const { pathToFileURL } = await import("url");
-    const { createRequire } = await import("module");
-
-    // Detect Bun
-    const isBun = typeof (globalThis as any).Bun !== "undefined";
-
-    // Always resolve relative to the project root, not the CLI package
-    const projectRoot = process.cwd();
-    const projectRequire = createRequire(resolve(projectRoot, "package.json"));
 
     try {
-      if (isBun) {
-        // Bun automatically compiles TS/ESM and uses project root resolution
-        return (await import(pathToFileURL(absolutePath).href)).default;
-      }
-
-      // --- Node fallback ---
-      if (absolutePath.endsWith(".ts")) {
-        try {
-          projectRequire("tsx/register"); // allow Node to load TS
-        } catch {
-          throw new Error(
-            "Cannot load TypeScript config in Node. Please install `tsx` in your project.",
-          );
-        }
-      }
-
-      // Import using the project’s resolver context
-      return (await import(pathToFileURL(absolutePath).href)).default;
+      // For ES modules
+      const module = await import(`file://${absolutePath}`);
+      return module.default || module;
     } catch (error) {
-      throw new Error(`Failed to import config: ${error}`);
+      // Fallback for CommonJS
+      try {
+        const module = require(absolutePath);
+        return module.default || module;
+      } catch (requireError) {
+        throw new Error(`Failed to import config: ${error}`);
+      }
     }
   }
 

@@ -82,6 +82,12 @@ describe("Query Operations", () => {
           array: true,
           required: false,
         }),
+        new Doc<Attribute>({
+          $id: "meta",
+          key: "meta",
+          type: AttributeEnum.Json,
+          required: false,
+        }),
       ],
       indexes: [
         new Doc<Index>({
@@ -102,6 +108,15 @@ describe("Query Operations", () => {
         score: 85.5,
         department: "Engineering",
         tags: ["javascript", "react"],
+        meta: {
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          notes: "Top performer",
+          details: {
+            hobbies: ["coding", "reading"],
+            location: "NYC",
+          },
+        },
       },
       {
         name: "Bob Smith",
@@ -111,6 +126,15 @@ describe("Query Operations", () => {
         score: 92.0,
         department: "Engineering",
         tags: ["python", "django"],
+        meta: {
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          notes: "Experienced developer",
+          details: {
+            hobbies: ["gaming", "hiking"],
+            location: "SF",
+          },
+        },
       },
       {
         name: "Charlie Brown",
@@ -120,6 +144,15 @@ describe("Query Operations", () => {
         score: 78.5,
         department: "Marketing",
         tags: ["design", "photoshop"],
+        meta: {
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          notes: "Creative mind",
+          details: {
+            hobbies: ["painting", "traveling"],
+            location: "LA",
+          },
+        },
       },
       {
         name: "Diana Prince",
@@ -129,6 +162,15 @@ describe("Query Operations", () => {
         score: 95.0,
         department: "Engineering",
         tags: ["java", "spring"],
+        meta: {
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          notes: "Java expert",
+          details: {
+            hobbies: ["yoga", "cooking"],
+            location: "Seattle",
+          },
+        },
       },
       {
         name: "Eve Wilson",
@@ -138,6 +180,15 @@ describe("Query Operations", () => {
         score: 88.0,
         department: "Sales",
         tags: ["excel", "powerpoint"],
+        meta: {
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          notes: "Sales strategist",
+          details: {
+            hobbies: ["running", "photography"],
+            location: "Chicago",
+          },
+        },
       },
       {
         name: "Frank Miller",
@@ -147,6 +198,15 @@ describe("Query Operations", () => {
         score: 90.5,
         department: "Engineering",
         tags: ["c++", "algorithms"],
+        meta: {
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          notes: "Senior engineer",
+          details: {
+            hobbies: ["fishing", "golf"],
+            location: "Austin",
+          },
+        },
       },
       {
         name: "Grace Lee",
@@ -156,6 +216,15 @@ describe("Query Operations", () => {
         score: 93.5,
         department: "Marketing",
         tags: ["content", "seo"],
+        meta: {
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          notes: "Content specialist",
+          details: {
+            hobbies: ["blogging", "cooking"],
+            location: "Boston",
+          },
+        },
       },
       {
         name: "Henry Davis",
@@ -165,6 +234,15 @@ describe("Query Operations", () => {
         score: 82.0,
         department: "Sales",
         tags: ["crm", "salesforce"],
+        meta: {
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          notes: "Sales manager",
+          details: {
+            hobbies: ["cycling", "reading"],
+            location: "Miami",
+          },
+        },
       },
       {
         name: "Ivy Chen",
@@ -174,6 +252,15 @@ describe("Query Operations", () => {
         score: 87.5,
         department: "Engineering",
         tags: ["go", "kubernetes"],
+        meta: {
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          notes: "Cloud engineer",
+          details: {
+            hobbies: ["swimming", "gaming"],
+            location: "Denver",
+          },
+        },
       },
       {
         name: "Jack Turner",
@@ -183,6 +270,15 @@ describe("Query Operations", () => {
         score: 89.0,
         department: "Marketing",
         tags: ["analytics", "tableau"],
+        meta: {
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          notes: "Data analyst",
+          details: {
+            hobbies: ["traveling", "photography"],
+            location: "Portland",
+          },
+        },
       },
     ];
 
@@ -303,6 +399,20 @@ describe("Query Operations", () => {
       documents.forEach((doc) => {
         const tags = doc.get("tags") as string[];
         expect(tags).toContain("javascript");
+      });
+    });
+
+    test("should find documents with json filter", async () => {
+      const documents = await db.find(testCollectionId, [
+        Query.contains("meta->details->>hobbies", ["traveling"]),
+      ]);
+
+      expect(documents.length).toBeGreaterThan(0);
+      documents.forEach((doc) => {
+        const meta = doc.get("meta");
+        expect(meta).toBeDefined();
+        expect(meta.details).toBeDefined();
+        expect(meta.details.hobbies).toContain("traveling");
       });
     });
 

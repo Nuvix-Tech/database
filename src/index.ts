@@ -11,7 +11,7 @@ export {
   EventsEnum as Events,
   OnDelete as OnDeleteAction,
   RelationEnum as RelationType,
-  PermissionEnum as Permission,
+  PermissionEnum as Perms,
   OrderEnum as Order,
   OnDelete,
   IndexEnum as IndexType,

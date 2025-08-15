@@ -23,6 +23,7 @@ interface TypeGenerationOptions {
   generateQueryTypes?: boolean;
   generateInputTypes?: boolean;
   generateValidationTypes?: boolean;
+  includeMetaDataTypes?: boolean;
 }
 
 export function generateTypes(
@@ -38,6 +39,7 @@ export function generateTypes(
     generateQueryTypes = true,
     generateInputTypes = true,
     generateValidationTypes = false,
+    includeMetaDataTypes = false,
     packageName = "@nuvix-tech/db",
   } = options;
 
@@ -122,13 +124,14 @@ export interface IEntity {
   }
 
   // Collection metadata
-  const collectionMeta = generateCollectionMetadata(collections);
-  if (collectionMeta) {
-    parts.push(collectionMeta);
+  if (includeMetaDataTypes) {
+    const collectionMeta = generateCollectionMetadata(collections);
+    if (collectionMeta) {
+      parts.push(collectionMeta);
+    }
   }
 
   const result = parts.join("\n\n");
-  console.log(result);
   return result;
 }
 

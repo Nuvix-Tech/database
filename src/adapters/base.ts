@@ -1751,8 +1751,33 @@ export abstract class BaseAdapter extends EventEmitter {
     }
 
     const dbKey = this.getInternalKeyForAttribute(attribute);
-    const sanitizedKey = this.sanitize(dbKey);
-    const columnRef = `${this.quote(tableAlias)}.${this.quote(sanitizedKey)}`;
+
+    let columnRef: string;
+
+    // Handle JSON path operators (->, ->>)
+    if (dbKey.includes("->") || dbKey.includes("->>")) {
+      const parts = dbKey.split(/(->>|->)/);
+      const mainColumn = parts[0]!;
+      const sanitizedMainColumn = this.sanitize(mainColumn);
+      const quotedMainColumn = `${this.quote(tableAlias)}.${this.quote(sanitizedMainColumn)}`;
+
+      let pathExpression = quotedMainColumn;
+
+      for (let i = 1; i < parts.length; i += 2) {
+        const operator = parts[i]; // -> or ->>
+        const path = parts[i + 1];
+
+        if (path) {
+          const sanitizedPath = this.sanitize(path);
+          pathExpression += `${operator}'${sanitizedPath}'`;
+        }
+      }
+
+      columnRef = pathExpression;
+    } else {
+      const sanitizedKey = this.sanitize(dbKey);
+      columnRef = `${this.quote(tableAlias)}.${this.quote(sanitizedKey)}`;
+    }
 
     let sql = "";
 

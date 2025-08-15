@@ -181,6 +181,7 @@ CONFIGURATION:
       generateQueryTypes: typeGeneration?.generateQueryTypes,
       generateInputTypes: typeGeneration?.generateInputTypes,
       generateValidationTypes: typeGeneration?.generateValidationTypes,
+      includeMetaDataTypes: typeGeneration?.includeMetaDataTypes,
       packageName: typeGeneration?.packageName,
     });
 

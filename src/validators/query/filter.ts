@@ -14,7 +14,7 @@ import { Text } from "@validators/text.js";
  * based on a provided schema of attributes.
  */
 export class Filter extends Base {
-  protected _message: string = "Invalid filter query";
+  protected message: string = "Invalid filter query";
   protected schema: Record<string, Attribute> = {};
   protected maxValuesCount: number;
   protected minAllowedDate: Date;
@@ -56,10 +56,10 @@ export class Filter extends Base {
    * @returns {boolean} True if the query is a valid filter, false otherwise.
    */
   public $valid(value: unknown): boolean {
-    this._message = "Invalid filter query"; // Reset message at the beginning
+    this.message = "Invalid filter query"; // Reset message at the beginning
 
     if (!(value instanceof Query)) {
-      this._message = "Value must be a Query object.";
+      this.message = "Value must be a Query object.";
       return false;
     }
 
@@ -71,7 +71,7 @@ export class Filter extends Base {
       case QueryType.Contains: {
         const values = value.getValues() as ScalarValue[];
         if (this.isEmpty(values)) {
-          this._message = `${method} queries require at least one value.`;
+          this.message = `${method} queries require at least one value.`;
           return false;
         }
         return this.validateAttributeAndValues(
@@ -92,7 +92,7 @@ export class Filter extends Base {
       case QueryType.EndsWith: {
         const values = value.getValues() as ScalarValue[];
         if (values.length !== 1) {
-          this._message = `${method} queries require exactly one value.`;
+          this.message = `${method} queries require exactly one value.`;
           return false;
         }
         return this.validateAttributeAndValues(
@@ -106,7 +106,7 @@ export class Filter extends Base {
       case QueryType.Between: {
         const values = value.getValues() as ScalarValue[];
         if (values.length !== 2) {
-          this._message = `${method} queries require exactly two values.`;
+          this.message = `${method} queries require exactly two values.`;
           return false;
         }
         return this.validateAttributeAndValues(
@@ -126,20 +126,20 @@ export class Filter extends Base {
       case QueryType.And: {
         const values = value.getValues() as Query[];
         if (!Array.isArray(values) || values.length < 2) {
-          this._message = `${method} queries require an array of at least two nested queries.`;
+          this.message = `${method} queries require an array of at least two nested queries.`;
           return false;
         }
 
         const nestedQueries = Query.groupByType(values).filters;
         if (values.length! === nestedQueries.length) {
-          this._message = `${method} queries can only contain filter queries.`;
+          this.message = `${method} queries can only contain filter queries.`;
           return false;
         }
         return true;
       }
 
       default:
-        this._message = `Unknown or unsupported filter method: "${method}".`;
+        this.message = `Unknown or unsupported filter method: "${method}".`;
         return false;
     }
   }
@@ -158,10 +158,14 @@ export class Filter extends Base {
    * @returns {boolean} True if the attribute is valid, false otherwise.
    */
   protected validateAttributeSchema(attribute: string): boolean {
-    const [topLevelAttribute] = attribute.split(".");
-    const attributeSchema = this.schema[topLevelAttribute!];
+    if (attribute.includes("->") && !this.schema[attribute]) {
+      attribute = attribute.split("->")[0]!;
+    } else if (attribute.includes("->>") && !this.schema[attribute]) {
+      attribute = attribute.split("->>")[0]!;
+    }
+    const attributeSchema = this.schema[attribute!];
     if (!attributeSchema) {
-      this._message = `Attribute not found in schema: "${topLevelAttribute}".`;
+      this.message = `Attribute not found in schema: "${attribute}".`;
       return false;
     }
 
@@ -169,13 +173,13 @@ export class Filter extends Base {
       Array.isArray(attributeSchema.filters) &&
       attributeSchema.filters.includes("encrypt")
     ) {
-      this._message = `Cannot query encrypted attribute: ${attribute}`;
+      this.message = `Cannot query encrypted attribute: ${attribute}`;
       return false;
     }
 
     // TODO: recheck
     if (attribute.includes(".") && !this.schema[attribute]) {
-      this._message = "Cannot query on nested attributes.";
+      this.message = "Cannot query on nested attributes.";
       return false;
     }
 
@@ -192,12 +196,12 @@ export class Filter extends Base {
           side === RelationSideEnum.Child) ||
         relationType === RelationEnum.ManyToMany
       ) {
-        this._message = "Cannot query on virtual relationship attribute.";
+        this.message = "Cannot query on virtual relationship attribute.";
         return false;
       }
     }
     if (attributeSchema.type === AttributeEnum.Virtual) {
-      this._message = "Cannot query on virtual attribute: " + attribute;
+      this.message = "Cannot query on virtual attribute: " + attribute;
       return false;
     }
     return true;
@@ -220,13 +224,16 @@ export class Filter extends Base {
       return false;
     }
 
-    if (attribute.includes(".") && !this.schema[attribute]) {
-      attribute = attribute.split(".")[0]!;
+    if (attribute.includes("->") && !this.schema[attribute]) {
+      attribute = attribute.split("->")[0]!;
+    } else if (attribute.includes("->>") && !this.schema[attribute]) {
+      attribute = attribute.split("->>")[0]!;
     }
+
     const attributeSchema = this.schema[attribute]!;
 
     if (values.length > this.maxValuesCount) {
-      this._message = `Query on attribute "${attribute}" has more than ${this.maxValuesCount} values.`;
+      this.message = `Query on attribute "${attribute}" has more than ${this.maxValuesCount} values.`;
       return false;
     }
 
@@ -257,9 +264,10 @@ export class Filter extends Base {
     if (
       !isArray &&
       method === QueryType.Contains &&
-      attributeSchema.type !== AttributeEnum.String
+      attributeSchema.type !== AttributeEnum.String &&
+      attributeSchema.type !== AttributeEnum.Json
     ) {
-      this._message = `Cannot use "${method}" on attribute "${attributeSchema.key}" because it is not an array or string.`;
+      this.message = `Cannot use "${method}" on attribute "${attributeSchema.key}" because it is not an array or string.`;
       return false;
     }
 
@@ -269,7 +277,7 @@ export class Filter extends Base {
         method,
       )
     ) {
-      this._message = `Cannot use "${method}" on attribute "${attributeSchema.key}" because it is an array.`;
+      this.message = `Cannot use "${method}" on attribute "${attributeSchema.key}" because it is an array.`;
       return false;
     }
     return true;
@@ -316,14 +324,16 @@ export class Filter extends Base {
           this.maxAllowedDate,
         );
         break;
+      case AttributeEnum.Json:
+        break; // JSON can be any valid JSON value, no specific validator needed.
       default:
-        this._message = `Unknown data type for attribute "${attribute}".`;
+        this.message = `Unknown data type for attribute "${attribute}".`;
         return false;
     }
 
     for (const value of values) {
-      if (!validator?.$valid(value)) {
-        this._message = `Value "${value}" is invalid for attribute "${attribute}" of type "${attributeType}".`;
+      if (validator && !validator?.$valid(value)) {
+        this.message = `Value "${value}" is invalid for attribute "${attribute}" of type "${attributeType}".`;
         return false;
       }
     }
