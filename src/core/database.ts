@@ -1785,7 +1785,7 @@ export class Database extends Cache {
   public getDocument<C extends string & keyof Entities>(
     collectionId: C,
     id: string,
-    query?: ((builder: QueryBuilder) => QueryBuilder) | Query[],
+    query?: ((builder: QueryBuilder<C>) => QueryBuilder<C>) | Query[],
     forUpdate?: boolean,
   ): Promise<Doc<Entities[C]>>;
   public getDocument<C extends string>(
@@ -1883,14 +1883,14 @@ export class Database extends Cache {
   /**
    * Create a new document.
    */
-  public async createDocument<D extends Record<string, any>>(
-    collectionId: string,
-    document: Doc<D>,
-  ): Promise<Doc<D>>;
   public async createDocument<C extends keyof Entities>(
     collectionId: C,
     document: Doc<Entities[C]> | Entities[C],
   ): Promise<Doc<Entities[C]>>;
+  public async createDocument<D extends Record<string, any>>(
+    collectionId: string,
+    document: Doc<D>,
+  ): Promise<Doc<D>>;
   public async createDocument(
     collectionId: string,
     document: Doc<Partial<IEntity>>,
@@ -3566,7 +3566,7 @@ export class Database extends Cache {
    */
   public find<C extends string & keyof Entities>(
     collectionId: C,
-    query?: ((builder: QueryBuilder) => QueryBuilder) | Query[],
+    query?: ((builder: QueryBuilder<C>) => QueryBuilder<C>) | Query[],
     forPermission?: PermissionEnum,
   ): Promise<Doc<Entities[C]>[]>;
   public find<C extends string>(
@@ -3622,7 +3622,7 @@ export class Database extends Cache {
    */
   public findOne<C extends string & keyof Entities>(
     collectionId: C,
-    query?: ((builder: QueryBuilder) => QueryBuilder) | Query[],
+    query?: ((builder: QueryBuilder<C>) => QueryBuilder<C>) | Query[],
   ): Promise<Doc<Entities[C]>>;
   public findOne<C extends string>(
     collectionId: C,

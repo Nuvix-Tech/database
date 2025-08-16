@@ -3,20 +3,20 @@ import { Permission } from "@utils/permission.js";
 import { IEntity, IEntityInput } from "types.js";
 import chalk from "chalk";
 
-type IsReferenceObject<T> = T extends { $id: string; }
+type IsReferenceObject<T> = T extends { $id: string }
   ? true
-  : T extends { $collection: string; }
-  ? true
-  : false;
+  : T extends { $collection: string }
+    ? true
+    : false;
 
 type TransformField<T> =
   IsReferenceObject<T> extends true
-  ? Doc<T extends Partial<IEntity> ? T : Partial<IEntity>>
-  : T extends Array<infer U>
-  ? Array<TransformField<U>>
-  : T extends object
-  ? TransformEntity<T>
-  : T;
+    ? Doc<T extends Partial<IEntity> ? T : Partial<IEntity>>
+    : T extends Array<infer U>
+      ? Array<TransformField<U>>
+      : T extends object
+        ? TransformEntity<T>
+        : T;
 
 type TransformEntity<T> = {
   [K in keyof T]: TransformField<T[K]>;
@@ -24,7 +24,7 @@ type TransformEntity<T> = {
 
 type Simplify<T> = { [K in keyof T]: T[K] };
 
-type FilterInput<T> = Partial<Omit<T, '$permissions'>> & IEntityInput;
+type FilterInput<T> = Partial<Omit<T, "$permissions">> & IEntityInput;
 
 function isEntityLike(value: unknown): value is Record<string, unknown> {
   return (
@@ -122,7 +122,9 @@ export class Doc<
   }
 
   public setAll(data: FilterInput<T>): this;
-  public setAll<D extends FilterInput<T> & Record<string, any>>(data: D): Doc<Simplify<T & D>>;
+  public setAll<D extends FilterInput<T> & Record<string, any>>(
+    data: D,
+  ): Doc<Simplify<T & D>>;
   public setAll(data: FilterInput<T>): this {
     for (const [key, value] of Object.entries(data)) {
       if (Array.isArray(value)) {
@@ -298,10 +300,10 @@ export class Doc<
     return Object.keys(this._data);
   }
 
-  public findWhere<V = unknown>(
-    key: string & keyof T,
-    predicate: (item: V) => boolean,
-  ): V | null;
+  public findWhere<K extends string & keyof T>(
+    key: K,
+    predicate: (item: T[K] extends Array<any> ? T[K][number] : T[K]) => boolean,
+  ): T[K] extends Array<any> ? T[K][number] : T[K] | null;
   public findWhere<V = unknown>(
     key: string,
     predicate: (item: V) => boolean,
@@ -314,43 +316,12 @@ export class Doc<
     const value = this.get(key);
     if (Array.isArray(value)) {
       for (const item of value as unknown[]) {
-        if (item instanceof Doc) {
-          const found = item.findWhere(key, predicate);
-          if (found !== null) {
-            return found;
-          }
-        } else if (item !== undefined && predicate(item as V)) {
+        if (item !== undefined && predicate(item as V)) {
           return item as V;
         }
       }
-    } else if (value instanceof Doc) {
-      const found = value.findWhere(key, predicate);
-      if (found !== null) {
-        return found;
-      }
     } else if (value !== undefined && predicate(value as V)) {
       return value as V;
-    }
-
-    // Recursively search all fields for nested entities/arrays
-    for (const k of this.keys()) {
-      if (k === key) continue;
-      const field = this._data[k as string];
-      if (field instanceof Doc) {
-        const found = field.findWhere(key, predicate);
-        if (found !== null) {
-          return found;
-        }
-      } else if (Array.isArray(field)) {
-        for (const item of field) {
-          if (item instanceof Doc) {
-            const found = item.findWhere(key, predicate);
-            if (found !== null) {
-              return found;
-            }
-          }
-        }
-      }
     }
     return null;
   }
@@ -358,46 +329,34 @@ export class Doc<
   public replaceWhere<V = unknown>(
     key: string & keyof T,
     predicate: (item: V) => boolean,
-    replacement: V,
+    replacement: V | ((item: V) => V),
   ): void;
   public replaceWhere<V = unknown>(
     key: string,
     predicate: (item: V) => boolean,
-    replacement: V,
+    replacement: V | ((item: V) => V),
   ): void;
   public replaceWhere<V = unknown>(
     key: string & keyof T,
     predicate: (item: V) => boolean,
-    replacement: V,
+    replacement: V | ((item: V) => V),
   ): void {
-    // Recursively replace values matching the predicate at the given key in this entity and all nested entities/arrays
     const value = this.get(key);
     if (Array.isArray(value)) {
       for (let i = 0; i < value.length; i++) {
-        if (value[i] instanceof Doc) {
-          value[i].replaceWhere(key, predicate, replacement);
-        } else if (value[i] !== undefined && predicate(value[i] as V)) {
-          value[i] = replacement;
-        }
-      }
-    } else if (value instanceof Doc) {
-      value.replaceWhere(key, predicate, replacement);
-    } else if (value !== undefined && predicate(value as V)) {
-      this._data[key] = replacement;
-    }
-
-    // Recursively replace in all fields for nested entities/arrays
-    for (const k of this.keys()) {
-      if (k === key) continue;
-      const field = this._data[k as string];
-      if (field instanceof Doc) {
-        field.replaceWhere(key, predicate, replacement);
-      } else if (Array.isArray(field)) {
-        for (const item of field) {
-          if (item instanceof Doc) {
-            item.replaceWhere(key, predicate, replacement);
+        if (predicate(value[i] as V)) {
+          if (typeof replacement === "function") {
+            value[i] = (replacement as (item: V) => V)(value[i] as V);
+          } else {
+            value[i] = replacement;
           }
         }
+      }
+    } else if (value !== undefined && predicate(value as V)) {
+      if (typeof replacement === "function") {
+        this.set(key, (replacement as (item: V) => V)(value as V));
+      } else {
+        this.set(key, replacement);
       }
     }
   }
@@ -414,35 +373,14 @@ export class Doc<
     key: string & keyof T,
     predicate: (item: V) => boolean,
   ): void {
-    // Recursively delete values matching the predicate at the given key in this entity and all nested entities/arrays
     const value = this.get(key);
     if (Array.isArray(value)) {
-      for (let i = value.length - 1; i >= 0; i--) {
-        if (value[i] instanceof Doc) {
-          value[i].deleteWhere(key, predicate);
-        } else if (value[i] !== undefined && predicate(value[i] as V)) {
-          value.splice(i, 1);
-        }
-      }
-    } else if (value instanceof Doc) {
-      value.deleteWhere(key, predicate);
+      this.set(
+        key,
+        value.filter((item: V) => !predicate(item)),
+      );
     } else if (value !== undefined && predicate(value as V)) {
       this.delete(key);
-    }
-
-    // Recursively delete in all fields for nested entities/arrays
-    for (const k of this.keys()) {
-      if (k === key) continue;
-      const field = this._data[k as string];
-      if (field instanceof Doc) {
-        field.deleteWhere(key, predicate);
-      } else if (Array.isArray(field)) {
-        for (const item of field) {
-          if (item instanceof Doc) {
-            item.deleteWhere(key, predicate);
-          }
-        }
-      }
     }
   }
 

@@ -1,12 +1,15 @@
 import { Doc } from "@core/doc.js";
 import { CursorEnum } from "@core/enums.js";
 import { Query, ScalarValue } from "@core/query.js";
+import type { Entities } from "types.js";
+
+type Attrs<T extends keyof Entities> = string & keyof Entities[T];
 
 /**
  * A fluent builder class for constructing an array of Query objects.
  * This class provides a chainable API for creating complex queries.
  */
-export class QueryBuilder {
+export class QueryBuilder<T extends string & keyof Entities = any> {
   private queries: Query[] = [];
 
   constructor() {}
@@ -30,7 +33,7 @@ export class QueryBuilder {
    * @param values - A variadic list of values to match.
    * @returns {this} The current QueryBuilder instance for chaining.
    */
-  equal(attribute: string, ...values: ScalarValue[]): this {
+  equal(attribute: Attrs<T>, ...values: ScalarValue[]): this {
     this.queries.push(Query.equal(attribute, values));
     return this;
   }
@@ -41,7 +44,7 @@ export class QueryBuilder {
    * @param value - The value to exclude.
    * @returns {this} The current QueryBuilder instance for chaining.
    */
-  notEqual(attribute: string, value: ScalarValue): this {
+  notEqual(attribute: Attrs<T>, value: ScalarValue): this {
     this.queries.push(Query.notEqual(attribute, value));
     return this;
   }
@@ -52,7 +55,7 @@ export class QueryBuilder {
    * @param value - The upper bound value.
    * @returns {this} The current QueryBuilder instance for chaining.
    */
-  lessThan(attribute: string, value: number | string): this {
+  lessThan(attribute: Attrs<T>, value: number | string): this {
     this.queries.push(Query.lessThan(attribute, value));
     return this;
   }
@@ -63,7 +66,7 @@ export class QueryBuilder {
    * @param value - The upper bound value.
    * @returns {this} The current QueryBuilder instance for chaining.
    */
-  lessThanEqual(attribute: string, value: number | string): this {
+  lessThanEqual(attribute: Attrs<T>, value: number | string): this {
     this.queries.push(Query.lessThanEqual(attribute, value));
     return this;
   }
@@ -74,7 +77,7 @@ export class QueryBuilder {
    * @param value - The lower bound value.
    * @returns {this} The current QueryBuilder instance for chaining.
    */
-  greaterThan(attribute: string, value: number | string): this {
+  greaterThan(attribute: Attrs<T>, value: number | string): this {
     this.queries.push(Query.greaterThan(attribute, value));
     return this;
   }
@@ -85,7 +88,7 @@ export class QueryBuilder {
    * @param value - The lower bound value.
    * @returns {this} The current QueryBuilder instance for chaining.
    */
-  greaterThanEqual(attribute: string, value: number | string): this {
+  greaterThanEqual(attribute: Attrs<T>, value: number | string): this {
     this.queries.push(Query.greaterThanEqual(attribute, value));
     return this;
   }
@@ -96,7 +99,7 @@ export class QueryBuilder {
    * @param values - A variadic list of values to check for containment.
    * @returns {this} The current QueryBuilder instance for chaining.
    */
-  contains(attribute: string, ...values: ScalarValue[]): this {
+  contains(attribute: Attrs<T>, ...values: ScalarValue[]): this {
     this.queries.push(Query.contains(attribute, values));
     return this;
   }
@@ -108,7 +111,7 @@ export class QueryBuilder {
    * @param end - The end value (inclusive).
    * @returns {this} The current QueryBuilder instance for chaining.
    */
-  between(attribute: string, start: ScalarValue, end: ScalarValue): this {
+  between(attribute: Attrs<T>, start: ScalarValue, end: ScalarValue): this {
     this.queries.push(Query.between(attribute, start, end));
     return this;
   }
@@ -119,7 +122,7 @@ export class QueryBuilder {
    * @param value - The search term.
    * @returns {this} The current QueryBuilder instance for chaining.
    */
-  search(attribute: string, value: string): this {
+  search(attribute: Attrs<T>, value: string): this {
     this.queries.push(Query.search(attribute, value));
     return this;
   }
@@ -129,7 +132,7 @@ export class QueryBuilder {
    * @param attributes - A variadic list of attributes to select.
    * @returns {this} The current QueryBuilder instance for chaining.
    */
-  select(...attributes: string[]): this {
+  select(...attributes: Attrs<T>[]): this {
     this.queries.push(Query.select(attributes));
     return this;
   }
@@ -139,7 +142,7 @@ export class QueryBuilder {
    * @param attribute - The attribute to sort by. Defaults to '$sequence'.
    * @returns {this} The current QueryBuilder instance for chaining.
    */
-  orderDesc(attribute: string = ""): this {
+  orderDesc(attribute: Attrs<T> = "" as Attrs<T>): this {
     this.queries.push(Query.orderDesc(attribute));
     return this;
   }
@@ -149,7 +152,7 @@ export class QueryBuilder {
    * @param attribute - The attribute to sort by. Defaults to '$sequence'.
    * @returns {this} The current QueryBuilder instance for chaining.
    */
-  orderAsc(attribute: string = ""): this {
+  orderAsc(attribute: Attrs<T> = "" as Attrs<T>): this {
     this.queries.push(Query.orderAsc(attribute));
     return this;
   }
@@ -199,7 +202,7 @@ export class QueryBuilder {
    * @param attribute - The attribute name.
    * @returns {this} The current QueryBuilder instance for chaining.
    */
-  isNull(attribute: string): this {
+  isNull(attribute: Attrs<T>): this {
     this.queries.push(Query.isNull(attribute));
     return this;
   }
@@ -209,7 +212,7 @@ export class QueryBuilder {
    * @param attribute - The attribute name.
    * @returns {this} The current QueryBuilder instance for chaining.
    */
-  isNotNull(attribute: string): this {
+  isNotNull(attribute: Attrs<T>): this {
     this.queries.push(Query.isNotNull(attribute));
     return this;
   }
@@ -220,7 +223,7 @@ export class QueryBuilder {
    * @param value - The string prefix.
    * @returns {this} The current QueryBuilder instance for chaining.
    */
-  startsWith(attribute: string, value: string): this {
+  startsWith(attribute: Attrs<T>, value: string): this {
     this.queries.push(Query.startsWith(attribute, value));
     return this;
   }
@@ -231,7 +234,7 @@ export class QueryBuilder {
    * @param value - The string suffix.
    * @returns {this} The current QueryBuilder instance for chaining.
    */
-  endsWith(attribute: string, value: string): this {
+  endsWith(attribute: Attrs<T>, value: string): this {
     this.queries.push(Query.endsWith(attribute, value));
     return this;
   }
@@ -267,7 +270,7 @@ export class QueryBuilder {
    * @returns {this} The current QueryBuilder instance for chaining.
    */
   populate(
-    attribute: string,
+    attribute: Attrs<T>,
     builderFn?: (builder: QueryBuilder) => void,
   ): this {
     const nestedBuilder = new QueryBuilder();
@@ -326,7 +329,7 @@ export class QueryBuilder {
    * @param term - The search term.
    * @returns {this} The current QueryBuilder instance for chaining.
    */
-  multiSearch(fields: string[], term: string): this {
+  multiSearch(fields: Attrs<T>[], term: string): this {
     const nestedQueries: Query[] = fields.map((field) =>
       Query.search(field, term),
     );
