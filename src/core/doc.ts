@@ -3,26 +3,28 @@ import { Permission } from "@utils/permission.js";
 import { IEntity, IEntityInput } from "types.js";
 import chalk from "chalk";
 
-type IsReferenceObject<T> = T extends { $id: string }
+type IsReferenceObject<T> = T extends { $id: string; }
   ? true
-  : T extends { $collection: string }
-    ? true
-    : false;
+  : T extends { $collection: string; }
+  ? true
+  : false;
 
 type TransformField<T> =
   IsReferenceObject<T> extends true
-    ? Doc<T extends Partial<IEntity> ? T : Partial<IEntity>>
-    : T extends Array<infer U>
-      ? Array<TransformField<U>>
-      : T extends object
-        ? TransformEntity<T>
-        : T;
+  ? Doc<T extends Partial<IEntity> ? T : Partial<IEntity>>
+  : T extends Array<infer U>
+  ? Array<TransformField<U>>
+  : T extends object
+  ? TransformEntity<T>
+  : T;
 
 type TransformEntity<T> = {
   [K in keyof T]: TransformField<T[K]>;
 };
 
 type Simplify<T> = { [K in keyof T]: T[K] };
+
+type FilterInput<T> = Partial<Omit<T, '$permissions'>> & IEntityInput;
 
 function isEntityLike(value: unknown): value is Record<string, unknown> {
   return (
@@ -115,6 +117,28 @@ export class Doc<
       this._data[name] = value instanceof Doc ? value : new Doc(value as any);
     } else {
       this._data[name] = value ?? null;
+    }
+    return this;
+  }
+
+  public setAll(data: FilterInput<T>): this;
+  public setAll<D extends FilterInput<T> & Record<string, any>>(data: D): Doc<Simplify<T & D>>;
+  public setAll(data: FilterInput<T>): this {
+    for (const [key, value] of Object.entries(data)) {
+      if (Array.isArray(value)) {
+        this._data[key] = value.map((item) =>
+          isEntityLike(item)
+            ? item instanceof Doc
+              ? item
+              : new Doc(item as any)
+            : item,
+        );
+      } else if (isEntityLike(value)) {
+        this._data[key] =
+          (value as any) instanceof Doc ? value : new Doc(value as any);
+      } else {
+        this._data[key] = value ?? null;
+      }
     }
     return this;
   }
