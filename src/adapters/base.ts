@@ -66,10 +66,10 @@ export abstract class BaseAdapter extends EventEmitter {
   protected transformations: Partial<
     Record<EventsEnum, Array<[string, (query: string) => string]>>
   > = {
-    [EventsEnum.All]: [],
-  };
+      [EventsEnum.All]: [],
+    };
 
-  constructor(options: { type?: string } = {}) {
+  constructor(options: { type?: string; } = {}) {
     super();
     if (options.type) {
       this.type = options.type;
@@ -191,28 +191,44 @@ export abstract class BaseAdapter extends EventEmitter {
     return await this.client.ping();
   }
 
+  /**
+   * Checks if a database schema or table exists.
+   * @param name - Schema name or table name to check
+   * @param collection - Optional collection/schema name. If provided, checks for table existence within that schema
+   * @returns Promise<boolean> - true if the schema/table exists, false otherwise
+   */
   async exists(name: string, collection?: string): Promise<boolean> {
-    const values: string[] = [this.sanitize(name)];
-    let sql: string;
-
-    if (collection) {
-      sql = `
-                SELECT COUNT(*) as count
-                FROM information_schema.tables
-                WHERE table_schema = $1
-                AND table_name = $2
-            `;
-      values.push(this.sanitize(collection));
-    } else {
-      sql = `
-                SELECT COUNT(*) as count
-                FROM information_schema.schemata
-                WHERE schema_name = $1
-            `;
+    if (!name?.trim()) {
+      throw new DatabaseException("Name parameter is required and cannot be empty");
     }
 
-    const { rows } = await this.client.query<any>(sql, values);
-    return rows[0].count > 0;
+    try {
+      let sql: string;
+      const params: string[] = [];
+
+      if (collection) {
+        sql = `
+          SELECT 1
+          FROM information_schema.tables
+          WHERE table_schema = ? AND table_name = ?
+          LIMIT 1
+        `;
+        params.push(this.sanitize(name), this.getTableName(collection));
+      } else {
+        sql = `
+          SELECT 1
+          FROM information_schema.schemata
+          WHERE schema_name = ?
+          LIMIT 1
+        `;
+        params.push(this.sanitize(name));
+      }
+
+      const { rows } = await this.client.query<any>(sql, params);
+      return rows.length > 0;
+    } catch (error) {
+      this.processException(error, `Failed to check if ${collection ? 'table' : 'schema'} exists`);
+    }
   }
 
   /**
@@ -519,7 +535,7 @@ export abstract class BaseAdapter extends EventEmitter {
    * update permissions for a document
    */
   protected async updatePermissions(collection: string, document: Doc) {
-    const operations: { sql: string; params: any[] }[] = [];
+    const operations: { sql: string; params: any[]; }[] = [];
 
     // Get current permissions grouped by type
     const sqlParams: any[] = [document.getSequence()];
@@ -914,7 +930,14 @@ export abstract class BaseAdapter extends EventEmitter {
     if (!name) {
       throw new DatabaseException("Failed to get SQL table: name is empty");
     }
-    return `${this.quote(this.$schema)}.${this.quote(`${this._meta.namespace}_${name}`)}`;
+    return `${this.quote(this.$schema)}.${this.quote(this.getTableName(name))}`;
+  }
+
+  protected getTableName(name: string): string {
+    if (!name) {
+      throw new DatabaseException("Failed to get table name: name is empty");
+    }
+    return `${this._meta.namespace}_${name}`;
   }
 
   protected getSQLIndex(table: string, name: string): string {
@@ -1712,7 +1735,7 @@ export abstract class BaseAdapter extends EventEmitter {
     queries: Query[],
     tableAlias: string,
     collection: string,
-  ): { conditions: string[]; params: any[] } {
+  ): { conditions: string[]; params: any[]; } {
     const conditions: string[] = [];
     const conditionParams: any[] = [];
 
@@ -1740,7 +1763,7 @@ export abstract class BaseAdapter extends EventEmitter {
   private buildQueryCondition(
     query: Query,
     tableAlias: string,
-  ): { sql: string; params: any[] } {
+  ): { sql: string; params: any[]; } {
     const method = query.getMethod();
     const attribute = query.getAttribute();
     const values = query.getValues();
@@ -1927,7 +1950,7 @@ export abstract class BaseAdapter extends EventEmitter {
     cursorDirection: string | null,
     orderAttributes: string[],
     tableAlias: string,
-  ): { condition: string; params: any[] } {
+  ): { condition: string; params: any[]; } {
     if (!cursor || orderAttributes.length === 0) {
       return { condition: "", params: [] };
     }

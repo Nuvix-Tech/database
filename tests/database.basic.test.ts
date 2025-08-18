@@ -66,5 +66,7 @@ describe("Database - basic collections and documents", () => {
     // get doc
     const got = await db.getDocument("users", created.get("$id"));
     expect(got.get("name")).toBe("Ada");
+
+    expect(await db.exists(db.schema, "users")).toBe(true);
   });
 });
