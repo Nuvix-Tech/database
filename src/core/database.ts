@@ -118,7 +118,12 @@ export class Database extends Cache {
     permissions,
     documentSecurity,
   }: CreateCollection): Promise<Doc<Collection>> {
-    permissions ??= [Permission.create(Role.any())];
+    permissions ??= [
+      Permission.create(Role.any()),
+      Permission.read(Role.any()),
+      Permission.update(Role.any()),
+      Permission.delete(Role.any())
+    ];
 
     if (this.validate) {
       const perms = new Permissions();
@@ -161,7 +166,7 @@ export class Database extends Cache {
       name: id,
       attributes: attributes,
       indexes: indexes,
-      documentSecurity: documentSecurity ?? false,
+      documentSecurity: documentSecurity ?? true,
     });
 
     if (this.validate) {

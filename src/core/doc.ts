@@ -40,7 +40,9 @@ export class Doc<
   private _data: Record<string, any> = {};
 
   constructor(data: T extends IEntity ? FilterInput<T> : never);
-  constructor(data?: (T | TransformEntity<T>) | (IEntityInput & Record<string, any>));
+  constructor(
+    data?: (T | TransformEntity<T>) | (IEntityInput & Record<string, any>),
+  );
   constructor(
     data?: (T | TransformEntity<T>) | (IEntityInput & Record<string, any>),
   ) {

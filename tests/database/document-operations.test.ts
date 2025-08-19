@@ -10,6 +10,16 @@ import { Attribute } from "@validators/schema.js";
 import { Query } from "@core/query.js";
 import { ID } from "@utils/id.js";
 
+Database.addFilter("versionFilter", {
+  encode(_, __, ___) {
+    return null;
+  },
+  decode(_, __, ___) {
+    console.log("versionFilter decode called", _);
+    return "v1";
+  },
+});
+
 describe("Document Operations", () => {
   let db: Database;
   let testCollectionId: string;
@@ -74,6 +84,12 @@ describe("Document Operations", () => {
           array: true,
           required: false,
         }),
+        new Doc<Attribute>({
+          $id: "version",
+          key: "version",
+          type: AttributeEnum.Virtual,
+          filters: ["versionFilter"],
+        }),
       ],
     });
   });
@@ -102,6 +118,7 @@ describe("Document Operations", () => {
       expect(document.get("$collection")).toBe(testCollectionId);
       expect(document.get("$createdAt")).toBeDefined();
       expect(document.get("$updatedAt")).toBeDefined();
+      expect(document.get("version")).toBe("v1");
     });
 
     test("should create document with default values", async () => {

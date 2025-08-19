@@ -737,12 +737,12 @@ export abstract class Base<
       }
     }
 
-    // Decode filters for non-JSON and non-Relationship attributes
+    // Decode filters for non-Relationship attributes
     for (const attribute of attributes) {
       const key = attribute.$id;
-      if (!key || [AttributeEnum.Relationship].includes(attribute.type))
+      if (!key || attribute.type === AttributeEnum.Relationship) continue;
+      if (!document.has(key) && attribute.type !== AttributeEnum.Virtual)
         continue;
-      if (!document.has(key)) continue;
 
       const isArray = attribute.array ?? false;
       const filters = attribute.filters ?? [];
@@ -755,7 +755,7 @@ export abstract class Base<
             : [values] // TODO: ------------
           : Array.isArray(values)
             ? values
-            : values != null
+            : values != null || attribute.type === AttributeEnum.Virtual
               ? [values]
               : [];
 
