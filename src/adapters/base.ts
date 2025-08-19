@@ -8,6 +8,8 @@ import {
   PermissionEnum,
   RelationEnum,
   RelationSideEnum,
+  CursorEnum,
+  OrderEnum,
 } from "@core/enums.js";
 import { IncreaseDocumentAttribute } from "./types.js";
 import { Doc } from "@core/doc.js";
@@ -22,6 +24,7 @@ import { DatabaseError } from "pg";
 import {
   DuplicateException,
   NotFoundException,
+  OrderException,
   TimeoutException,
   TruncateException,
 } from "@errors/index.js";
@@ -66,10 +69,10 @@ export abstract class BaseAdapter extends EventEmitter {
   protected transformations: Partial<
     Record<EventsEnum, Array<[string, (query: string) => string]>>
   > = {
-      [EventsEnum.All]: [],
-    };
+    [EventsEnum.All]: [],
+  };
 
-  constructor(options: { type?: string; } = {}) {
+  constructor(options: { type?: string } = {}) {
     super();
     if (options.type) {
       this.type = options.type;
@@ -199,7 +202,9 @@ export abstract class BaseAdapter extends EventEmitter {
    */
   async exists(name: string, collection?: string): Promise<boolean> {
     if (!name?.trim()) {
-      throw new DatabaseException("Name parameter is required and cannot be empty");
+      throw new DatabaseException(
+        "Name parameter is required and cannot be empty",
+      );
     }
 
     try {
@@ -227,7 +232,10 @@ export abstract class BaseAdapter extends EventEmitter {
       const { rows } = await this.client.query<any>(sql, params);
       return rows.length > 0;
     } catch (error) {
-      this.processException(error, `Failed to check if ${collection ? 'table' : 'schema'} exists`);
+      this.processException(
+        error,
+        `Failed to check if ${collection ? "table" : "schema"} exists`,
+      );
     }
   }
 
@@ -535,7 +543,7 @@ export abstract class BaseAdapter extends EventEmitter {
    * update permissions for a document
    */
   protected async updatePermissions(collection: string, document: Doc) {
-    const operations: { sql: string; params: any[]; }[] = [];
+    const operations: { sql: string; params: any[] }[] = [];
 
     // Get current permissions grouped by type
     const sqlParams: any[] = [document.getSequence()];
@@ -1381,7 +1389,8 @@ export abstract class BaseAdapter extends EventEmitter {
     const cursorConditions = this.buildCursorConditions(
       options.cursor,
       options.cursorDirection,
-      options.orderAttributes || [],
+      options.orders,
+      options.orderAttributes,
       mainTableAlias,
     );
 
@@ -1461,8 +1470,7 @@ export abstract class BaseAdapter extends EventEmitter {
       collection,
       filters = [],
       selections = [],
-      orderAttributes = [],
-      orderTypes = [],
+      orders: ordersFromQuery,
       skipAuth,
     } = rest;
 
@@ -1503,11 +1511,7 @@ export abstract class BaseAdapter extends EventEmitter {
       );
     }
 
-    const _orders = this.buildOrderClause(
-      orderAttributes,
-      orderTypes,
-      tableAlias,
-    );
+    const _orders = this.buildOrderClause(ordersFromQuery, tableAlias);
     if (_orders.length) {
       orders.push(..._orders);
     }
@@ -1735,7 +1739,7 @@ export abstract class BaseAdapter extends EventEmitter {
     queries: Query[],
     tableAlias: string,
     collection: string,
-  ): { conditions: string[]; params: any[]; } {
+  ): { conditions: string[]; params: any[] } {
     const conditions: string[] = [];
     const conditionParams: any[] = [];
 
@@ -1763,7 +1767,7 @@ export abstract class BaseAdapter extends EventEmitter {
   private buildQueryCondition(
     query: Query,
     tableAlias: string,
-  ): { sql: string; params: any[]; } {
+  ): { sql: string; params: any[] } {
     const method = query.getMethod();
     const attribute = query.getAttribute();
     const values = query.getValues();
@@ -1923,19 +1927,19 @@ export abstract class BaseAdapter extends EventEmitter {
    * Builds ORDER BY clause
    */
   protected buildOrderClause(
-    orderAttributes: string[],
-    orderTypes: string[],
+    orders: Record<string, OrderEnum>,
     tableAlias: string,
   ): string[] {
-    if (orderAttributes.length === 0) {
+    const entries = Object.entries(orders);
+    if (entries.length === 0) {
       // Default order by _id
       return [`${this.quote(tableAlias)}.${this.quote("_id")} ASC`];
     }
 
-    const orderParts = orderAttributes.map((attr, index) => {
+    const orderParts = entries.map(([attr, type]) => {
       const dbKey = this.getInternalKeyForAttribute(attr);
       const sanitizedKey = this.sanitize(dbKey);
-      const orderType = orderTypes[index] || "ASC";
+      const orderType = type || "ASC";
       return `${this.quote(tableAlias)}.${this.quote(sanitizedKey)} ${orderType}`;
     });
 
@@ -1947,17 +1951,33 @@ export abstract class BaseAdapter extends EventEmitter {
    */
   protected buildCursorConditions(
     cursor: Doc<any> | null = null,
-    cursorDirection: string | null,
+    cursorDirection: CursorEnum | null,
+    orders: Record<string, OrderEnum>,
     orderAttributes: string[],
     tableAlias: string,
-  ): { condition: string; params: any[]; } {
+  ): { condition: string; params: any[] } {
+    const uniqueOrderAttr = orders["$id"] || orders["$sequence"];
+
+    // I know this is not the good place to update the orders, but it works.
+    if (!uniqueOrderAttr) {
+      orders["$sequence"] = OrderEnum.Asc;
+    }
+
     if (!cursor || orderAttributes.length === 0) {
       return { condition: "", params: [] };
     }
-    cursorDirection ??= "AFTER";
+
+    for (const attr of orderAttributes) {
+      const orderValue = cursor.get(attr, null);
+      if (orderValue === null) {
+        throw new OrderException(`Order attribute '${attr}' is empty`, attr);
+      }
+    }
+
+    cursorDirection ??= CursorEnum.After;
     const conditions: string[] = [];
     const params: any[] = [];
-    const operator = cursorDirection === "AFTER" ? ">" : "<";
+    const operator = cursorDirection === CursorEnum.After ? ">" : "<";
 
     if (orderAttributes.length === 1 && orderAttributes[0] === "$sequence") {
       // single unique attribute

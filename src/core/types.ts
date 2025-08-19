@@ -3,7 +3,12 @@ import type { Database } from "./database.js";
 import type { Doc } from "./doc.js";
 import { Permission } from "@utils/permission.js";
 import { Query } from "./query.js";
-import { OnDelete, RelationEnum } from "./enums.js";
+import {
+  OnDelete,
+  RelationEnum,
+  type CursorEnum,
+  type OrderEnum,
+} from "./enums.js";
 import { IEntity } from "types.js";
 
 export type FilterValue =
@@ -45,9 +50,10 @@ export type QueryByType = {
   limit: number | null;
   offset: number | null;
   orderAttributes: string[];
-  orderTypes: ("ASC" | "DESC")[];
+  orderTypes: OrderEnum[];
+  orders: Record<string, OrderEnum>;
   cursor: Doc<IEntity> | null;
-  cursorDirection: "AFTER" | "BEFORE" | null;
+  cursorDirection: CursorEnum | null;
   populateQueries: Map<string, Query[]>;
 };
 

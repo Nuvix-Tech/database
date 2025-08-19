@@ -2,6 +2,7 @@ import { QueryException } from "@errors/index.js";
 import { Logger } from "@utils/logger.js";
 import { QueryByType } from "./types.js";
 import { Doc } from "./doc.js";
+import { CursorEnum, OrderEnum } from "./enums.js";
 
 /**
  * Defines the types of operations a query can perform.
@@ -634,9 +635,10 @@ export class Query {
     let limit: number | null = null;
     let offset: number | null = null;
     const orderAttributes: string[] = [];
-    const orderTypes: ("ASC" | "DESC")[] = [];
+    const orderTypes: OrderEnum[] = [];
     let cursor: Doc<any> | null = null;
-    let cursorDirection: "AFTER" | "BEFORE" | null = null;
+    let cursorDirection: CursorEnum | null = null;
+    const _orders: Record<string, OrderEnum> = {};
 
     for (const query of queries) {
       const method = query.getMethod();
@@ -649,7 +651,10 @@ export class Query {
           if (attribute) {
             orderAttributes.push(attribute);
           }
-          orderTypes.push(method === QueryType.OrderAsc ? "ASC" : "DESC");
+          const order =
+            method === QueryType.OrderAsc ? OrderEnum.Asc : OrderEnum.Desc;
+          orderTypes.push(order);
+          _orders[attribute] = order;
           break;
         case QueryType.Limit:
           if (limit === null && typeof values[0] === "number") {
@@ -667,7 +672,9 @@ export class Query {
           if (cursor === null && values[0] instanceof Doc) {
             cursor = values[0];
             cursorDirection =
-              method === QueryType.CursorAfter ? "AFTER" : "BEFORE";
+              method === QueryType.CursorAfter
+                ? CursorEnum.After
+                : CursorEnum.Before;
           }
           break;
         case QueryType.Select:
@@ -708,6 +715,7 @@ export class Query {
       offset,
       orderAttributes,
       orderTypes,
+      orders: _orders,
       cursor,
       cursorDirection,
       populateQueries,

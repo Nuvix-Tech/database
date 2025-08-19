@@ -1844,7 +1844,7 @@ export class Database extends Cache {
 
         const authorization = new Authorization(PermissionEnum.Read);
         if (!authorization.$valid(readPermissions)) {
-          throw new AuthorizationException(authorization.$description);
+          return new Doc();
         }
       }
     } else {
@@ -1853,7 +1853,7 @@ export class Database extends Cache {
         collection.getId() !== Database.METADATA &&
         !authorization.$valid(collection.getRead())
       ) {
-        throw new AuthorizationException(authorization.$description);
+        return new Doc();
       }
 
       const queryWithId = {
