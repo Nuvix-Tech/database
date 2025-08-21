@@ -255,7 +255,9 @@ export class Doc<
 
     return Array.from(
       new Set(
-        permissions.map((p) => (p instanceof Permission ? p.toString() : p)),
+        permissions
+          .map((p) => (p instanceof Permission ? p.toString() : p))
+          .filter(Boolean),
       ),
     );
   }

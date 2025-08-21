@@ -48,6 +48,14 @@ export class Permission {
     return `${this.permission}("${this.role.toString()}")`;
   }
 
+  public toObject(): string {
+    return this.toString(); // For consistency, returning the string representation.
+  }
+
+  public toJSON(): string {
+    return this.toString();
+  }
+
   /**
    * Get the permission name.
    * @returns {PermissionEnum}

@@ -58,6 +58,14 @@ export class Role {
     return str;
   }
 
+  public toObject(): string {
+    return this.toString(); // For consistency, returning the string representation.
+  }
+
+  public toJSON(): string {
+    return this.toString();
+  }
+
   /**
    * @returns {RoleName} The base name of the role (e.g., "user", "team").
    */

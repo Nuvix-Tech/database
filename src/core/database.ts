@@ -122,7 +122,7 @@ export class Database extends Cache {
       Permission.create(Role.any()),
       Permission.read(Role.any()),
       Permission.update(Role.any()),
-      Permission.delete(Role.any())
+      Permission.delete(Role.any()),
     ];
 
     if (this.validate) {
@@ -2306,9 +2306,11 @@ export class Database extends Cache {
         resolvedDocuments,
       );
     });
-    // const castedDocuments = updatedDocuments.map(doc => this.cast(collection, doc));
+    const castedDocuments = updatedDocuments.map((doc) =>
+      this.cast(collection, doc),
+    );
     const decodedDocuments = await Promise.all(
-      updatedDocuments.map((doc) =>
+      castedDocuments.map((doc) =>
         this.decode({ collection, populateQueries: [] }, doc),
       ),
     );
@@ -2453,9 +2455,10 @@ export class Database extends Cache {
       return encodedDocument;
     });
 
+    const castedDocument = this.cast(collection, updatedDocument);
     const decodedDocument = await this.decode(
       { collection, populateQueries: [] },
-      updatedDocument,
+      castedDocument,
     );
 
     this.trigger(EventsEnum.DocumentUpdate, decodedDocument);
@@ -2796,9 +2799,10 @@ export class Database extends Cache {
         doc.delete("$skipPermissionsUpdate");
 
         await this.purgeCachedDocument(collection.getId(), doc.getId());
+        const castedDoc = this.cast(collection, doc);
         const decodedDoc = await this.decode(
           { collection, populateQueries: [] },
-          doc,
+          castedDoc,
         );
 
         try {
@@ -3344,7 +3348,7 @@ export class Database extends Cache {
 
       for (const doc of batch) {
         let processedDoc = doc;
-
+        processedDoc = this.cast(collection, processedDoc);
         processedDoc = await this.decode(
           { collection, populateQueries: [] },
           processedDoc,
@@ -3611,8 +3615,9 @@ export class Database extends Cache {
     const rows = await this.adapter.find(collectionId, processedQueries);
     const result = this.processFindResults(rows, processedQueries);
 
+    const castedResult = result.map((doc) => this.cast(collection, doc));
     const documents = await Promise.all(
-      result.map(async (doc) => {
+      castedResult.map(async (doc) => {
         return this.filter ? await this.decode(processedQueries, doc) : doc;
       }),
     );

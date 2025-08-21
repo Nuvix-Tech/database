@@ -16,7 +16,6 @@ import PG, {
 import { IClient } from "./interface.js";
 import { DatabaseException } from "@errors/base.js";
 import { TransactionException } from "@errors/index.js";
-import { Logger } from "@utils/logger.js";
 
 const types = PG.types;
 
@@ -41,6 +40,12 @@ types.setTypeParser(types.builtins.INTERVAL, (x) => x);
 types.setTypeParser(600 as any, (x) => x); // point
 types.setTypeParser(1017 as any, (x) => x); // _point
 
+const timestampzParser = (x: string | null): Date | null => {
+  if (x === null) return null;
+  const date = new Date(x);
+  return isNaN(date.getTime()) ? null : date;
+};
+
 export class PostgresClient implements IClient {
   private connection: Client | Pool | PoolClient;
   private pool: Pool | null = null;
@@ -59,9 +64,23 @@ export class PostgresClient implements IClient {
   constructor(options: PoolConfig | Client) {
     if ("connect" in options) {
       this.connection = options;
+      this.connection.setTypeParser(
+        types.builtins.TIMESTAMPTZ,
+        timestampzParser,
+      );
       this._type = "connection";
     } else {
-      const pool = new Pool(options);
+      const pool = new Pool({
+        ...options,
+        types: {
+          getTypeParser(id, format) {
+            if (id === types.builtins.TIMESTAMPTZ && format === "text") {
+              return timestampzParser;
+            }
+            return types.getTypeParser(id, format);
+          },
+        },
+      });
       this.connection = pool;
       this.pool = pool;
       this._type = "pool";
@@ -100,7 +119,6 @@ export class PostgresClient implements IClient {
     values?: QueryConfigValues<I>,
   ): Promise<QueryResult<R>>;
   public query(sql: any, values?: any): Promise<any> {
-    Logger.info("Executing SQL:", { sql, values });
     if (typeof sql === "string" && values && Array.isArray(values)) {
       let paramIndex = 1;
       const convertedSql = sql.replace(/\?/g, () => `$${paramIndex++}`);

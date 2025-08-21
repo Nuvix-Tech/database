@@ -6,7 +6,7 @@ const typeMap: Record<AttributeEnum, string> = {
   [AttributeEnum.Integer]: "number",
   [AttributeEnum.Float]: "number",
   [AttributeEnum.Boolean]: "boolean",
-  [AttributeEnum.Timestamptz]: "Date | string",
+  [AttributeEnum.Timestamptz]: "string",
   [AttributeEnum.Json]: "Record<string, any>",
   [AttributeEnum.Relationship]: "string", // will be replaced dynamically
   [AttributeEnum.Virtual]: "never",

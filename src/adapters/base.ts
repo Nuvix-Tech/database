@@ -1490,6 +1490,7 @@ export abstract class BaseAdapter extends EventEmitter {
     if (
       tableAlias === "main" &&
       Authorization.getStatus() &&
+      !skipAuth &&
       collection.get("documentSecurity", false)
     ) {
       const roles = Authorization.getRoles();
@@ -1578,9 +1579,9 @@ export abstract class BaseAdapter extends EventEmitter {
           `LEFT JOIN ${relatedTable} AS ${this.quote(relationAlias)} ON ${joinCondition}`,
         );
 
-        // TODO: recheck
         if (
           Authorization.getStatus() &&
+          !rest.skipAuth &&
           rest.collection.get("documentSecurity", false)
         ) {
           const roles = Authorization.getRoles();
