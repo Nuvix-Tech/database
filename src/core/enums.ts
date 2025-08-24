@@ -75,11 +75,6 @@ export enum EventsEnum {
   DocumentIncrease = "document_increase",
   DocumentDecrease = "document_decrease",
 
-  PermissionsCreate = "permissions_create",
-  PermissionsRead = "permissions_read",
-  PermissionsUpdate = "permissions_update",
-  PermissionsDelete = "permissions_delete",
-
   AttributeCreate = "attribute_create",
   AttributesCreate = "attributes_create",
   AttributeUpdate = "attribute_update",
@@ -92,6 +87,15 @@ export enum EventsEnum {
   RelationshipCreate = "relationship_create",
   RelationshipDelete = "relationship_delete",
   RelationshipUpdate = "relationship_update",
+
+  /**
+   * WARNING: These permission events are emitted by the adapter layer,
+   * not by the Database core. Attach listeners in adapter-related code.
+   */
+  PermissionsCreate = "permissions_create",
+  PermissionsRead = "permissions_read",
+  PermissionsUpdate = "permissions_update",
+  PermissionsDelete = "permissions_delete",
 }
 
 export enum CursorEnum {

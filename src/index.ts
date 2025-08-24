@@ -2,6 +2,7 @@ export * from "./adapters/adapter.js";
 export * from "./core/database.js";
 export * from "./core/doc.js";
 export * from "./core/query.js";
+export * from "./core/emitter.js"
 export type { Filter, RelationshipUpdates, FilterValue } from "./core/types.js";
 
 export {

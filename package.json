@@ -1,6 +1,6 @@
 {
   "name": "@nuvix-tech/db",
-  "version": "0.1.26-alpha.6",
+  "version": "0.1.26-alpha.7",
   "description": "Modular and performant database library for Nuvix, with internal complexity abstracted from developers.",
   "license": "Proprietary",
   "main": "./dist/index.cjs",
@@ -31,7 +31,8 @@
     "test:watch": "vitest",
     "generate-types": "node dist/cli/generate-types.js",
     "types:init": "node dist/cli/generate-types.js --init",
-    "types:watch": "node dist/cli/generate-types.js --watch"
+    "types:watch": "node dist/cli/generate-types.js --watch",
+    "format": "prettier --write ."
   },
   "dependencies": {
     "chalk": "^5.5.0"

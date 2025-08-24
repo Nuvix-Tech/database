@@ -215,14 +215,6 @@ export class Doc<
     }
   }
 
-  /**
-   * @deprecated use getSequence instead
-   */
-  public getInternalId(): number {
-    console.warn("getInternalId is deprecated, use getSequence instead");
-    return this.getSequence();
-  }
-
   public getCollection(): string {
     const collection = this.get("$collection");
     // if (typeof collection !== "string") {

@@ -338,6 +338,20 @@ export abstract class Base<
     }
   }
 
+  public async withSchema<T>(
+    schema: string,
+    callback: Callback<T>,
+  ): Promise<T> {
+    const previous = this.adapter.$schema;
+    this.adapter.setMeta({ schema });
+
+    try {
+      return await callback();
+    } finally {
+      this.adapter.setMeta({ schema: previous });
+    }
+  }
+
   public async withPreserveDates<T>(callback: Callback<T>): Promise<T> {
     const previous = this.preserveDates;
     this.preserveDates = true;

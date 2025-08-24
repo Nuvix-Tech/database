@@ -1613,7 +1613,7 @@ export class Database extends Cache {
       );
     }
 
-    this.trigger(EventsEnum.IndexRename, collection, index);
+    this.trigger(EventsEnum.IndexRename, collection, index, oldName);
 
     return true;
   }
@@ -1779,7 +1779,7 @@ export class Database extends Cache {
       );
     }
 
-    this.trigger(EventsEnum.IndexDelete, indexDeleted);
+    this.trigger(EventsEnum.IndexDelete, collection, indexDeleted);
 
     return deleted;
   }
@@ -2856,8 +2856,9 @@ export class Database extends Cache {
       this.getCollection(collectionId),
     );
 
+    let document!: Doc;
     const deleted = await this.withTransaction(async () => {
-      const document = await Authorization.skip(() =>
+      document = await Authorization.skip(() =>
         this.silent(() => this.getDocument(collection.getId(), id, [], true)),
       );
 
@@ -2900,7 +2901,10 @@ export class Database extends Cache {
       return result;
     });
 
-    this.trigger(EventsEnum.DocumentDelete, { collectionId, id });
+    this.trigger(
+      EventsEnum.DocumentDelete,
+      deleted ? document : new Doc({ $id: id }),
+    );
 
     return deleted;
   }
@@ -3473,7 +3477,7 @@ export class Database extends Cache {
 
     await this.purgeCachedDocument(collection.getId(), id);
 
-    this.trigger(EventsEnum.DocumentIncrease, document);
+    this.trigger(EventsEnum.DocumentIncrease, document, value);
 
     return document;
   }
@@ -3565,7 +3569,7 @@ export class Database extends Cache {
 
     await this.purgeCachedDocument(collection.getId(), id);
 
-    this.trigger(EventsEnum.DocumentDecrease, document);
+    this.trigger(EventsEnum.DocumentDecrease, document, value);
 
     return document;
   }

@@ -20,27 +20,90 @@ type WildcardListener<EventsMap extends EmitterEventMap> = (
  */
 export type EmitterEventMap = Record<string | symbol, any[]> & {
   [EventsEnum.All]: WildcardListener<EmitterEventMap>;
-  [EventsEnum.DatabaseCreate]: [string];
+
+  // Database events
   [EventsEnum.DatabaseList]: [string[]];
+  [EventsEnum.DatabaseCreate]: [string];
   [EventsEnum.DatabaseDelete]: [string];
-  [EventsEnum.CollectionRead]: [Doc<Collection>];
+
+  // Collection events
+  [EventsEnum.CollectionList]: [Doc<Collection>[]];
   [EventsEnum.CollectionCreate]: [Doc<Collection>];
   [EventsEnum.CollectionUpdate]: [Doc<Collection>];
+  [EventsEnum.CollectionRead]: [Doc<Collection>];
   [EventsEnum.CollectionDelete]: [Doc<Collection>];
+
+  // Attribute / Index events
+  [EventsEnum.AttributeCreate]: [Doc<Collection>, Doc<Attribute>];
   [EventsEnum.AttributesCreate]: [Doc<Collection>, Doc<Attribute>[]];
   [EventsEnum.AttributeUpdate]: [Doc<Collection>, Doc<Index> | Doc<Attribute>];
   [EventsEnum.AttributeDelete]: [Doc<Collection>, Doc<Attribute>];
+
+  [EventsEnum.IndexRename]: [Doc<Collection>, Doc<Index>, string /* oldName */];
+  [EventsEnum.IndexCreate]: [Doc<Collection>, Doc<Index>];
+  [EventsEnum.IndexDelete]: [Doc<Collection>, Doc<Index> | null];
+
+  // Relationship events
   [EventsEnum.RelationshipCreate]: [
     Doc<Collection>,
     Doc<Attribute>,
     Doc<Collection>,
     Doc<Attribute>,
   ];
+  [EventsEnum.RelationshipDelete]: [
+    Doc<Collection>,
+    Doc<Attribute>,
+    Doc<Collection>,
+    Doc<Attribute>,
+  ];
+  [EventsEnum.RelationshipUpdate]: [
+    Doc<Collection>,
+    Doc<Attribute>,
+    Doc<Collection>,
+    Doc<Attribute>,
+  ];
+
+  // Document events
+  [EventsEnum.DocumentCreate]: [Doc<Partial<IEntity & Record<string, any>>>];
+  [EventsEnum.DocumentsCreate]: [Doc<Partial<IEntity & Record<string, any>>>[]];
+
   [EventsEnum.DocumentRead]: [Doc<Partial<IEntity & Record<string, any>>>];
-  [EventsEnum.DocumentsFind]: [Doc<Partial<IEntity & Record<string, any>>>[]];
   [EventsEnum.DocumentFind]: [
     Doc<Partial<IEntity & Record<string, any>>> | undefined,
   ];
+  [EventsEnum.DocumentsFind]: [Doc<Partial<IEntity & Record<string, any>>>[]];
+
+  [EventsEnum.DocumentUpdate]: [Doc<Partial<IEntity & Record<string, any>>>];
+  [EventsEnum.DocumentsUpdate]: [
+    Doc<{ $collection: string; modified: number }>,
+  ];
+  [EventsEnum.DocumentsUpsert]: [
+    Doc<{ $collection: string; created: number; updated: number }>,
+  ];
+
+  [EventsEnum.DocumentDelete]: [Doc<Partial<IEntity & Record<string, any>>>];
+  [EventsEnum.DocumentsDelete]: [Doc<Partial<IEntity & Record<string, any>>>[]];
+
+  [EventsEnum.DocumentPurge]: [Doc<Partial<IEntity & Record<string, any>>>];
+
+  [EventsEnum.DocumentCount]: [number];
+  [EventsEnum.DocumentSum]: [number];
+  [EventsEnum.DocumentIncrease]: [
+    Doc<Partial<IEntity & Record<string, any>>>,
+    number,
+  ];
+  [EventsEnum.DocumentDecrease]: [
+    Doc<Partial<IEntity & Record<string, any>>>,
+    number,
+  ];
+
+  // Permissions events
+  [EventsEnum.PermissionsCreate]: [Doc<Collection>, string[]];
+  [EventsEnum.PermissionsRead]: [Doc<Collection>, string[]];
+  [EventsEnum.PermissionsUpdate]: [Doc<Collection>, string[]];
+  [EventsEnum.PermissionsDelete]: [Doc<Collection>, string[]];
+
+  // Node standard error event
   error: [Error, string | number | symbol, string];
 };
 
