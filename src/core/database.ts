@@ -117,6 +117,7 @@ export class Database extends Cache {
     indexes = [],
     permissions,
     documentSecurity,
+    enabled,
   }: CreateCollection): Promise<Doc<Collection>> {
     permissions ??= [
       Permission.create(Role.any()),
@@ -167,6 +168,7 @@ export class Database extends Cache {
       attributes: attributes,
       indexes: indexes,
       documentSecurity: documentSecurity ?? true,
+      enabled: enabled ?? true,
     });
 
     if (this.validate) {
@@ -242,6 +244,7 @@ export class Database extends Cache {
     id,
     documentSecurity,
     permissions,
+    enabled,
   }: UpdateCollection): Promise<Doc<Collection>> {
     if (permissions.length) {
       if (this.validate) {
@@ -263,6 +266,7 @@ export class Database extends Cache {
 
     collection.set("$permissions", permissions);
     collection.set("documentSecurity", documentSecurity);
+    collection.set('enabled', enabled);
 
     collection = await this.silent(() =>
       this.updateDocument(Database.METADATA, collection.getId(), collection),

@@ -36,12 +36,14 @@ export type CreateCollection = {
   indexes?: Doc<Index>[];
   permissions?: (Permission | string)[];
   documentSecurity?: boolean;
+  enabled?: boolean;
 };
 
 export type UpdateCollection = {
   id: string;
   permissions: (Permission | string)[];
   documentSecurity: boolean;
+  enabled?: boolean;
 };
 
 export type QueryByType = {
