@@ -3,8 +3,6 @@ export enum AttributeEnum {
   Integer = "integer",
   Float = "float",
   Boolean = "boolean",
-  /**@deprecated use timestamptz*/
-  Datetime = "timestamptz",
   Timestamptz = "timestamptz",
   Json = "jsonb",
   Relationship = "relationship",

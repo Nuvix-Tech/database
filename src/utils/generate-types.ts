@@ -6,7 +6,7 @@ const typeMap: Record<AttributeEnum, string> = {
   [AttributeEnum.Integer]: "number",
   [AttributeEnum.Float]: "number",
   [AttributeEnum.Boolean]: "boolean",
-  [AttributeEnum.Timestamptz]: "string",
+  [AttributeEnum.Timestamptz]: "string | Date",
   [AttributeEnum.Json]: "Record<string, any>",
   [AttributeEnum.Relationship]: "string", // will be replaced dynamically
   [AttributeEnum.Virtual]: "never",
@@ -15,7 +15,6 @@ const typeMap: Record<AttributeEnum, string> = {
 
 interface TypeGenerationOptions {
   includeImports?: boolean;
-  includeEntityBase?: boolean;
   includeDocTypes?: boolean;
   includeEntityMap?: boolean;
   packageName?: string;
@@ -32,7 +31,6 @@ export function generateTypes(
 ): string {
   const {
     includeImports = true,
-    includeEntityBase = true,
     includeDocTypes = true,
     includeEntityMap = true,
     generateUtilityTypes = true,
@@ -47,23 +45,8 @@ export function generateTypes(
 
   // Import statements
   if (includeImports) {
-    const imports = `import { Doc } from "${packageName}";`;
+    const imports = `import { Doc, IEntity } from "${packageName}";`;
     parts.push(imports);
-  }
-
-  // Base IEntity interface
-  if (includeEntityBase) {
-    const IEntityBase = `
-export interface IEntity {
-  $id: string;
-  $createdAt: Date | string | null;
-  $updatedAt: Date | string | null;
-  $permissions: string[];
-  $sequence: number;
-  $collection: string;
-  $tenant?: number | null;
-}`;
-    parts.push(IEntityBase);
   }
 
   // Individual entity interfaces

@@ -9,6 +9,7 @@ export interface MetadataEntity {
   attributes: Attribute[];
   indexes: Index[];
   documentSecurity: boolean;
+  enabled: boolean;
 }
 
 export interface Entities {
@@ -23,6 +24,7 @@ export interface IEntity {
   $sequence: number;
   $collection: string;
   $tenant?: number | null; // Optional tenant ID for multi-tenant support
+  $schema?: string; // Optional schema where the entity is stored
 }
 
 export type IEntityInput = {

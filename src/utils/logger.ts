@@ -11,7 +11,8 @@ const LEVEL_COLORS: Record<LogLevel, typeof chalk> = {
   debug: chalk.blue,
 };
 
-interface LoggerOptions {
+export interface LoggerOptions {
+  enabled?: boolean;
   level?: LogLevel;
   context?: string;
   timestamp?: boolean;
@@ -22,6 +23,7 @@ interface LoggerOptions {
 type Serializer = (obj: any) => string;
 
 export class Logger {
+  private enabled: boolean = true;
   private level: LogLevel;
   private context?: string;
   private timestamp: boolean;
@@ -38,6 +40,7 @@ export class Logger {
   private static staticInstance?: Logger;
 
   constructor(options?: LoggerOptions) {
+    this.enabled = options?.enabled ?? true;
     this.level = options?.level ?? "info";
     this.context = options?.context;
     this.timestamp = options?.timestamp ?? true;
@@ -97,6 +100,7 @@ export class Logger {
   }
 
   private shouldLog(level: LogLevel): boolean {
+    if (!this.enabled) return false;
     const levels: LogLevel[] = ["error", "warn", "info", "debug"];
     return levels.indexOf(level) <= levels.indexOf(this.level);
   }

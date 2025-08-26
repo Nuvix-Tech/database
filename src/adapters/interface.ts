@@ -5,6 +5,7 @@ import { Pool, Client, PoolClient } from "pg";
 export interface IClient extends Pick<Client, "query"> {
   $client: Pool | Client | PoolClient;
   $type: "connection" | "pool" | "transaction";
+  $database: string;
   connect(): Promise<void>;
   disconnect(): Promise<void>;
   transaction<T>(callback: () => Promise<T>): Promise<T>;

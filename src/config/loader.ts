@@ -131,7 +131,7 @@ export class ConfigLoader {
   }
 
   static createExampleConfig(): string {
-    return `import { NuvixDBConfig } from '@nuvix-tech/db/config';
+    return `import { NuvixDBConfig } from '@nuvix-tech/db';
 import { AttributeType } from '@nuvix-tech/db';
 
 const config: NuvixDBConfig = {

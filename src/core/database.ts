@@ -280,7 +280,7 @@ export class Database extends Cache {
     id: string,
     throwOnNotFound?: boolean,
   ): Promise<Doc<Collection>> {
-    const collection = await this.silent(() =>
+    let collection = await this.silent(() =>
       this.getDocument<Collection>(Database.METADATA, id),
     );
 
@@ -294,6 +294,10 @@ export class Database extends Cache {
         throw new NotFoundException(`Collection '${id}' not found`);
       }
       return new Doc<Collection>();
+    }
+
+    if (this.assertCollectionEnabled(collection)) {
+      collection = new Doc<Collection>();
     }
 
     this.trigger(EventsEnum.CollectionRead, collection);
@@ -2519,7 +2523,6 @@ export class Database extends Cache {
               );
             }
 
-            console.log({ relatedDoc, value, d: document.getId() });
             if (options.twoWay) {
               relatedDoc.set(options.twoWayKey!, value);
               await this.silent(() =>

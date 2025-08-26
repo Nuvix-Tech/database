@@ -16,6 +16,7 @@ import PG, {
 import { IClient } from "./interface.js";
 import { DatabaseException } from "@errors/base.js";
 import { TransactionException } from "@errors/index.js";
+import { Logger } from "@utils/logger.js";
 
 const types = PG.types;
 
@@ -52,6 +53,7 @@ export class PostgresClient implements IClient {
   private _type: "connection" | "pool" | "transaction" = "connection";
   private isTransactional: boolean = false;
   private transactionCount: number = 0;
+  private _database: string;
 
   get $client(): Client | Pool | PoolClient {
     return this.connection;
@@ -59,6 +61,10 @@ export class PostgresClient implements IClient {
 
   get $type(): "connection" | "pool" | "transaction" {
     return this._type;
+  }
+
+  get $database(): string {
+    return this._database;
   }
 
   constructor(options: PoolConfig | Client) {
@@ -85,6 +91,7 @@ export class PostgresClient implements IClient {
       this.pool = pool;
       this._type = "pool";
     }
+    this._database = options.database || "";
   }
 
   async connect(): Promise<void> {}
@@ -203,7 +210,7 @@ export class PostgresClient implements IClient {
         await this.commit();
         return result;
       } catch (err: unknown) {
-        console.warn(`Transaction attempt ${attempt} failed:`, err);
+        Logger.warn(`Transaction attempt ${attempt} failed:`, err);
         await this.rollback();
         const isDeadlock =
           err instanceof DatabaseError && "code" in err && err.code === "40P01";

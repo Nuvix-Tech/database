@@ -15,9 +15,6 @@ export interface NuvixDBConfig {
     /** Include import statements */
     includeImports?: boolean;
 
-    /** Include base IEntity interface */
-    includeEntityBase?: boolean;
-
     /** Include Doc type aliases (e.g., UserDoc = Doc<User>) */
     includeDocTypes?: boolean;
 
@@ -98,7 +95,6 @@ export const DEFAULT_CONFIG: Partial<NuvixDBConfig> = {
     outputPath: "./src/types/generated.ts",
     packageName: "@nuvix-tech/db",
     includeImports: true,
-    includeEntityBase: true,
     includeDocTypes: true,
     includeEntityMap: true,
     generateUtilityTypes: true,

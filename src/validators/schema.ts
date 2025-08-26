@@ -44,6 +44,7 @@ export type Collection = {
   attributes: Attribute[];
   indexes?: Index[];
   documentSecurity?: boolean; // default false, optional
+  enabled?: boolean; // default true, optional
 };
 
 export type { AttributeOptions as RelationOptions };

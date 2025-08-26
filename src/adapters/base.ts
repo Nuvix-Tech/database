@@ -79,13 +79,12 @@ export abstract class BaseAdapter extends EventEmitter {
     }
   }
 
-  /**@deprecated temp */
   public get $database(): string {
-    if (!this._meta.database)
+    if (!this.client.$database)
       throw new DatabaseException(
-        "Database name is not defined in adapter metadata.",
+        "Database name is not defined in client metadata.",
       );
-    return this._meta.database;
+    return this.client.$database;
   }
 
   public get $schema(): string {
@@ -140,6 +139,11 @@ export abstract class BaseAdapter extends EventEmitter {
       });
     }
     this._meta = { ...this._meta, ...meta };
+    return this;
+  }
+
+  public setLogger(logger: Logger) {
+    this.$logger = logger;
     return this;
   }
 
@@ -2024,7 +2028,6 @@ export abstract class BaseAdapter extends EventEmitter {
 }
 
 export interface Meta {
-  database: string;
   schema: string;
   sharedTables: boolean;
   tenantId: number;

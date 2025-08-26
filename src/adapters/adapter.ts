@@ -1395,7 +1395,6 @@ export class Adapter extends BaseAdapter {
         const sortedKeys = Object.keys(attributes)
           .filter((a) => !this.$internalAttrs.includes(a))
           .sort();
-        console.log("Sorted keys:", sortedKeys);
         const bindKeys: string[] = [];
         for (const key of sortedKeys) {
           let value = attributes[key];
@@ -1409,7 +1408,6 @@ export class Adapter extends BaseAdapter {
       const sortedKeys = Object.keys(attributes)
         .filter((a) => !this.$internalAttrs.includes(a))
         .sort();
-      console.log("Sorted keys3:", sortedKeys);
       const columns = `(${sortedKeys.map((key) => this.quote(this.sanitize(key))).join(", ")})`;
 
       const sql = this.getUpsertStatement(

@@ -174,7 +174,6 @@ CONFIGURATION:
 
     let generatedTypes = generateTypes(collections, {
       includeImports: typeGeneration?.includeImports,
-      includeEntityBase: typeGeneration?.includeEntityBase,
       includeDocTypes: typeGeneration?.includeDocTypes,
       includeEntityMap: typeGeneration?.includeEntityMap,
       generateUtilityTypes: typeGeneration?.generateUtilityTypes,

@@ -21,6 +21,7 @@ import {
 import { Structure } from "@validators/structure.js";
 import { Adapter } from "@adapters/adapter.js";
 import { PopulateQuery, ProcessedQuery } from "./database.js";
+import { Logger, LoggerOptions } from "@utils/logger.js";
 
 export abstract class Base<
   T extends EmitterEventMap = EmitterEventMap,
@@ -128,6 +129,12 @@ export abstract class Base<
         type: AttributeEnum.Boolean,
         required: true,
       },
+      {
+        $id: "enabled",
+        key: "enabled",
+        type: AttributeEnum.Boolean,
+        default: true,
+      },
     ],
     documentSecurity: false,
   };
@@ -155,12 +162,25 @@ export abstract class Base<
   protected isMigrating: boolean = false;
   protected readonly _relationStack: string[] = [];
   protected readonly _relationDeleteStack: string[] = [];
+  protected _collectionEnabledValidate: boolean = false;
+  protected attachSchemaInDocument: boolean = false;
+
+  protected readonly logger: Logger;
 
   constructor(adapter: Adapter, cache: Cache, options: Options = {}) {
     super();
     this.adapter = adapter;
     this.cache = cache;
     this.instanceFilters = options.filters || {};
+    if (options.logger) {
+      this.logger =
+        options.logger instanceof Logger
+          ? options.logger
+          : new Logger(options.logger);
+    } else {
+      this.logger = new Logger();
+    }
+    this.adapter.setLogger(this.logger);
 
     for (const [filterName, FilterValue] of Object.entries(filters)) {
       Base.filters[filterName] = FilterValue as Filter;
@@ -251,8 +271,22 @@ export abstract class Base<
     return this.preserveDates;
   }
 
+  public get collectionEnabledValidate(): boolean {
+    return this._collectionEnabledValidate;
+  }
+
+  public setCollectionEnabledValidate(value: boolean): this {
+    this._collectionEnabledValidate = value;
+    return this;
+  }
+
   public setPreserveDates(preserve: boolean): this {
     this.preserveDates = preserve;
+    return this;
+  }
+
+  public setAttachSchemaInDocument(value: boolean): this {
+    this.attachSchemaInDocument = value;
     return this;
   }
 
@@ -360,6 +394,34 @@ export abstract class Base<
       return await callback();
     } finally {
       this.preserveDates = previous;
+    }
+  }
+
+  public async withCollectionEnabledValidation<T>(
+    enabled: boolean,
+    callback: Callback<T>,
+  ): Promise<T> {
+    const previous = this._collectionEnabledValidate;
+    this._collectionEnabledValidate = enabled;
+
+    try {
+      return await callback();
+    } finally {
+      this._collectionEnabledValidate = previous;
+    }
+  }
+
+  public async withAttachSchemaInDocument<T>(
+    enabled: boolean,
+    callback: Callback<T>,
+  ): Promise<T> {
+    const previous = this.attachSchemaInDocument;
+    this.attachSchemaInDocument = enabled;
+
+    try {
+      return await callback();
+    } finally {
+      this.attachSchemaInDocument = previous;
     }
   }
 
@@ -584,6 +646,23 @@ export abstract class Base<
     }
   }
 
+  protected assertCollectionEnabled(collection: Doc<Collection>): boolean {
+    if (!this._collectionEnabledValidate) return false;
+
+    if (!collection) {
+      throw new DatabaseException("Collection is required");
+    }
+
+    const enabled = collection.get("enabled", true);
+
+    if (!enabled) {
+      this.logger.info(`Collection '${collection.getId()}' is disabled`);
+      return true;
+    }
+
+    return false;
+  }
+
   protected cast<T extends Record<string, any>>(
     collection: Doc<Collection>,
     document: Doc<T>,
@@ -788,6 +867,10 @@ export abstract class Base<
       );
 
       document.set(key, isArray ? processed : (processed[0] ?? null));
+    }
+
+    if (this.attachSchemaInDocument) {
+      document.set("$schema", this.schema);
     }
 
     // Decode population (relationships)
@@ -1211,6 +1294,7 @@ export abstract class Base<
 type Options = {
   tenant?: number;
   filters?: Filters;
+  logger?: LoggerOptions | Logger;
 };
 
 type Callback<T> = () => Promise<T> | T;
