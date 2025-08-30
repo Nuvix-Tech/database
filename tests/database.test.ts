@@ -19,6 +19,7 @@ import {
   DatabaseException,
   AuthorizationException,
 } from "@errors/index.js";
+import { Authorization } from "index.js";
 
 const ns = `db_test_${Date.now()}`;
 

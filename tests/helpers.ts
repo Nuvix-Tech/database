@@ -21,7 +21,6 @@ export function createTestAdapter(
   };
   const adapter = new Adapter(config);
   adapter.setMeta({
-    database: meta?.database || "postgres",
     schema: meta?.schema || "public",
     sharedTables: meta?.sharedTables ?? false,
     tenantId: meta?.tenantId ?? 1,

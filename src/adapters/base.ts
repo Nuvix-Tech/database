@@ -1084,11 +1084,10 @@ export abstract class BaseAdapter extends EventEmitter {
       throw new DatabaseException("Selections are required internally.");
 
     const projected: string[] = [];
-    selections.splice(
-      0,
-      0,
+    selections.unshift(
       "$id",
       "$sequence",
+      "$schema",
       "$collection",
       "$createdAt",
       "$updatedAt",
@@ -1096,13 +1095,18 @@ export abstract class BaseAdapter extends EventEmitter {
     );
 
     for (let key of selections) {
-      if (key === "$collection") {
-        projected.push(`'${collection}' AS ${this.quote(key)}`);
-      } else {
-        let dbKey = this.getInternalKeyForAttribute(key);
-        projected.push(
-          `${this.quote(prefix)}.${this.quote(dbKey)} AS ${this.quote(key)}`,
-        );
+      switch (key) {
+        case "$schema":
+          projected.push(`'${this.$schema}' AS ${this.quote(key)}`);
+          break;
+        case "$collection":
+          projected.push(`'${collection}' AS ${this.quote(key)}`);
+          break;
+        default:
+          const dbKey = this.getInternalKeyForAttribute(key);
+          projected.push(
+            `${this.quote(prefix)}.${this.quote(dbKey)} AS ${this.quote(key)}`,
+          );
       }
     }
 

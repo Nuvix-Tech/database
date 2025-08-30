@@ -40,6 +40,7 @@ export type Index = {
 export type Collection = {
   $id: string;
   $collection: string;
+  $schema?: string;
   name: string;
   attributes: Attribute[];
   indexes?: Index[];

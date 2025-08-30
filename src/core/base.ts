@@ -62,6 +62,13 @@ export abstract class Base<
       required: true,
     },
     {
+      $id: "$schema",
+      key: "$schema",
+      type: AttributeEnum.String,
+      size: Base.LENGTH_KEY,
+      required: false,
+    },
+    {
       $id: "$tenant",
       key: "$tenant",
       type: AttributeEnum.Integer,
@@ -163,7 +170,7 @@ export abstract class Base<
   protected readonly _relationStack: string[] = [];
   protected readonly _relationDeleteStack: string[] = [];
   protected _collectionEnabledValidate: boolean = false;
-  protected attachSchemaInDocument: boolean = false;
+  protected attachSchemaInDocument: boolean = true;
 
   protected readonly logger: Logger;
 
@@ -746,6 +753,11 @@ export abstract class Base<
         continue;
       }
 
+      if (key === "$schema") {
+        document.delete("$schema");
+        continue;
+      }
+
       if (attribute.type === AttributeEnum.Relationship) continue;
       if (
         internalDateAttributes.includes(key) &&
@@ -869,7 +881,9 @@ export abstract class Base<
       document.set(key, isArray ? processed : (processed[0] ?? null));
     }
 
-    if (this.attachSchemaInDocument) {
+    if (!this.attachSchemaInDocument) {
+      document.delete("$schema");
+    } else if (!document.has("$schema")) {
       document.set("$schema", this.schema);
     }
 
@@ -1010,7 +1024,12 @@ export abstract class Base<
 
     const documentsMap = new Map<string, any>();
     const internalAttrs = this.getInternalAttributes().map((a) => a.$id);
-    const selections = [...internalAttrs, "$collection", ...query.selections];
+    const selections = [
+      ...internalAttrs,
+      "$schema",
+      "$collection",
+      ...query.selections,
+    ];
 
     // Group rows by main document ID
     for (const row of rows) {
@@ -1021,8 +1040,17 @@ export abstract class Base<
         const mainDoc: Record<string, any> = {};
 
         for (const attr of selections) {
-          mainDoc[attr] =
-            attr === "$collection" ? query.collection.getId() : row[attr];
+          switch (attr) {
+            case "$schema":
+              if (!this.attachSchemaInDocument) break;
+              mainDoc[attr] = this.schema;
+              break;
+            case "$collection":
+              mainDoc[attr] = query.collection.getId();
+              break;
+            default:
+              mainDoc[attr] = row[attr];
+          }
         }
 
         if (query.populateQueries?.length) {

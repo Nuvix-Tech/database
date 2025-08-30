@@ -562,7 +562,6 @@ describe("generateTypes", () => {
 
       const result = generateTypes(collections, {
         includeImports: false,
-        includeEntityBase: false,
         includeDocTypes: false,
         includeEntityMap: false,
       });

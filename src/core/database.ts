@@ -266,7 +266,7 @@ export class Database extends Cache {
 
     collection.set("$permissions", permissions);
     collection.set("documentSecurity", documentSecurity);
-    collection.set('enabled', enabled);
+    collection.set("enabled", enabled);
 
     collection = await this.silent(() =>
       this.updateDocument(Database.METADATA, collection.getId(), collection),

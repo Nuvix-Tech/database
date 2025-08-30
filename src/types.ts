@@ -5,6 +5,7 @@ import { Attribute, Index } from "@validators/schema.js";
 export interface MetadataEntity {
   $id: string;
   $collection: string;
+  $schema?: string;
   name: string;
   attributes: Attribute[];
   indexes: Index[];
