@@ -7,7 +7,6 @@ import { Role } from "@utils/role.js";
 import { StructureException } from "@errors/index.js";
 import { AttributeEnum } from "@core/enums.js";
 import { Attribute } from "@validators/schema.js";
-import { Query } from "@core/query.js";
 import { ID } from "@utils/id.js";
 
 Database.addFilter("versionFilter", {
@@ -15,7 +14,6 @@ Database.addFilter("versionFilter", {
     return null;
   },
   decode(_, __, ___) {
-    console.log("versionFilter decode called", _);
     return "v1";
   },
 });
@@ -510,7 +508,7 @@ describe("Document Operations", () => {
     test("should respect batch size", async () => {
       // Create many documents
       const documentsData = Array.from(
-        { length: 10 },
+        { length: 1000 },
         (_, i) => new Doc({ name: `Batch User ${i}`, age: i }),
       );
       await db.createDocuments(testCollectionId, documentsData);
@@ -520,11 +518,11 @@ describe("Document Operations", () => {
         testCollectionId,
         updates,
         [],
-        3, // small batch size
+        200, // small batch size
       );
 
-      expect(modified).toBe(10);
-    }, 10000);
+      expect(modified).toBe(1000);
+    }, 5000);
 
     test("should handle empty updates", async () => {
       const updates = new Doc({});

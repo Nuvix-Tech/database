@@ -6,7 +6,6 @@ import { Permission } from "@utils/permission.js";
 import { Role } from "@utils/role.js";
 import { Authorization } from "@utils/authorization.js";
 import { AttributeEnum } from "@core/enums.js";
-import { ID } from "@utils/id.js";
 
 describe("Database Permissions", () => {
   let db: Database;

@@ -131,7 +131,7 @@ export class Filter extends Base {
         }
 
         const nestedQueries = Query.groupByType(values).filters;
-        if (values.length! === nestedQueries.length) {
+        if (values.length !== nestedQueries.length) {
           this.message = `${method} queries can only contain filter queries.`;
           return false;
         }

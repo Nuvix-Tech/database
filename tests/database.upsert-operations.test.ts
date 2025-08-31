@@ -533,8 +533,10 @@ describe("Database Upsert Operations", () => {
           "created_preserve",
         );
 
-        expect(updatedDoc.get("$createdAt")).toBe(originalCreatedAt);
-        expect(updatedDoc.get("$updatedAt")).not.toBe(originalCreatedAt);
+        expect(updatedDoc.get("$createdAt")).toStrictEqual(originalCreatedAt);
+        expect(updatedDoc.get("$updatedAt")).not.toStrictEqual(
+          originalCreatedAt,
+        );
       });
     });
   });

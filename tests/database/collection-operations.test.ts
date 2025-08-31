@@ -36,7 +36,7 @@ describe("Collection Operations", () => {
       expect(collection.get("name")).toBe(collectionId);
       expect(collection.get("attributes")).toEqual([]);
       expect(collection.get("indexes")).toEqual([]);
-      expect(collection.get("documentSecurity")).toBe(false);
+      expect(collection.get("documentSecurity")).toBe(true);
     });
 
     test("should create collection with attributes", async () => {

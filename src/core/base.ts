@@ -787,6 +787,13 @@ export abstract class Base<
         value = array ? value : [value];
       }
 
+      if (
+        attribute.type === AttributeEnum.Timestamptz &&
+        typeof value === "string"
+      ) {
+        value = new Date(value).toISOString();
+      }
+
       for (let index = 0; index < value.length; index++) {
         let node = value[index];
         if (node !== null) {
@@ -845,7 +852,20 @@ export abstract class Base<
     // Decode filters for non-Relationship attributes
     for (const attribute of attributes) {
       const key = attribute.$id;
-      if (!key || attribute.type === AttributeEnum.Relationship) continue;
+      if (!key) continue;
+
+      // Remove relationship attributes from the document when no population queries are provided,
+      // as the document may contain direct IDs instead of fully populated related documents.
+      if (attribute.type === AttributeEnum.Relationship) {
+        if (
+          !populateQueries ||
+          (populateQueries.length === 0 && document.has(key))
+        ) {
+          document.delete(key);
+        }
+        continue;
+      }
+
       if (!document.has(key) && attribute.type !== AttributeEnum.Virtual)
         continue;
 

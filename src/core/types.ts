@@ -51,8 +51,6 @@ export type QueryByType = {
   selections: Query[];
   limit: number | null;
   offset: number | null;
-  orderAttributes: string[];
-  orderTypes: OrderEnum[];
   orders: Record<string, OrderEnum>;
   cursor: Doc<IEntity> | null;
   cursorDirection: CursorEnum | null;

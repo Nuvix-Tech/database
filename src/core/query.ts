@@ -278,6 +278,20 @@ export class Query {
           }
           return Query.parseQuery(val as RawQueryObject);
         });
+      } else if (method === QueryType.Populate) {
+        if (attribute === "") {
+          throw new QueryException(
+            `Invalid query attribute: "${rawAttribute}". Must be a non-empty string.`,
+          );
+        }
+        values = rawValues?.map((val, index) => {
+          if (typeof val !== "object" || val === null) {
+            throw new QueryException(
+              `Invalid populate query at index ${index} for attribute "${attribute}". Expected an object.`,
+            );
+          }
+          return Query.parseQuery(val as RawQueryObject);
+        });
       } else {
         values = rawValues.map((val, index) => {
           if (
@@ -634,8 +648,6 @@ export class Query {
     const populateQueries: Map<string, Query[]> = new Map();
     let limit: number | null = null;
     let offset: number | null = null;
-    const orderAttributes: string[] = [];
-    const orderTypes: OrderEnum[] = [];
     let cursor: Doc<any> | null = null;
     let cursorDirection: CursorEnum | null = null;
     const _orders: Record<string, OrderEnum> = {};
@@ -648,12 +660,8 @@ export class Query {
       switch (method) {
         case QueryType.OrderAsc:
         case QueryType.OrderDesc:
-          if (attribute) {
-            orderAttributes.push(attribute);
-          }
           const order =
             method === QueryType.OrderAsc ? OrderEnum.Asc : OrderEnum.Desc;
-          orderTypes.push(order);
           _orders[attribute] = order;
           break;
         case QueryType.Limit:
@@ -668,14 +676,11 @@ export class Query {
           break;
         case QueryType.CursorAfter:
         case QueryType.CursorBefore:
-          // Ensure cursor value is string or number
-          if (cursor === null && values[0] instanceof Doc) {
-            cursor = values[0];
-            cursorDirection =
-              method === QueryType.CursorAfter
-                ? CursorEnum.After
-                : CursorEnum.Before;
-          }
+          cursor = (values[0] ?? null) as Doc<any> | null;
+          cursorDirection =
+            method === QueryType.CursorAfter
+              ? CursorEnum.After
+              : CursorEnum.Before;
           break;
         case QueryType.Select:
           selections.push(query.clone());
@@ -689,6 +694,7 @@ export class Query {
           filters.push(query.clone());
           break;
         case QueryType.Populate:
+          // TODO: May be we should throw error
           if (query.isNested()) {
             Logger.debug("Populate in nested query:", query.toString());
           }
@@ -713,8 +719,6 @@ export class Query {
       selections,
       limit,
       offset,
-      orderAttributes,
-      orderTypes,
       orders: _orders,
       cursor,
       cursorDirection,

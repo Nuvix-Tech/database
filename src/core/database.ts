@@ -1279,7 +1279,7 @@ export class Database extends Cache {
     const type = attribute.get("options")["relationType"];
     const side = attribute.get("options")["side"];
 
-    if (type === RelationEnum.ManyToMany) {
+    if (type === RelationEnum.ManyToMany && (newTwoWayKey || newKey)) {
       throw new DatabaseException("Cannot update ManyToMany relationship.");
     }
 
@@ -2358,6 +2358,10 @@ export class Database extends Cache {
         this.getDocument(collection.getId(), id, [], true),
       );
 
+      if (old.empty()) {
+        return new Doc();
+      }
+
       let skipPermissionsUpdate = true;
 
       if (document.getPermissions()) {
@@ -2436,10 +2440,6 @@ export class Database extends Cache {
         }
       }
 
-      if (old.empty()) {
-        return new Doc();
-      }
-
       if (shouldUpdate) {
         mergedDocument["$updatedAt"] =
           newUpdatedAt === null || !this.preserveDates ? time : newUpdatedAt;
@@ -2462,6 +2462,10 @@ export class Database extends Cache {
 
       return encodedDocument;
     });
+
+    if (updatedDocument.empty()) {
+      return updatedDocument;
+    }
 
     const castedDocument = this.cast(collection, updatedDocument);
     const decodedDocument = await this.decode(
@@ -2508,7 +2512,11 @@ export class Database extends Cache {
             side === RelationSideEnum.Child) ||
           (type === RelationEnum.ManyToOne && side === RelationSideEnum.Parent)
         ) {
-          if (value !== null || typeof value !== "string") continue; // TODO: throw error
+          if (value !== null && typeof value !== "string") {
+            throw new DatabaseException(
+              "Invalid value for relationship: must be a string or",
+            );
+          }
 
           const relatedDoc = await this.silent(() =>
             this.getDocument(options.relatedCollection, value),
@@ -2528,16 +2536,29 @@ export class Database extends Cache {
             }
 
             if (options.twoWay) {
-              relatedDoc.set(options.twoWayKey!, value);
+              // Clear previous relationship
               await this.silent(() =>
                 this.skipCheckRelationshipsExist(() =>
-                  this.updateDocument(
+                  this.updateDocuments(
                     options.relatedCollection,
-                    value,
-                    relatedDoc,
+                    new Doc({ [options.twoWayKey!]: null }),
+                    (qb) => qb.equal(options.twoWayKey!, document.getId()),
                   ),
                 ),
               );
+
+              // Set new relationship
+              if (value !== null && typeof value === "string") {
+                await this.silent(() =>
+                  this.skipCheckRelationshipsExist(() =>
+                    this.updateDocument(
+                      options.relatedCollection,
+                      value,
+                      new Doc({ [options.twoWayKey!]: document.getId() }),
+                    ),
+                  ),
+                );
+              }
             }
           }
         } else if (
@@ -2548,9 +2569,13 @@ export class Database extends Cache {
         ) {
           const { setIds, connectIds, disconnectIds } =
             this.formatRelationValue(value);
+          // Remove the relationship attribute from the document to prevent errors during the main document update
+          document.delete(relationship.get("key"));
+
           if (
-            setIds === undefined ||
-            (connectIds.length === 0 && disconnectIds.length === 0)
+            setIds === undefined &&
+            connectIds.length === 0 &&
+            disconnectIds.length === 0
           ) {
             continue;
           }
@@ -2574,7 +2599,7 @@ export class Database extends Cache {
                   this.updateDocuments(
                     options.relatedCollection,
                     new Doc({ [options.twoWayKey!]: null }),
-                    [Query.equal(options.twoWayKey!, [document.getId()])],
+                    (qb) => qb.equal(options.twoWayKey!, document.getId()),
                   ),
                 ),
               );
@@ -2720,20 +2745,17 @@ export class Database extends Cache {
       throw new StructureException(validator.$description);
     }
 
-    const originalLimit = limit as number;
+    const originalLimit = limit;
     let last = cursor as Doc<any>;
     let modified = 0;
 
     while (true) {
       let currentBatchSize = batchSize;
-      if (limit && (limit as number) < batchSize) {
-        currentBatchSize = limit as number;
-      } else if (limit) {
-        limit = (limit as number) - batchSize;
+      if (originalLimit !== null && originalLimit < batchSize) {
+        currentBatchSize = originalLimit;
       }
 
       const batchQueries = [Query.limit(currentBatchSize)];
-
       if (last) {
         batchQueries.push(Query.cursorAfter(last));
       }
@@ -2833,8 +2855,6 @@ export class Database extends Cache {
       }
 
       if (batch.length < currentBatchSize) {
-        break;
-      } else if (originalLimit > 0 && modified >= originalLimit) {
         break;
       }
 

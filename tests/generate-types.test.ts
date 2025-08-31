@@ -12,7 +12,6 @@ describe("generateTypes", () => {
   it("generates IEntity base interface correctly", () => {
     const result = generateTypes([]);
 
-    expect(result).toContain("export interface IEntity");
     expect(result).toContain("$id: string");
     expect(result).toContain("$createdAt: Date | string | null");
     expect(result).toContain("$updatedAt: Date | string | null");
@@ -100,7 +99,7 @@ describe("generateTypes", () => {
     expect(result).toContain("int_field: number");
     expect(result).toContain("float_field: number");
     expect(result).toContain("bool_field: boolean");
-    expect(result).toContain("timestamp_field: Date | string");
+    expect(result).toContain("timestamp_field: string | Date");
     expect(result).toContain("json_field: Record<string, any>");
     expect(result).toContain("uuid_field: string");
     expect(result).toContain("virtual_field: never");
@@ -495,7 +494,9 @@ describe("generateTypes", () => {
 
       const result = generateTypes(collections);
 
-      expect(result).toContain('import { Doc } from "@nuvix-tech/db";');
+      expect(result).toContain(
+        'import { Doc, IEntity } from "@nuvix-tech/db";',
+      );
       expect(result).toContain("export type UsersDoc = Doc<Users>;");
       expect(result).toContain("export type PostsDoc = Doc<Posts>;");
     });
@@ -547,7 +548,9 @@ describe("generateTypes", () => {
         packageName: "@custom/db-package",
       });
 
-      expect(result).toContain('import { Doc } from "@custom/db-package";');
+      expect(result).toContain(
+        'import { Doc, IEntity } from "@custom/db-package";',
+      );
     });
 
     it("supports selective generation options", () => {

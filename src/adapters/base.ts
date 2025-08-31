@@ -1393,12 +1393,10 @@ export abstract class BaseAdapter extends EventEmitter {
     const collectionName = this.sanitize(collection.getId());
     const mainTable = this.getSQLTable(collectionName);
 
-    // TODO: recheck
     const cursorConditions = this.buildCursorConditions(
       options.cursor,
       options.cursorDirection,
       options.orders,
-      options.orderAttributes,
       mainTableAlias,
     );
 
@@ -1788,7 +1786,7 @@ export abstract class BaseAdapter extends EventEmitter {
 
     const dbKey = this.getInternalKeyForAttribute(attribute);
 
-    let columnRef: string;
+    let columnRef: string | undefined;
 
     // Handle JSON path operators (->, ->>)
     if (dbKey.includes("->") || dbKey.includes("->>")) {
@@ -1810,7 +1808,7 @@ export abstract class BaseAdapter extends EventEmitter {
       }
 
       columnRef = pathExpression;
-    } else {
+    } else if (![QueryType.And, QueryType.Or].includes(method)) {
       const sanitizedKey = this.sanitize(dbKey);
       columnRef = `${this.quote(tableAlias)}.${this.quote(sanitizedKey)}`;
     }
@@ -1860,8 +1858,8 @@ export abstract class BaseAdapter extends EventEmitter {
 
       case QueryType.Contains:
         if (query.onArray()) {
-          sql = `${columnRef} @> ?::jsonb`;
-          params.push(JSON.stringify(values));
+          sql = `${columnRef} && ?`;
+          params.push(values);
         } else {
           sql = `${columnRef} LIKE ?`;
           params.push(`%${this.escapeWildcards(values[0] as string)}%`);
@@ -1962,7 +1960,6 @@ export abstract class BaseAdapter extends EventEmitter {
     cursor: Doc<any> | null = null,
     cursorDirection: CursorEnum | null,
     orders: Record<string, OrderEnum>,
-    orderAttributes: string[],
     tableAlias: string,
   ): { condition: string; params: any[] } {
     const uniqueOrderAttr = orders["$id"] || orders["$sequence"];
@@ -1972,6 +1969,7 @@ export abstract class BaseAdapter extends EventEmitter {
       orders["$sequence"] = OrderEnum.Asc;
     }
 
+    const orderAttributes = Object.keys(orders);
     if (!cursor || orderAttributes.length === 0) {
       return { condition: "", params: [] };
     }

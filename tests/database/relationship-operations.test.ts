@@ -595,8 +595,12 @@ describe("Relationship Operations", () => {
           author: user.getId(),
         }),
       );
-
-      expect(post.get("author")).toBe(user.getId());
+      const updatedPost = await db.getDocument(
+        postsCollectionId,
+        post.getId(),
+        (qb) => qb.populate("*"),
+      );
+      expect(updatedPost.get("author")?.getId()).toBe(user.getId());
     });
 
     test("should handle relationship queries with populate", async () => {

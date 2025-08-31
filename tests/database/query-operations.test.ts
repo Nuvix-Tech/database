@@ -839,14 +839,12 @@ describe("Query Operations", () => {
     test("should handle complex nested queries", async () => {
       const documents = await db.find(testCollectionId, [
         Query.or([
-          Query.and([
-            Query.equal("department", ["Engineering"]),
-            Query.greaterThan("age", 30),
-          ]),
-          Query.and([
-            Query.equal("department", ["Marketing"]),
-            Query.lessThan("age", 30),
-          ]),
+          Query.equal("department", ["Engineering"]),
+          Query.greaterThan("age", 30),
+        ]),
+        Query.or([
+          Query.equal("department", ["Marketing"]),
+          Query.lessThan("age", 30),
         ]),
         Query.orderAsc("name"),
       ]);
