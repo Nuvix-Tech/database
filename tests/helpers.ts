@@ -1,7 +1,7 @@
 import { Adapter } from "@adapters/adapter.js";
 import { Database } from "@core/database.js";
 import { Authorization } from "@utils/authorization.js";
-import { Memory, Cache as NuvixCache } from "@nuvix/cache";
+import { Cache as NuvixCache, Redis } from "@nuvix/cache";
 import { PoolConfig } from "pg";
 
 export function createTestAdapter(
@@ -39,7 +39,7 @@ export function createTestDb(
   }>,
 ): Database {
   const adapter = createTestAdapter(meta);
-  const cache = new NuvixCache(new Memory());
+  const cache = new NuvixCache(new Redis({}));
   Authorization.setDefaultStatus(false); // disable auth by default in tests
   return new Database(adapter, cache);
 }

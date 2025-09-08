@@ -1841,15 +1841,51 @@ export class Database extends Cache {
     let doc: Doc<any>;
 
     if (!processedQuery.populateQueries?.length) {
+      const documentSecurity = collection.get("documentSecurity", false);
+      const { documentKey, filtersKey } = this.getCacheKeys(
+        collectionId,
+        id,
+        processedQuery,
+      );
+      let cached: any;
+
+      try {
+        cached = await this.cache.get(documentKey!, {
+          ttl: Database.TTL,
+          tags: filtersKey ? [filtersKey] : undefined,
+        });
+      } catch (e) {
+        this.logger.warn(`Failed to load document '${id}' from cache: ${e}`);
+      }
+
+      if (cached) {
+        doc = new Doc(cached);
+
+        if (collection.getId() !== Database.METADATA) {
+          const readPermissions = [
+            ...collection.getRead(),
+            ...(documentSecurity ? doc.getRead() : []),
+          ];
+
+          const authorization = new Authorization(PermissionEnum.Read);
+          if (!authorization.$valid(readPermissions)) {
+            return new Doc();
+          }
+        }
+
+        this.trigger(EventsEnum.DocumentRead, doc);
+        return doc;
+      }
+
       doc =
         (await this.adapter.getDocument(
           collection.getId(),
           id,
           processedQuery,
+          forUpdate,
         )) || new Doc();
 
       if (!doc.empty() && collection.getId() !== Database.METADATA) {
-        const documentSecurity = collection.get("documentSecurity", false);
         const readPermissions = [
           ...collection.getRead(),
           ...(documentSecurity ? doc.getRead() : []),
@@ -1888,6 +1924,22 @@ export class Database extends Cache {
 
     doc = this.cast(collection, doc);
     doc = await this.decode(processedQuery, doc);
+
+    if (!processedQuery.populateQueries?.length) {
+      const { documentKey, filtersKey } = this.getCacheKeys(
+        collectionId,
+        id,
+        processedQuery,
+      );
+      try {
+        await this.cache.set(documentKey!, doc.toObject(), {
+          ttl: Database.TTL,
+          tags: filtersKey ? [filtersKey] : [],
+        });
+      } catch (e) {
+        this.logger.warn(`Failed to save document '${id}' to cache: ${e}`);
+      }
+    }
 
     this.trigger(EventsEnum.DocumentRead, doc);
     return doc;

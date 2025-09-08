@@ -1857,6 +1857,7 @@ export abstract class BaseAdapter extends EventEmitter {
         break;
 
       case QueryType.Contains:
+      case QueryType.NotContains:
         if (query.onArray()) {
           sql = `${columnRef} && ?`;
           params.push(values);
@@ -1867,11 +1868,13 @@ export abstract class BaseAdapter extends EventEmitter {
         break;
 
       case QueryType.StartsWith:
+      case QueryType.NotStartsWith:
         sql = `${columnRef} LIKE ?`;
         params.push(`${this.escapeWildcards(values[0] as string)}%`);
         break;
 
       case QueryType.EndsWith:
+      case QueryType.NotEndsWith:
         sql = `${columnRef} LIKE ?`;
         params.push(`%${this.escapeWildcards(values[0] as string)}`);
         break;
@@ -1885,11 +1888,13 @@ export abstract class BaseAdapter extends EventEmitter {
         break;
 
       case QueryType.Between:
+      case QueryType.NotBetween:
         sql = `${columnRef} BETWEEN ? AND ?`;
         params.push(values[0], values[1]);
         break;
 
       case QueryType.Search:
+      case QueryType.NotSearch:
         sql = `to_tsvector('${Database.FULLTEXT_LANGUAGE}', ${columnRef}) @@ plainto_tsquery('${Database.FULLTEXT_LANGUAGE}', ?)`;
         params.push(values[0]);
         break;
@@ -1922,6 +1927,18 @@ export abstract class BaseAdapter extends EventEmitter {
         );
         sql = `NOT (${notCondition.sql})`;
         params.push(...notCondition.params);
+        break;
+      default:
+        break;
+    }
+
+    switch (method) {
+      case QueryType.NotContains:
+      case QueryType.NotSearch:
+      case QueryType.NotBetween:
+      case QueryType.NotStartsWith:
+      case QueryType.NotEndsWith:
+        sql = `NOT (${sql})`;
         break;
       default:
         break;

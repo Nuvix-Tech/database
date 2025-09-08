@@ -68,6 +68,7 @@ export class Filter extends Base {
 
     switch (method) {
       case QueryType.Equal:
+      case QueryType.NotContains:
       case QueryType.Contains: {
         const values = value.getValues() as ScalarValue[];
         if (this.isEmpty(values)) {
@@ -88,6 +89,9 @@ export class Filter extends Base {
       case QueryType.GreaterThan:
       case QueryType.GreaterThanEqual:
       case QueryType.Search:
+      case QueryType.NotSearch:
+      case QueryType.NotStartsWith:
+      case QueryType.NotEndsWith:
       case QueryType.StartsWith:
       case QueryType.EndsWith: {
         const values = value.getValues() as ScalarValue[];
@@ -103,6 +107,7 @@ export class Filter extends Base {
         );
       }
 
+      case QueryType.NotBetween:
       case QueryType.Between: {
         const values = value.getValues() as ScalarValue[];
         if (values.length !== 2) {
@@ -263,7 +268,7 @@ export class Filter extends Base {
 
     if (
       !isArray &&
-      method === QueryType.Contains &&
+      [QueryType.NotContains, QueryType.Contains].includes(method) &&
       attributeSchema.type !== AttributeEnum.String &&
       attributeSchema.type !== AttributeEnum.Json
     ) {
@@ -273,9 +278,12 @@ export class Filter extends Base {
 
     if (
       isArray &&
-      ![QueryType.Contains, QueryType.IsNull, QueryType.IsNotNull].includes(
-        method,
-      )
+      ![
+        QueryType.Contains,
+        QueryType.NotContains,
+        QueryType.IsNull,
+        QueryType.IsNotNull,
+      ].includes(method)
     ) {
       this.message = `Cannot use "${method}" on attribute "${attributeSchema.key}" because it is an array.`;
       return false;
