@@ -852,35 +852,48 @@ export abstract class BaseAdapter extends EventEmitter {
     message?: string,
   ): never {
     const e = error as DatabaseError;
+
     if (!(e instanceof DatabaseError)) {
-      if ((e as any) instanceof DatabaseException) throw e;
-      throw new DatabaseException(e?.["message"] ?? message, e);
+      if ((e as any) instanceof DatabaseException) {
+        throw e;
+      }
+      throw new DatabaseException(
+        (e as { message?: string })?.message ??
+          message ??
+          "Unexpected database error",
+        e,
+      );
     }
 
     switch (e.code) {
-      // Timeout
-      case "57014":
-        throw new TimeoutException("Query timed out", e.code, e);
-      // Duplicate table
-      case "42P07":
-        throw new DuplicateException("Table already exists", e.code, e);
-      // Duplicate column
-      case "42701":
+      case "57014": // Query canceled / timeout
+        throw new TimeoutException("Query execution timed out", e.code, e);
+
+      case "42P07": // Duplicate table
+        throw new DuplicateException("Collection already exists", e.code, e);
+
+      case "42701": // Duplicate column
         throw new DuplicateException("Column already exists", e.code, e);
-      // Duplicate row (unique constraint violation)
-      case "23505":
-        throw new DuplicateException("Unique constraint violation", e.code, e);
-      // String data right truncation
-      case "22001":
-        throw new TruncateException(
-          "Value is too long and would be truncated",
+
+      case "23505": // Unique constraint violation (duplicate row)
+        throw new DuplicateException(
+          "Unique constraint violation: duplicate row",
           e.code,
           e,
         );
-      // Undefined column
-      case "42703":
-        throw new NotFoundException("Column not found", e.code, e);
+
+      case "22001": // String data right truncation
+        throw new TruncateException(
+          "Value too long: data would be truncated",
+          e.code,
+          e,
+        );
+
+      case "42703": // Undefined column
+        throw new NotFoundException("Referenced column not found", e.code, e);
+
       default:
+        // For unmapped codes, rethrow to avoid masking potential issues
         throw e;
     }
   }

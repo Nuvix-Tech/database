@@ -18,6 +18,7 @@ describe("Database Upsert Operations", () => {
   });
 
   afterAll(async () => {
+    await db.delete();
     await db.getAdapter().$client.disconnect();
   });
 

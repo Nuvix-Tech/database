@@ -4,6 +4,7 @@ import { Collection } from "@validators/schema.js";
 import { Doc } from "./doc.js";
 import { createHash } from "crypto";
 import type { ProcessedQuery } from "./database.js";
+import { fnv1a128 } from "@utils/index.js";
 
 export class Cache extends Base {
   protected cacheName: string = "default";
@@ -17,7 +18,7 @@ export class Cache extends Base {
       typeof collection === "string" ? collection : collection.getId();
     const { collectionKey } = this.getCacheKeys(collectionId);
     try {
-      await this.cache.delete(collectionKey);
+      await this.cache.flushByTags([collectionKey]);
     } catch (e) {
       this.logger.warn(
         `Failed to remove collection '${collectionId}' from cache: ${e}`,
@@ -30,7 +31,7 @@ export class Cache extends Base {
     const { documentKey } = this.getCacheKeys(collection, documentId);
     if (documentKey) {
       try {
-        await this.cache.delete(documentKey);
+        await this.cache.flushByTags([documentKey]);
       } catch (e) {
         this.logger.warn(
           `Failed to remove document '${documentId}' from cache: ${e}`,
@@ -47,37 +48,34 @@ export class Cache extends Base {
     const baseKey = `db:${this.cacheName}:${this.namespace ?? null}:${this.schema}:${this.tenantId ?? null}`;
     const collectionKey = `${baseKey}:${collectionId}`;
     let documentKey: string | undefined;
-    let filtersKey: string | undefined;
+    let filtersHash: string | undefined;
 
     if (documentId) {
       documentKey = `${collectionKey}:${documentId}`;
     }
 
     if (filters) {
-      const filtersHash = this.hashFilters(filters);
-      filtersKey = `${collectionKey}:filters:${filtersHash}`;
+      filtersHash = this.hashFilters(filters);
     }
 
     return {
       baseKey,
       collectionKey,
       documentKey,
-      filtersKey,
+      filtersHash,
     };
   }
 
   private hashFilters(query: ProcessedQuery): string {
-    const payload = {
-      selections: query.selections,
-      filters: query.filters ?? [],
-      limit: query.limit ?? null,
-      offset: query.offset ?? null,
-      cursor: query.cursor ? query.cursor?.getId() : null,
-      cursorDirection: query.cursorDirection ?? null,
-    };
-
-    return createHash("md5")
-      .update(JSON.stringify(payload.selections))
-      .digest("hex");
+    // const payload = {
+    //   selections: query.selections,
+    //   filters: query.filters ?? [],
+    //   limit: query.limit ?? null,
+    //   offset: query.offset ?? null,
+    //   cursor: query.cursor ? query.cursor?.getId() : null,
+    //   cursorDirection: query.cursorDirection ?? null,
+    // };
+    const selections = [...query.selections].sort();
+    return fnv1a128(JSON.stringify(selections));
   }
 }

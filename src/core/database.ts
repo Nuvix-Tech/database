@@ -1837,22 +1837,25 @@ export class Database extends Cache {
       forUpdate,
       overrideValidators: [MethodType.Populate, MethodType.Select],
     });
+    const processedQueryClone = { ...processedQuery };
 
     let doc: Doc<any>;
+    const { collectionKey, documentKey, filtersHash } = this.getCacheKeys(
+      collectionId,
+      id,
+      processedQueryClone,
+    );
+    const cacheKey = `${documentKey}${filtersHash ? ":" + filtersHash : ""}`;
 
     if (!processedQuery.populateQueries?.length) {
       const documentSecurity = collection.get("documentSecurity", false);
-      const { documentKey, filtersKey } = this.getCacheKeys(
-        collectionId,
-        id,
-        processedQuery,
-      );
+
       let cached: any;
 
       try {
-        cached = await this.cache.get(documentKey!, {
+        cached = await this.cache.get(cacheKey, {
           ttl: Database.TTL,
-          tags: filtersKey ? [filtersKey] : undefined,
+          tags: [collectionKey, documentKey!],
         });
       } catch (e) {
         this.logger.warn(`Failed to load document '${id}' from cache: ${e}`);
@@ -1926,15 +1929,10 @@ export class Database extends Cache {
     doc = await this.decode(processedQuery, doc);
 
     if (!processedQuery.populateQueries?.length) {
-      const { documentKey, filtersKey } = this.getCacheKeys(
-        collectionId,
-        id,
-        processedQuery,
-      );
       try {
-        await this.cache.set(documentKey!, doc.toObject(), {
+        await this.cache.set(cacheKey, doc.toObject(), {
           ttl: Database.TTL,
-          tags: filtersKey ? [filtersKey] : [],
+          tags: [collectionKey, documentKey!],
         });
       } catch (e) {
         this.logger.warn(`Failed to save document '${id}' to cache: ${e}`);
@@ -2656,7 +2654,7 @@ export class Database extends Cache {
                 ),
               );
 
-              //  If setIds !== null, assign new ones
+              //  If new set is not empty, set new children
               if (setIds && setIds.length > 0) {
                 await this.silent(() =>
                   this.skipCheckRelationshipsExist(() =>
@@ -3012,6 +3010,7 @@ export class Database extends Cache {
         processedQueries,
       );
       for (const id of result) {
+        await this.purgeCachedDocument(collection.getId(), id);
         await this.silent(() =>
           this.deleteDocumentRelationships(
             collection,
@@ -3025,7 +3024,6 @@ export class Database extends Cache {
       return result;
     });
 
-    // TODO: flush documents cache
     return deletedIds;
   }
 
