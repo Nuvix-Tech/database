@@ -35,9 +35,6 @@ types.setTypeParser(types.builtins.TIMESTAMP, (x) => x);
 types.setTypeParser(types.builtins.TIMESTAMPTZ, (x) => x);
 types.setTypeParser(types.builtins.INTERVAL, (x) => x);
 
-// types.setTypeParser(1115 as any, parseArray); // _timestamp[]
-// types.setTypeParser(1182 as any, parseArray); // _date[]
-// types.setTypeParser(1185 as any, parseArray); // _timestamptz[]
 types.setTypeParser(600 as any, (x) => x); // point
 types.setTypeParser(1017 as any, (x) => x); // _point
 
@@ -45,6 +42,13 @@ const timestampzParser = (x: string | null): Date | null => {
   if (x === null) return null;
   const date = new Date(x);
   return isNaN(date.getTime()) ? null : date;
+};
+
+const getTypeParser = (id: any, format: any) => {
+  if (id === types.builtins.TIMESTAMPTZ && format === "text") {
+    return timestampzParser;
+  }
+  return types.getTypeParser(id, format);
 };
 
 export class PostgresClient implements IClient {
@@ -70,22 +74,10 @@ export class PostgresClient implements IClient {
   constructor(options: PoolConfig | Client) {
     if ("connect" in options) {
       this.connection = options;
-      this.connection.setTypeParser(
-        types.builtins.TIMESTAMPTZ,
-        timestampzParser,
-      );
       this._type = "connection";
     } else {
       const pool = new Pool({
         ...options,
-        types: {
-          getTypeParser(id, format) {
-            if (id === types.builtins.TIMESTAMPTZ && format === "text") {
-              return timestampzParser;
-            }
-            return types.getTypeParser(id, format);
-          },
-        },
       });
       this.connection = pool;
       this.pool = pool;
@@ -129,9 +121,17 @@ export class PostgresClient implements IClient {
     if (typeof sql === "string" && values && Array.isArray(values)) {
       let paramIndex = 1;
       const convertedSql = sql.replace(/\?/g, () => `$${paramIndex++}`);
-      return this.connection.query(convertedSql, values);
+      return this.connection.query({
+        text: convertedSql,
+        values,
+        types: { getTypeParser },
+      });
     }
-    return this.connection.query(sql, values);
+    return this.connection.query({
+      text: typeof sql === "string" ? sql : sql.text,
+      values: typeof sql === "string" ? values : sql.values,
+      types: { getTypeParser },
+    });
   }
 
   public quote(value: any): string {

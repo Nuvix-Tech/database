@@ -69,10 +69,10 @@ export abstract class BaseAdapter extends EventEmitter {
   protected transformations: Partial<
     Record<EventsEnum, Array<[string, (query: string) => string]>>
   > = {
-      [EventsEnum.All]: [],
-    };
+    [EventsEnum.All]: [],
+  };
 
-  constructor(options: { type?: string; } = {}) {
+  constructor(options: { type?: string } = {}) {
     super();
     if (options.type) {
       this.type = options.type;
@@ -547,7 +547,7 @@ export abstract class BaseAdapter extends EventEmitter {
    * update permissions for a document
    */
   protected async updatePermissions(collection: string, document: Doc) {
-    const operations: { sql: string; params: any[]; }[] = [];
+    const operations: { sql: string; params: any[] }[] = [];
 
     // Get current permissions grouped by type
     const sqlParams: any[] = [document.getSequence()];
@@ -858,9 +858,9 @@ export abstract class BaseAdapter extends EventEmitter {
         throw e;
       }
       throw new DatabaseException(
-        (e as { message?: string; })?.message ??
-        message ??
-        "Unexpected database error",
+        (e as { message?: string })?.message ??
+          message ??
+          "Unexpected database error",
         e,
       );
     }
@@ -1759,7 +1759,7 @@ export abstract class BaseAdapter extends EventEmitter {
     queries: Query[],
     tableAlias: string,
     collection: string,
-  ): { conditions: string[]; params: any[]; } {
+  ): { conditions: string[]; params: any[] } {
     const conditions: string[] = [];
     const conditionParams: any[] = [];
 
@@ -1787,7 +1787,7 @@ export abstract class BaseAdapter extends EventEmitter {
   private buildQueryCondition(
     query: Query,
     tableAlias: string,
-  ): { sql: string; params: any[]; } {
+  ): { sql: string; params: any[] } {
     const method = query.getMethod();
     const attribute = query.getAttribute();
     const values = query.getValues();
@@ -1991,7 +1991,7 @@ export abstract class BaseAdapter extends EventEmitter {
     cursorDirection: CursorEnum | null,
     orders: Record<string, OrderEnum>,
     tableAlias: string,
-  ): { condition: string; params: any[]; } {
+  ): { condition: string; params: any[] } {
     const uniqueOrderAttr = orders["$id"] || orders["$sequence"];
 
     // I know this is not the good place to update the orders, but it works.
