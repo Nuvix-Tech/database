@@ -1,39 +1,13 @@
-Proprietary License
+BSD 3-Clause License
 
 Copyright (c) 2025, Nuvix-Tech
-All rights reserved.
 
-NOTICE: This software and its source code are proprietary and confidential 
-information of Nuvix-Tech. All rights reserved.
+Redistribution and use in source and binary forms, with or without modification, are permitted provided that the following conditions are met:
 
-RESTRICTIONS:
-1. NO COMMERCIAL USE: This software may not be used for any commercial purposes 
-   whatsoever, including but not limited to selling, licensing, or incorporating 
-   into commercial products or services.
+1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
 
-2. NO PRIVATE USE: This software may not be used for private, personal, or 
-   individual purposes outside of the explicit permissions granted herein.
+2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
 
-3. NO MODIFICATION: This software may not be modified, altered, adapted, or 
-   enhanced in any way except for the purpose of contributing improvements, bug fixes, or documentation via official pull requests to the original repository. All such contributions are subject to review and approval by the copyright holder.
+3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
 
-4. NO DISTRIBUTION: This software may not be distributed, shared, transmitted, 
-   or made available to any third party in any form without explicit written 
-   permission from the copyright holder.
-
-5. NO REVERSE ENGINEERING: Reverse engineering, decompilation, or disassembly 
-   of this software is strictly prohibited.
-
-PERMITTED USES:
-- Viewing the source code for educational and reference purposes only
-- Academic research and study (non-commercial)
-- Code review and security analysis (with prior written consent)
-
-DISCLAIMER:
-THIS SOFTWARE IS PROVIDED "AS IS" WITHOUT ANY WARRANTIES OR CONDITIONS OF ANY 
-KIND, EITHER EXPRESS OR IMPLIED. IN NO EVENT SHALL THE COPYRIGHT HOLDER BE 
-LIABLE FOR ANY DAMAGES ARISING FROM THE USE OF THIS SOFTWARE.
-
-For licensing inquiries or permissions, contact: legal@nuvix-tech.com
-
-Violation of this license may result in legal action and monetary damages.
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.

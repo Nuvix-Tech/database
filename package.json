@@ -1,8 +1,8 @@
 {
-  "name": "@nuvix-tech/db",
-  "version": "0.1.26-alpha.14",
-  "description": "Modular and performant database library for Nuvix, with internal complexity abstracted from developers.",
-  "license": "Proprietary",
+  "name": "@nuvix/db",
+  "version": "0.1.27",
+  "description": "Modular and performant open source database library for Nuvix, with internal complexity abstracted from developers.",
+  "license": "BSD-3-Clause",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -43,9 +43,6 @@
     "README.md",
     "package.json"
   ],
-  "publishConfig": {
-    "registry": "https://npm.pkg.github.com"
-  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/Nuvix-Tech/database.git"

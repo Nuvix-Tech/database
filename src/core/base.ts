@@ -1176,6 +1176,7 @@ export abstract class Base<
       const internalAttrs = this.getInternalAttributes().map((a) => a.$id);
       const selections = [
         ...internalAttrs,
+        "$schema",
         "$collection",
         ...populateQuery.selections,
       ];
@@ -1186,7 +1187,10 @@ export abstract class Base<
       for (const attr of selections) {
         if (attr === "$collection")
           relatedDoc[attr] = populateQuery.collection.getId();
-        else {
+        else if (attr === "$schema") {
+          if (!this.attachSchemaInDocument) continue;
+          relatedDoc[attr] = this.schema;
+        } else {
           const key = `${currentPrefix}${attr}`;
           const value = row[key];
           if (value !== null && value !== undefined) {
