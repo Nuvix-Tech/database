@@ -131,8 +131,8 @@ export class ConfigLoader {
   }
 
   static createExampleConfig(): string {
-    return `import { NuvixDBConfig } from '@nuvix-tech/db';
-import { AttributeType } from '@nuvix-tech/db';
+    return `import { NuvixDBConfig } from '@nuvix/db';
+import { AttributeType } from '@nuvix/db';
 
 const config: NuvixDBConfig = {
   collections: [
@@ -203,7 +203,7 @@ const config: NuvixDBConfig = {
   
   typeGeneration: {
     outputPath: './src/types/generated.ts',
-    packageName: '@nuvix-tech/db',
+    packageName: '@nuvix/db',
     includeDocTypes: true,
     generateUtilityTypes: true,
     generateQueryTypes: true,

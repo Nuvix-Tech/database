@@ -494,9 +494,7 @@ describe("generateTypes", () => {
 
       const result = generateTypes(collections);
 
-      expect(result).toContain(
-        'import { Doc, IEntity } from "@nuvix-tech/db";',
-      );
+      expect(result).toContain('import { Doc, IEntity } from "@nuvix/db";');
       expect(result).toContain("export type UsersDoc = Doc<Users>;");
       expect(result).toContain("export type PostsDoc = Doc<Posts>;");
     });

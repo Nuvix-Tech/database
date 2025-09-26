@@ -38,7 +38,7 @@ export function generateTypes(
     generateInputTypes = true,
     generateValidationTypes = false,
     includeMetaDataTypes = false,
-    packageName = "@nuvix-tech/db",
+    packageName = "@nuvix/db",
   } = options;
 
   const parts: string[] = [];
@@ -313,7 +313,7 @@ export function generateEntityType(
 // Utility function to generate Doc type for a specific collection
 export function generateDocType(
   collection: Collection,
-  packageName: string = "@nuvix-tech/db",
+  packageName: string = "@nuvix/db",
 ): string {
   const interfaceName = pascalCase(collection.name);
   const docTypeName = `${interfaceName}Doc`;

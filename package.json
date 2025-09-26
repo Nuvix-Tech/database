@@ -1,6 +1,6 @@
 {
   "name": "@nuvix/db",
-  "version": "0.1.27",
+  "version": "0.1.28",
   "description": "Modular and performant open source database library for Nuvix, with internal complexity abstracted from developers.",
   "license": "BSD-3-Clause",
   "main": "./dist/index.cjs",
@@ -12,11 +12,6 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
-    },
-    "./config": {
-      "types": "./dist/config/types.d.ts",
-      "import": "./dist/config/types.js",
-      "require": "./dist/config/types.cjs"
     }
   },
   "bin": {

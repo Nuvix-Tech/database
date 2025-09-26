@@ -1,4 +1,4 @@
-import { Collection } from "@validators/schema.js";
+import type { Collection } from "@validators/schema.js";
 
 export interface NuvixDBConfig {
   /** Database collections */
@@ -93,7 +93,7 @@ export interface CLIOptions {
 export const DEFAULT_CONFIG: Partial<NuvixDBConfig> = {
   typeGeneration: {
     outputPath: "./src/types/generated.ts",
-    packageName: "@nuvix-tech/db",
+    packageName: "@nuvix/db",
     includeImports: true,
     includeDocTypes: true,
     includeEntityMap: true,
