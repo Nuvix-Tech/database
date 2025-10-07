@@ -37,8 +37,11 @@ function isEntityLike(value: unknown): value is Record<string, unknown> {
 export class Doc<
   T extends Record<string, any> & Partial<IEntity> = Partial<IEntity>,
 > {
-  private _data: Record<string, any> = {};
+  #_data: Record<string, any> = {};
 
+  /**
+   * Creates a new Doc instance.
+   */
   constructor(data: T extends IEntity ? FilterInput<T> : never);
   constructor(
     data?: (T | TransformEntity<T>) | (IEntityInput & Record<string, any>),
@@ -46,7 +49,7 @@ export class Doc<
   constructor(
     data?: (T | TransformEntity<T>) | (IEntityInput & Record<string, any>),
   ) {
-    this._data = {};
+    this.#_data = {};
     if (data) {
       if (data.$id && typeof data.$id !== "string") {
         throw new DocException("$id must be a string");
@@ -58,7 +61,7 @@ export class Doc<
 
       for (const [key, value] of Object.entries(data)) {
         if (Array.isArray(value)) {
-          this._data[key] = value.map((item) =>
+          this.#_data[key] = value.map((item) =>
             isEntityLike(item)
               ? item instanceof Doc
                 ? item
@@ -66,19 +69,25 @@ export class Doc<
               : item,
           );
         } else if (isEntityLike(value)) {
-          this._data[key] =
+          this.#_data[key] =
             value instanceof Doc ? value : new Doc(value as any);
         } else {
-          this._data[key] = value ?? null;
+          this.#_data[key] = value ?? null;
         }
       }
     }
   }
 
+  /**
+   * Creates a new Doc instance from the provided data.
+   */
   static from<D extends Partial<IEntity>>(data: D & IEntityInput): Doc<D> {
     return new Doc(data);
   }
 
+  /**
+   * Gets the value of a field. If the field does not exist, returns the provided default value or null.
+   */
   public get<K extends keyof T>(
     name: K,
   ): Exclude<TransformEntity<T>[K], undefined>;
@@ -95,14 +104,22 @@ export class Doc<
     name: K,
     _default: D = null as D,
   ): Exclude<TransformEntity<T>[K], undefined> | D {
-    const value = this._data[name as string];
+    const value = this.#_data[name as string];
     return value === undefined ? _default : value;
   }
 
+  /**
+   * Returns a shallow copy of all fields in the document.
+   */
   public getAll(): TransformEntity<T> {
-    return { ...this._data } as TransformEntity<T>;
+    return { ...this.#_data } as TransformEntity<T>;
   }
 
+  /**
+   * Sets the value of a field, transforming it into a Doc if it's an entity-like object.
+   * If the value is an array, each entity-like item in the array is also transformed into a Doc.
+   * If the value is null or undefined, it is set to null.
+   */
   public set<K extends keyof T>(name: K, value: TransformField<T[K]>): this;
   public set<K extends string, V extends unknown>(
     name: K,
@@ -110,7 +127,7 @@ export class Doc<
   ): Doc<Simplify<T & Record<K, TransformField<V>>>>;
   public set<K extends string, V extends unknown>(name: K, value: V): any {
     if (Array.isArray(value)) {
-      this._data[name] = value.map((item) =>
+      this.#_data[name] = value.map((item) =>
         isEntityLike(item)
           ? item instanceof Doc
             ? item
@@ -118,13 +135,44 @@ export class Doc<
           : item,
       );
     } else if (isEntityLike(value)) {
-      this._data[name] = value instanceof Doc ? value : new Doc(value as any);
+      this.#_data[name] = value instanceof Doc ? value : new Doc(value as any);
     } else {
-      this._data[name] = value ?? null;
+      this.#_data[name] = value ?? null;
     }
     return this;
   }
 
+  /**
+   * Updates the value of a field if the value is provided (not undefined).
+   * If the value is undefined, no change is made.
+   */
+  public update<K extends keyof T>(
+    name: K,
+    value?: TransformField<T[K]>,
+  ): this {
+    if (typeof value !== "undefined") {
+      return this.set(name, value);
+    }
+    return this;
+  }
+
+  /**
+   * Updates multiple fields from the provided data object.
+   * Only fields with defined values are updated; undefined values are skipped.
+   */
+  public updateAll(data: Partial<FilterInput<T>>): this {
+    for (const [key, value] of Object.entries(data)) {
+      if (typeof value !== "undefined") {
+        this.set(key, value);
+      }
+    }
+    return this;
+  }
+
+  /**
+   * Sets multiple fields from the provided data object.
+   * All fields in the data object are set, including those with null values.
+   */
   public setAll(data: FilterInput<T>): this;
   public setAll<D extends FilterInput<T> & Record<string, any>>(
     data: D,
@@ -132,7 +180,7 @@ export class Doc<
   public setAll(data: FilterInput<T>): this {
     for (const [key, value] of Object.entries(data)) {
       if (Array.isArray(value)) {
-        this._data[key] = value.map((item) =>
+        this.#_data[key] = value.map((item) =>
           isEntityLike(item)
             ? item instanceof Doc
               ? item
@@ -140,72 +188,92 @@ export class Doc<
             : item,
         );
       } else if (isEntityLike(value)) {
-        this._data[key] =
+        this.#_data[key] =
           (value as any) instanceof Doc ? value : new Doc(value as any);
       } else {
-        this._data[key] = value ?? null;
+        this.#_data[key] = value ?? null;
       }
     }
     return this;
   }
 
+  /**
+   * Appends a value to an array field. If the field is not an array, an exception is thrown.
+   * If the value is an entity-like object, it is transformed into a Doc before appending.
+   */
   public append<K extends string & keyof T>(
     name: K,
     value: TransformField<T[K]> extends Array<unknown>
       ? TransformField<T[K]>[number]
       : TransformField<T[K][number]>,
   ): this {
-    if (!Array.isArray(this._data[name])) {
+    if (!Array.isArray(this.#_data[name])) {
       throw new DocException(
         `Cannot append to ${String(name)}, it is not an array`,
       );
     }
     if (isEntityLike(value)) {
-      this._data[name].push(
+      this.#_data[name].push(
         value instanceof Doc ? value : new Doc(value as any),
       );
     } else {
-      this._data[name].push(value);
+      this.#_data[name].push(value);
     }
     return this;
   }
 
+  /**
+   * Prepends a value to an array field. If the field is not an array, an exception is thrown.
+   * If the value is an entity-like object, it is transformed into a Doc before prepending.
+   */
   public prepend<K extends string & keyof T>(
     name: K,
     value: TransformField<T[K]> extends Array<any>
       ? TransformField<T[K]>[number]
       : TransformField<T[K]>,
   ): this {
-    if (!Array.isArray(this._data[name])) {
+    if (!Array.isArray(this.#_data[name])) {
       throw new DocException(
         `Cannot prepend to ${String(name)}, it is not an array`,
       );
     }
     if (isEntityLike(value)) {
-      this._data[name].unshift(
+      this.#_data[name].unshift(
         value instanceof Doc ? value : new Doc(value as any),
       );
     } else {
-      this._data[name].unshift(value);
+      this.#_data[name].unshift(value);
     }
     return this;
   }
 
+  /**
+   * Deletes a field from the document if it exists.
+   */
   public delete<K extends string & keyof T>(name: K): this {
-    if (name in this._data) {
-      delete this._data[name];
+    if (name in this.#_data) {
+      delete this.#_data[name];
     }
     return this;
   }
 
+  /**
+   * Gets the document ID.
+   */
   public getId(): string {
     return this.get("$id") as string;
   }
 
+  /**
+   * Gets the value of $sequence.
+   */
   public getSequence(): number {
     return this.get("$sequence") as number;
   }
 
+  /**
+   * Gets the tenant ID, or null if not set.
+   */
   public getTenant(): number | null {
     const tenant = this.get("$tenant", null);
     if (tenant === null || typeof tenant === "number") {
@@ -215,14 +283,17 @@ export class Doc<
     }
   }
 
+  /**
+   * Gets the collection name.
+   */
   public getCollection(): string {
     const collection = this.get("$collection");
-    // if (typeof collection !== "string") {
-    //     throw new DocException("$collection must be a string");
-    // }
     return collection as string;
   }
 
+  /**
+   * Gets the creation date, or null if not set. If the value is a string, it is converted to a Date object.
+   */
   public createdAt(): Date | null {
     const value = this.get("$createdAt", null);
     if (typeof value === "string") {
@@ -231,6 +302,9 @@ export class Doc<
     return value as Date | null;
   }
 
+  /**
+   * Gets the last updated date, or null if not set. If the value is a string, it is converted to a Date object.
+   */
   public updatedAt(): Date | null {
     const value = this.get("$updatedAt", null);
     if (typeof value === "string") {
@@ -239,6 +313,9 @@ export class Doc<
     return value as Date | null;
   }
 
+  /**
+   * Gets the list of permissions, ensuring uniqueness and converting Permission objects to strings.
+   */
   public getPermissions(): string[] {
     const permissions: (string | Permission)[] = this.get(
       "$permissions",
@@ -254,28 +331,46 @@ export class Doc<
     );
   }
 
+  /**
+   * Gets the list of read permissions.
+   */
   public getRead(): string[] {
     return this.getPermissionsByType("read");
   }
 
+  /**
+   * Gets the list of create permissions.
+   */
   public getCreate(): string[] {
     return this.getPermissionsByType("create");
   }
 
+  /**
+   * Gets the list of update permissions.
+   */
   public getUpdate(): string[] {
     return this.getPermissionsByType("update");
   }
 
+  /**
+   * Gets the list of delete permissions.
+   */
   public getDelete(): string[] {
     return this.getPermissionsByType("delete");
   }
 
+  /**
+   * Gets the list of write permissions (create, update, delete).
+   */
   public getWrite() {
     return Array.from(
       new Set([...this.getCreate(), ...this.getUpdate(), ...this.getDelete()]),
     );
   }
 
+  /**
+   * Gets permissions of a specific type (e.g., "read", "create", "update", "delete").
+   */
   public getPermissionsByType(type: string): string[] {
     return this.getPermissions()
       .filter((permission) => permission.startsWith(type))
@@ -288,16 +383,28 @@ export class Doc<
       );
   }
 
+  /**
+   * Checks if a field exists in the document.
+   */
   public has(name: keyof T): boolean;
   public has(name: string): boolean;
   public has(name: string): boolean {
-    return Object.hasOwn(this._data, name);
+    return Object.hasOwn(this.#_data, name);
   }
 
+  /**
+   * Returns an array of all field names in the document.
+   */
   public keys(): (keyof T)[] {
-    return Object.keys(this._data);
+    return Object.keys(this.#_data);
   }
 
+  /**
+   * Finds the first item in a field (which can be a single value or an array) that matches the provided predicate.
+   * If the field is an array, it searches through the array items.
+   * If the field is a single value, it checks that value against the predicate.
+   * Returns the matching item or null if no match is found.
+   */
   public findWhere<K extends string & keyof T>(
     key: K,
     predicate: (item: T[K] extends Array<any> ? T[K][number] : T[K]) => boolean,
@@ -324,6 +431,11 @@ export class Doc<
     return null;
   }
 
+  /**
+   * Replaces items in a field (which can be a single value or an array) that match the provided predicate with the given replacement value or the result of the replacement function.
+   * If the field is an array, it iterates through the array and replaces matching items.
+   * If the field is a single value and it matches the predicate, it replaces that value.
+   */
   public replaceWhere<V = unknown>(
     key: string & keyof T,
     predicate: (item: V) => boolean,
@@ -359,6 +471,11 @@ export class Doc<
     }
   }
 
+  /**
+   * Deletes items in a field (which can be a single value or an array) that match the provided predicate.
+   * If the field is an array, it filters out matching items.
+   * If the field is a single value and it matches the predicate, it deletes that field.
+   */
   public deleteWhere<V = unknown>(
     key: string & keyof T,
     predicate: (item: V) => boolean,
@@ -382,17 +499,26 @@ export class Doc<
     }
   }
 
+  /**
+   * Checks if the document has no fields.
+   */
   public empty(): boolean {
     return this.keys().length === 0;
   }
 
+  /**
+   * Converts the document to a plain object, optionally filtering fields by allow and disallow lists.
+   * If allow list is provided, only fields in that list are included.
+   * If disallow list is provided, fields in that list are excluded.
+   * Nested Doc instances are also converted to plain objects recursively.
+   */
   public toObject(): T;
   public toObject(allow: (keyof T)[], disallow?: (keyof T)[]): T;
   public toObject(allow: any[] = [], disallow: any[] = []): T {
     const output: Record<string, unknown> = {};
     const keys = this.keys();
     for (const key of keys) {
-      const value = this._data[key as string];
+      const value = this.#_data[key as string];
       if (allow.length && !allow.includes(key)) continue;
       if (disallow.includes(key)) continue;
 
@@ -409,32 +535,41 @@ export class Doc<
     return output as T;
   }
 
+  /**
+   * Converts the document to JSON by calling toObject.
+   */
   toJSON() {
     return this.toObject();
   }
 
+  /**
+   * Creates a deep clone of the document, including nested Doc instances and arrays.
+   */
   clone() {
     const cloned = new Doc<T>();
     const keys = this.keys();
     for (const key of keys) {
-      const value = this._data[key as string];
+      const value = this.#_data[key as string];
       if (value instanceof Doc) {
-        (cloned as any)._data[key as string] = value.clone();
+        (cloned as any).#_data[key as string] = value.clone();
       } else if (Array.isArray(value)) {
-        (cloned as any)._data[key as string] = value.map((item) =>
+        (cloned as any).#_data[key as string] = value.map((item) =>
           item instanceof Doc ? item.clone() : item,
         );
       } else {
-        (cloned as any)._data[key as string] = value;
+        (cloned as any).#_data[key as string] = value;
       }
     }
     return cloned;
   }
 
+  /**
+   * Custom inspection method for Node.js console and util.inspect, providing a colored and formatted string representation of the document.
+   */
   [Symbol.for("nodejs.util.inspect.custom")]() {
     const formatValue = (value: any, depth: number = 0): string => {
       if (value instanceof Doc) {
-        return chalk.cyan(`Doc(${formatValue(value._data, depth + 1)})`);
+        return chalk.cyan(`Doc(${formatValue(value.#_data, depth + 1)})`);
       } else if (Array.isArray(value)) {
         return chalk.green(
           `[${value.map((item) => formatValue(item, depth + 1)).join(", ")}]`,
@@ -461,7 +596,7 @@ export class Doc<
       }
     };
 
-    return `Doc ${formatValue(this._data)}`;
+    return `Doc ${formatValue(this.#_data)}`;
   }
 }
 

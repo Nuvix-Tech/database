@@ -414,6 +414,14 @@ describe("Relationship Document Operations", () => {
         }),
       );
 
+      const post3 = await db.createDocument(
+        postsCollectionId,
+        new Doc({
+          title: "Post 3",
+          content: "Content 3",
+        }),
+      );
+
       // Update user to set posts relationship
       console.log(
         await db.updateDocument(
@@ -425,7 +433,7 @@ describe("Relationship Document Operations", () => {
         ),
       );
 
-      const updatedUser = await db.getDocument(
+      let updatedUser = await db.getDocument(
         usersCollectionId,
         user.getId(),
         (qb) => qb.populate("posts"),
@@ -433,6 +441,24 @@ describe("Relationship Document Operations", () => {
 
       expect(updatedUser.get("posts").map((post: any) => post.getId())).toEqual(
         [post1.getId(), post2.getId()],
+      );
+
+      await db.updateDocument(
+        usersCollectionId,
+        user.getId(),
+        new Doc({
+          posts: { connect: [post3.getId()] },
+        }),
+      );
+
+      updatedUser = await db.getDocument(
+        usersCollectionId,
+        user.getId(),
+        (qb) => qb.populate("posts"),
+      );
+
+      expect(updatedUser.get("posts").map((post: any) => post.getId())).toEqual(
+        [post1.getId(), post2.getId(), post3.getId()],
       );
     });
 
