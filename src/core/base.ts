@@ -748,13 +748,8 @@ export abstract class Base<
       const attributeFilters = attribute.filters ?? [];
       let value: any = document.get(key);
 
-      if (attribute.type === AttributeEnum.Virtual) {
+      if (attribute.type === AttributeEnum.Virtual || key === "$schema") {
         document.delete(key);
-        continue;
-      }
-
-      if (key === "$schema") {
-        document.delete("$schema");
         continue;
       }
 

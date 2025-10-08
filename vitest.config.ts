@@ -86,7 +86,7 @@ export default defineConfig({
     environment: "node",
     include: ["tests/**/*.test.ts"],
     passWithNoTests: false,
-    reporters: ["default"],
+    reporters: ["verbose"],
     coverage: {
       reporter: ["text", "html"],
     },

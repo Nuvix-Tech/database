@@ -102,10 +102,13 @@ export class Doc<
   public get<K extends string, D = null>(name: K, _default?: D): D;
   public get<K extends keyof T, D = null>(
     name: K,
-    _default: D = null as D,
+    _default?: D | null,
   ): Exclude<TransformEntity<T>[K], undefined> | D {
     const value = this.#_data[name as string];
-    return value === undefined ? _default : value;
+    if (arguments.length === 1) {
+      _default = null;
+    }
+    return value === undefined ? (_default as D) : value;
   }
 
   /**

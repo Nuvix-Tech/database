@@ -1436,7 +1436,7 @@ describe("Relationship Document Operations", () => {
       ]);
     });
 
-    test("should handle relationship updates with mixed operations", async () => {
+    test("should handle relationship updates with mixed operations and multiple relationships", async () => {
       // Create OneToMany relationship
       await db.createRelationship({
         collectionId: usersCollectionId,
@@ -1446,7 +1446,16 @@ describe("Relationship Document Operations", () => {
         twoWayKey: "author",
       });
 
-      // Create user and posts
+      // Create ManyToMany relationship
+      await db.createRelationship({
+        collectionId: usersCollectionId,
+        relatedCollectionId: tagsCollectionId,
+        type: RelationEnum.ManyToMany,
+        id: "favorite_tags",
+        twoWayKey: "favorited_by",
+      });
+
+      // Create user
       const user = await db.createDocument(
         usersCollectionId,
         new Doc({
@@ -1455,6 +1464,7 @@ describe("Relationship Document Operations", () => {
         }),
       );
 
+      // Create posts
       const post1 = await db.createDocument(
         postsCollectionId,
         new Doc({
@@ -1479,16 +1489,51 @@ describe("Relationship Document Operations", () => {
         }),
       );
 
-      // Set initial posts
+      // Create tags
+      const tag1 = await db.createDocument(
+        tagsCollectionId,
+        new Doc({
+          name: "Tag 1",
+          color: "#ff0000",
+        }),
+      );
+
+      const tag2 = await db.createDocument(
+        tagsCollectionId,
+        new Doc({
+          name: "Tag 2",
+          color: "#00ff00",
+        }),
+      );
+
+      const tag3 = await db.createDocument(
+        tagsCollectionId,
+        new Doc({
+          name: "Tag 3",
+          color: "#0000ff",
+        }),
+      );
+
+      // Set initial posts and tags
       await db.updateDocument(
         usersCollectionId,
         user.getId(),
         new Doc({
           posts: { set: [post1.getId(), post2.getId()] },
+          favorite_tags: { set: [tag1.getId(), tag2.getId()] },
         }),
       );
 
-      // Update with connect/disconnect
+      // Verify initial state
+      let updatedUser = await db.getDocument(
+        usersCollectionId,
+        user.getId(),
+        (qb) => qb.populate("posts").populate("favorite_tags"),
+      );
+      expect(updatedUser.get("posts")).toHaveLength(2);
+      expect(updatedUser.get("favorite_tags")).toHaveLength(2);
+
+      // Update posts with connect/disconnect - favorite_tags should remain unchanged
       await db.updateDocument(
         usersCollectionId,
         user.getId(),
@@ -1500,17 +1545,57 @@ describe("Relationship Document Operations", () => {
         }),
       );
 
-      // Verify final state
-      const updatedUser = await db.getDocument(
+      // Verify posts updated but favorite_tags unchanged
+      updatedUser = await db.getDocument(
         usersCollectionId,
         user.getId(),
-        [Query.populate("posts", [])],
+        (qb) => qb.populate("posts").populate("favorite_tags"),
       );
       expect(updatedUser.get("posts")).toHaveLength(2);
       const postIds = updatedUser.get("posts").map((p: any) => p.getId());
       expect(postIds).toContain(post2.getId());
       expect(postIds).toContain(post3.getId());
       expect(postIds).not.toContain(post1.getId());
+
+      // Verify favorite_tags were NOT reset
+      expect(updatedUser.get("favorite_tags")).toHaveLength(2);
+      const tagIds = updatedUser
+        .get("favorite_tags")
+        .map((t: any) => t.getId());
+      expect(tagIds).toContain(tag1.getId());
+      expect(tagIds).toContain(tag2.getId());
+
+      // Update favorite_tags with connect/disconnect - posts should remain unchanged
+      await db.updateDocument(
+        usersCollectionId,
+        user.getId(),
+        new Doc({
+          favorite_tags: {
+            connect: [tag3.getId()],
+            disconnect: [tag1.getId()],
+          },
+        }),
+      );
+
+      // Verify favorite_tags updated but posts unchanged
+      updatedUser = await db.getDocument(
+        usersCollectionId,
+        user.getId(),
+        (qb) => qb.populate("posts").populate("favorite_tags"),
+      );
+      expect(updatedUser.get("favorite_tags")).toHaveLength(2);
+      const finalTagIds = updatedUser
+        .get("favorite_tags")
+        .map((t: any) => t.getId());
+      expect(finalTagIds).toContain(tag2.getId());
+      expect(finalTagIds).toContain(tag3.getId());
+      expect(finalTagIds).not.toContain(tag1.getId());
+
+      // Verify posts were NOT reset
+      expect(updatedUser.get("posts")).toHaveLength(2);
+      const finalPostIds = updatedUser.get("posts").map((p: any) => p.getId());
+      expect(finalPostIds).toContain(post2.getId());
+      expect(finalPostIds).toContain(post3.getId());
     });
   });
 });

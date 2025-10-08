@@ -2426,7 +2426,7 @@ export class Database extends Cache {
           JSON.stringify(currentPermissions);
       }
 
-      const createdAt = document.updatedAt();
+      const createdAt = document.createdAt();
 
       const mergedDocument: Record<string, any> = {
         ...old.toObject(),
@@ -2502,7 +2502,12 @@ export class Database extends Cache {
 
       const encodedDocument = await this.encode(collection, doc);
 
-      doc = await this.updateDocumentRelationships(collection, encodedDocument);
+      if (relationships.length > 0) {
+        doc = await this.updateDocumentRelationships(
+          collection,
+          encodedDocument,
+        );
+      }
       await this.adapter.updateDocument(
         collection.getId(),
         doc as Doc<IEntity>,
