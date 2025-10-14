@@ -2717,6 +2717,22 @@ export class Database extends Cache {
   /**
    * Update multiple documents in a collection.
    */
+  public async updateDocuments<C extends string & keyof Entities>(
+    collectionId: C,
+    updates: Doc<Entities[C]>,
+    query?: Query[] | ((qb: QueryBuilder) => QueryBuilder),
+    batchSize?: number,
+    onNext?: (doc: Doc<Entities[C]>) => void | Promise<void>,
+    onError?: (error: Error) => void | Promise<void>,
+  ): Promise<number>;
+  public async updateDocuments<D extends Doc<Record<string, any>>>(
+    collectionId: string,
+    updates: D,
+    query?: Query[] | ((qb: QueryBuilder) => QueryBuilder),
+    batchSize?: number,
+    onNext?: (doc: D) => void | Promise<void>,
+    onError?: (error: Error) => void | Promise<void>,
+  ): Promise<number>;
   public async updateDocuments(
     collectionId: string,
     updates: Doc<Partial<IEntity> & Record<string, any>>,
@@ -3030,6 +3046,202 @@ export class Database extends Cache {
     });
 
     return deletedIds;
+  }
+
+  /**
+   * Delete multiple documents in a collection with batch processing.
+   *
+   */
+  public async deleteDocumentsBatch<C extends string & keyof Entities>(
+    collectionId: C,
+    query?: Query[] | ((qb: QueryBuilder) => QueryBuilder),
+    batchSize?: number,
+    onNext?: (
+      doc: Doc<Entities[C]>,
+      old: Doc<Entities[C]>,
+    ) => void | Promise<void>,
+    onError?: (error: Error) => void | Promise<void>,
+  ): Promise<number>;
+  public async deleteDocumentsBatch<D extends IEntity = IEntity>(
+    collectionId: string,
+    query?: Query[] | ((qb: QueryBuilder) => QueryBuilder),
+    batchSize?: number,
+    onNext?: (doc: Doc<D>, old: Doc<D>) => void | Promise<void>,
+    onError?: (error: Error) => void | Promise<void>,
+  ): Promise<number>;
+  public async deleteDocumentsBatch(
+    collectionId: string,
+    query?: Query[] | ((qb: QueryBuilder) => QueryBuilder),
+    batchSize: number = Database.DELETE_BATCH_SIZE,
+    onNext?: (doc: Doc<any>, old: Doc<any>) => void | Promise<void>,
+    onError?: (error: Error) => void | Promise<void>,
+  ): Promise<number> {
+    if (this.adapter.$sharedTables && !this.adapter.$tenantId) {
+      throw new DatabaseException(
+        "Missing tenant. Tenant must be set when table sharing is enabled.",
+      );
+    }
+
+    batchSize = Math.min(Database.DELETE_BATCH_SIZE, Math.max(1, batchSize));
+    const collection = await this.silent(() =>
+      this.getCollection(collectionId),
+    );
+
+    if (collection.empty()) {
+      throw new NotFoundException("Collection not found");
+    }
+
+    const documentSecurity = collection.get("documentSecurity", false);
+    const authorization = new Authorization(PermissionEnum.Delete);
+    const skipAuth = authorization.$valid(collection.getDelete());
+
+    if (
+      !skipAuth &&
+      !documentSecurity &&
+      collection.getId() !== Database.METADATA
+    ) {
+      throw new AuthorizationException(authorization.$description);
+    }
+
+    let queries: Query[];
+    if (typeof query === "function") {
+      queries = query(new QueryBuilder()).build();
+    } else {
+      queries = query ?? [];
+    }
+
+    const attributes = collection.get("attributes", []);
+    const indexes = collection.get("indexes", []);
+
+    if (this.validate) {
+      const validator = new Documents(attributes, indexes, this.maxQueryValues);
+
+      if (!validator.$valid(queries)) {
+        throw new QueryException(validator.$description);
+      }
+    }
+
+    const grouped = Query.groupByType(queries);
+    let { limit, cursor } = grouped;
+
+    if (cursor && cursor.getCollection() !== collection.getId()) {
+      throw new DatabaseException(
+        "Cursor document must be from the same Collection.",
+      );
+    }
+
+    const originalLimit = limit;
+    let last = cursor as Doc<any>;
+    let modified = 0;
+
+    while (true) {
+      let currentBatchSize = batchSize;
+      if (limit && limit < batchSize && limit > 0) {
+        currentBatchSize = limit;
+      } else if (limit) {
+        limit -= batchSize;
+      }
+
+      const batchQueries = [Query.limit(currentBatchSize)];
+      if (last) {
+        batchQueries.push(Query.cursorAfter(last));
+      }
+
+      const batch = await this.silent(() =>
+        this.find(
+          collection.getId(),
+          [...batchQueries, ...queries],
+          PermissionEnum.Delete,
+        ),
+      );
+
+      if (batch.length === 0) {
+        break;
+      }
+
+      const old = batch.map((doc) => doc.clone());
+      const sequences: number[] = [];
+      const permissionIds: string[] = [];
+
+      await this.withTransaction(async () => {
+        for (const document of batch) {
+          sequences.push(document.getSequence());
+          if (document.getPermissions().length > 0) {
+            permissionIds.push(document.getId());
+          }
+
+          if (this.resolveRelationships) {
+            await this.silent(() =>
+              this.deleteDocumentRelationships(collection, document),
+            );
+          }
+
+          // Check if document was updated after the request timestamp
+          const oldUpdatedAt = new Date(document.updatedAt()!);
+          if (this.timestamp && oldUpdatedAt > this.timestamp) {
+            throw new ConflictException(
+              "Document was updated after the request timestamp",
+            );
+          }
+        }
+
+        await this.adapter.deleteDocumentsBySequences(
+          collection.getId(),
+          sequences,
+          permissionIds,
+        );
+      });
+
+      for (let index = 0; index < batch.length; index++) {
+        const document = batch[index]!;
+        const oldDocument = old[index]!;
+
+        if (this.adapter.$sharedTables && this.adapter.$tenantPerDocument) {
+          await this.withTenant(document.getTenant(), () =>
+            this.purgeCachedDocument(collection.getId(), document.getId()),
+          );
+        } else {
+          await this.purgeCachedDocument(collection.getId(), document.getId());
+        }
+
+        try {
+          if (onNext) {
+            const result = onNext(document, oldDocument);
+            if (result instanceof Promise) {
+              await result;
+            }
+          }
+        } catch (error) {
+          if (onError) {
+            const errorResult = onError(error as Error);
+            if (errorResult instanceof Promise) {
+              await errorResult;
+            }
+          } else {
+            throw error;
+          }
+        }
+        modified++;
+      }
+
+      if (batch.length < currentBatchSize) {
+        break;
+      } else if (originalLimit && modified >= originalLimit) {
+        break;
+      }
+
+      last = batch[batch.length - 1]!;
+    }
+
+    this.trigger(
+      EventsEnum.DocumentsDelete,
+      new Doc({
+        $collection: collection.getId(),
+        modified: modified,
+      }),
+    );
+
+    return modified;
   }
 
   /**

@@ -1354,6 +1354,65 @@ export class Adapter extends BaseAdapter {
   }
 
   /**
+   * Deletes multiple documents by their sequence IDs from a collection.
+   * Returns the number of affected rows.
+   */
+  public async deleteDocumentsBySequences(
+    collection: string,
+    sequences: number[],
+    permissionIds: string[],
+  ): Promise<number> {
+    if (sequences.length === 0) {
+      return 0;
+    }
+
+    try {
+      const name = this.sanitize(collection);
+
+      const sequencePlaceholders = sequences.map(() => "?").join(", ");
+      let sql = `
+             DELETE FROM ${this.getSQLTable(name)}
+             WHERE _id IN (${sequencePlaceholders})
+             ${this.getTenantQuery(collection)}
+          `;
+
+      sql = this.trigger(EventsEnum.DocumentsDelete, sql);
+
+      const params: any[] = [...sequences];
+      if (this.$sharedTables) {
+        params.push(this.$tenantId);
+      }
+
+      const stmt = await this.client.query(sql, params);
+
+      if (permissionIds.length > 0) {
+        const permissionPlaceholders = permissionIds.map(() => "?").join(", ");
+        let permsSql = `
+                DELETE FROM ${this.getSQLTable(name + "_perms")}
+                WHERE _document IN (${permissionPlaceholders})
+                ${this.getTenantQuery(collection)}
+             `;
+
+        permsSql = this.trigger(EventsEnum.PermissionsDelete, permsSql);
+
+        const permsParams: any[] = [...permissionIds];
+        if (this.$sharedTables) {
+          permsParams.push(this.$tenantId);
+        }
+
+        await this.client.query(permsSql, permsParams);
+      }
+
+      return stmt.rowCount ?? 0;
+    } catch (e: any) {
+      throw this.processException(
+        e,
+        `Failed to delete documents from collection '${collection}'`,
+      );
+    }
+  }
+
+  /**
    * Creates or updates multiple documents in a collection with batch processing.
    * Handles incremental updates for a specific attribute and manages permissions.
    */

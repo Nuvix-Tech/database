@@ -82,7 +82,10 @@ export type EmitterEventMap = Record<string | symbol, any[]> & {
   ];
 
   [EventsEnum.DocumentDelete]: [Doc<Partial<IEntity & Record<string, any>>>];
-  [EventsEnum.DocumentsDelete]: [Doc<Partial<IEntity & Record<string, any>>>[]];
+  [EventsEnum.DocumentsDelete]: [
+    | Doc<Partial<IEntity & Record<string, any>>>[]
+    | Doc<{ $collection: string; modified: number }>,
+  ];
 
   [EventsEnum.DocumentPurge]: [Doc<Partial<IEntity & Record<string, any>>>];
 

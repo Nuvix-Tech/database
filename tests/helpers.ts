@@ -17,7 +17,7 @@ export function createTestAdapter(
   const config: PoolConfig = {
     connectionString:
       process.env["PG_URL"] ||
-      "postgres://postgres:postgres@localhost:5432/postgres",
+      "postgres://nuvix_admin:password@localhost:5432/postgres",
   };
   const adapter = new Adapter(config);
   adapter.setMeta({

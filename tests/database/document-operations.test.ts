@@ -603,6 +603,32 @@ describe("Document Operations", () => {
       expect(remaining[0]?.get("name")).toBe("Keep Me");
     });
 
+    test("should batch delete with query filters", async () => {
+      // Create test documents
+      await db.createDocuments(testCollectionId, [
+        new Doc({ name: "Keep Me", age: 20 }),
+        new Doc({ name: "Delete Me 1", age: 30 }),
+        new Doc({ name: "Delete Me 2", age: 35 }),
+        new Doc({ name: "Delete Me 3", age: 55 }),
+        new Doc({ name: "Delete Me 4", age: 45 }),
+        new Doc({ name: "Delete Me 4", age: 75 }),
+      ]);
+
+      // Delete documents with age >= 30
+      const deleted = await db.deleteDocumentsBatch(
+        testCollectionId,
+        (qb) => qb.greaterThanEqual("age", 30),
+        3,
+      );
+
+      expect(deleted).toEqual(5);
+
+      // Verify remaining document
+      const remaining = await db.find(testCollectionId);
+      expect(remaining).toHaveLength(1);
+      expect(remaining[0]?.get("name")).toBe("Keep Me");
+    });
+
     test("should handle empty result set", async () => {
       const deletedIds = await db.deleteDocuments(testCollectionId, (qb) =>
         qb.equal("name", "Non Existent"),
