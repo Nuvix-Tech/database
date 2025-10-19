@@ -1,4 +1,4 @@
-import { Client, PoolConfig } from "pg";
+import type { Client, Pool, PoolConfig } from "pg";
 import { BaseAdapter } from "./base.js";
 import { PostgresClient } from "./postgres.js";
 import {
@@ -24,7 +24,7 @@ import {
 export class Adapter extends BaseAdapter {
   protected client: PostgresClient;
 
-  constructor(client: PoolConfig | Client) {
+  constructor(client: PoolConfig | Client | Pool) {
     super();
     this.client = new PostgresClient(client);
   }
