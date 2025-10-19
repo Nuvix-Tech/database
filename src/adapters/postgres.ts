@@ -71,10 +71,16 @@ export class PostgresClient implements IClient {
     return this._database;
   }
 
-  constructor(options: PoolConfig | Client) {
-    if ("connect" in options) {
+  constructor(options: PoolConfig | Client | Pool) {
+    if (options instanceof Pool) {
+      this.connection = options;
+      this.pool = options;
+      this._type = "pool";
+      this._database = options.options.database || "";
+    } else if ("connect" in options) {
       this.connection = options;
       this._type = "connection";
+      this._database = options.database || "";
     } else {
       const pool = new Pool({
         ...options,
@@ -82,8 +88,8 @@ export class PostgresClient implements IClient {
       this.connection = pool;
       this.pool = pool;
       this._type = "pool";
+      this._database = options.database || "";
     }
-    this._database = options.database || "";
   }
 
   async connect(): Promise<void> {}
