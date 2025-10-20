@@ -58,6 +58,8 @@ export class PostgresClient implements IClient {
   private isTransactional: boolean = false;
   private transactionCount: number = 0;
   private _database: string;
+  private readonly transactionStack: string[] = [];
+  private readonly queryTimeout: number = 30000;
 
   get $client(): Client | Pool | PoolClient {
     return this.connection;
@@ -71,7 +73,7 @@ export class PostgresClient implements IClient {
     return this._database;
   }
 
-  constructor(options: PoolConfig | Client | Pool) {
+  constructor(options: PoolConfig | Client | Pool, queryTimeout = 30000) {
     if (options instanceof Pool) {
       this.connection = options;
       this.pool = options;
@@ -84,12 +86,15 @@ export class PostgresClient implements IClient {
     } else {
       const pool = new Pool({
         ...options,
+        statement_timeout: options.statement_timeout || queryTimeout,
+        query_timeout: options.query_timeout || queryTimeout,
       });
       this.connection = pool;
       this.pool = pool;
       this._type = "pool";
       this._database = options.database || "";
     }
+    this.queryTimeout = queryTimeout;
   }
 
   async connect(): Promise<void> {}
@@ -123,21 +128,34 @@ export class PostgresClient implements IClient {
     queryTextOrConfig: string | QueryConfig<I>,
     values?: QueryConfigValues<I>,
   ): Promise<QueryResult<R>>;
+
   public query(sql: any, values?: any): Promise<any> {
+    const queryConfig = this._buildQueryConfig(sql, values);
+    queryConfig.query_timeout = this.queryTimeout;
+    return this.connection.query(queryConfig);
+  }
+
+  private _buildQueryConfig(
+    sql: any,
+    values?: any,
+  ): QueryConfig & { query_timeout: number } {
     if (typeof sql === "string" && values && Array.isArray(values)) {
       let paramIndex = 1;
       const convertedSql = sql.replace(/\?/g, () => `$${paramIndex++}`);
-      return this.connection.query({
+      return {
         text: convertedSql,
         values,
         types: { getTypeParser },
-      });
+        query_timeout: this.queryTimeout,
+      };
     }
-    return this.connection.query({
+
+    return {
       text: typeof sql === "string" ? sql : sql.text,
       values: typeof sql === "string" ? values : sql.values,
       types: { getTypeParser },
-    });
+      query_timeout: this.queryTimeout,
+    };
   }
 
   public quote(value: any): string {
@@ -148,7 +166,7 @@ export class PostgresClient implements IClient {
     try {
       await this.query("SELECT 1");
     } catch (e) {
-      throw new DatabaseException(`Ping failed.`);
+      throw new DatabaseException(`Ping failed: ${e}`);
     }
   }
 
@@ -159,9 +177,11 @@ export class PostgresClient implements IClient {
         this._type = "transaction";
         this.isTransactional = true;
       }
-      await this.query("BEGIN");
+      await this.query("BEGIN ISOLATION LEVEL READ COMMITTED");
     } else {
-      await this.query(`SAVEPOINT sp_${this.transactionCount}`);
+      const savepoint = `sp_${this.transactionCount}_${Date.now()}`;
+      this.transactionStack.push(savepoint);
+      await this.query(`SAVEPOINT ${savepoint}`);
     }
     this.transactionCount++;
   }
@@ -173,10 +193,16 @@ export class PostgresClient implements IClient {
 
     this.transactionCount--;
     if (this.transactionCount === 0) {
-      await this.query("COMMIT");
-      await this._cleanupTransaction();
+      try {
+        await this.query("COMMIT");
+      } finally {
+        await this._cleanupTransaction();
+      }
     } else {
-      await this.query(`RELEASE SAVEPOINT sp_${this.transactionCount}`);
+      const savepoint = this.transactionStack.pop();
+      if (savepoint) {
+        await this.query(`RELEASE SAVEPOINT ${savepoint}`);
+      }
     }
   }
 
@@ -187,28 +213,42 @@ export class PostgresClient implements IClient {
 
     this.transactionCount--;
     if (this.transactionCount === 0) {
-      await this.query("ROLLBACK");
-      await this._cleanupTransaction();
+      try {
+        await this.query("ROLLBACK");
+      } finally {
+        await this._cleanupTransaction();
+      }
     } else {
-      await this.query(`ROLLBACK TO SAVEPOINT sp_${this.transactionCount}`);
+      const savepoint = this.transactionStack.pop();
+      if (savepoint) {
+        await this.query(`ROLLBACK TO SAVEPOINT ${savepoint}`);
+      }
     }
   }
 
   private async _cleanupTransaction(): Promise<void> {
-    if (
-      this._type === "transaction" &&
-      "release" in this.connection &&
-      this.pool
-    ) {
-      const poolConnection = this.connection;
-      poolConnection.release();
-      this.connection = this.pool;
-      this._type = "pool";
+    try {
+      if (
+        this._type === "transaction" &&
+        "release" in this.connection &&
+        this.pool
+      ) {
+        const poolConnection = this.connection as PoolClient;
+        poolConnection.release();
+        this.connection = this.pool;
+        this._type = "pool";
+      }
+    } finally {
+      this.isTransactional = false;
+      this.transactionStack.length = 0;
     }
-    this.isTransactional = false;
   }
 
-  async transaction<T>(callback: () => Promise<T>, maxRetries = 3): Promise<T> {
+  async transaction<T>(
+    callback: () => Promise<T>,
+    maxRetries = 3,
+    backoffMs = 50,
+  ): Promise<T> {
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
         await this.beginTransaction();
@@ -216,17 +256,32 @@ export class PostgresClient implements IClient {
         await this.commit();
         return result;
       } catch (err: unknown) {
-        Logger.warn(`Transaction attempt ${attempt} failed:`, err);
-        await this.rollback();
+        Logger.warn(
+          `Transaction attempt ${attempt}/${maxRetries} failed:`,
+          err,
+        );
+
+        try {
+          await this.rollback();
+        } catch (rollbackErr) {
+          Logger.error("Rollback failed:", rollbackErr);
+        }
+
         const isDeadlock =
           err instanceof DatabaseError && "code" in err && err.code === "40P01";
-        if (isDeadlock && attempt < maxRetries) {
-          await new Promise((resolve) => setTimeout(resolve, 50 * attempt));
+        const isSerializationFailure =
+          err instanceof DatabaseError && "code" in err && err.code === "40001";
+
+        if ((isDeadlock || isSerializationFailure) && attempt < maxRetries) {
+          const delay = backoffMs * Math.pow(2, attempt - 1);
+          await new Promise((resolve) => setTimeout(resolve, delay));
           continue;
         }
+
         throw err;
       }
     }
+
     throw new TransactionException(
       `Transaction failed after ${maxRetries} attempts.`,
     );
